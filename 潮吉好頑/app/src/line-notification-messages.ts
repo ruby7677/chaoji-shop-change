@@ -14,7 +14,7 @@ export const LINE_NOTIFICATION_COPY = {
   order: {
     status: {
       created: "待確認中",
-      paymentReported: "已確認收到訂金",
+      paymentReported: "會員已回報匯款",
       depositConfirmed: "已確認收到訂金",
       arrived: "已到貨，待付尾款出貨",
       shipping: "已確認收到尾款，出貨中",
@@ -94,8 +94,8 @@ export function buildOrderNotificationMessage(data: OrderMessageData) {
   const copy = LINE_NOTIFICATION_COPY.order;
   const isRemote = data.deliveryLine !== "到店取貨";
   const isHomeDelivery = data.deliveryLine === "宅配";
-  const isDepositConfirmed = data.eventType === "payment_reported"
-    || (data.eventType === "status_changed" && data.orderStatus === "confirmed");
+  const isPaymentReported = data.eventType === "payment_reported";
+  const isDepositConfirmed = data.eventType === "status_changed" && data.orderStatus === "confirmed";
   const isArrival = (data.eventType === "fulfillment_updated" && !data.finalPaymentConfirmed)
     || (data.eventType === "status_changed" && ["partially_ready", "ready_for_pickup"].includes(data.orderStatus));
   const balance = Math.max(data.amountDue - data.paidAmount, 0);
@@ -146,12 +146,13 @@ export function buildOrderNotificationMessage(data: OrderMessageData) {
     ].join("\n");
   }
 
-  if (isDepositConfirmed) {
+  if (isPaymentReported || isDepositConfirmed) {
+    const depositStatus = isDepositConfirmed ? copy.status.depositConfirmed : copy.status.paymentReported;
     if (isHomeDelivery) {
       return [
         data.storeName,
         `${copy.labels.order}：${data.orderNumber}`,
-        `${copy.labels.status}：${copy.status.depositConfirmed}`,
+        `${copy.labels.status}：${depositStatus}`,
         "",
         productLine,
         `${copy.labels.delivery}：${data.deliveryLine}`,
@@ -163,7 +164,7 @@ export function buildOrderNotificationMessage(data: OrderMessageData) {
     return [
       data.storeName,
       `${copy.labels.order}：${data.orderNumber}`,
-      `${copy.labels.status}：${copy.status.paymentReported}`,
+      `${copy.labels.status}：${depositStatus}`,
       "",
       `${copy.labels.delivery}：${data.deliveryLine}`,
       `${copy.labels.balance}：${isRemote ? copy.delivery.genericBalancePending : copy.delivery.storeBalance}`,
