@@ -199,7 +199,7 @@ async function notifyOrderEvent(env: Env, orderId: string, eventType: LineOrderE
     shippingAddress: order.shipping_address
   });
   const recipients = new Set<string>(lineAdminRecipients(env));
-  // 會員回報匯款只通知管理員，避免會員收到「會員已回報匯款」的內部作業訊息。
+  // 會員回報匯款只通知管理員；管理員確認訂金後的 status_changed 才通知會員。
   if (eventType !== "payment_reported" && order.profiles?.line_user_id) recipients.add(order.profiles.line_user_id);
   const eventKey = eventType === "fulfillment_updated" ? `${eventType}:${orderId}:${order.updated_at || "current"}` : `${eventType}:${orderId}`;
   await Promise.allSettled([...recipients].map((recipient) => notifyLine(env, eventKey, recipient, `order_${eventType}`, message)));
