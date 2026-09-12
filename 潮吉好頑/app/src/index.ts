@@ -201,7 +201,11 @@ async function notifyOrderEvent(env: Env, orderId: string, eventType: LineOrderE
   const recipients = new Set<string>(lineAdminRecipients(env));
   // 會員回報匯款只通知管理員；管理員確認訂金後的 status_changed 才通知會員。
   if (eventType !== "payment_reported" && order.profiles?.line_user_id) recipients.add(order.profiles.line_user_id);
-  const eventKey = eventType === "fulfillment_updated" ? `${eventType}:${orderId}:${order.updated_at || "current"}` : `${eventType}:${orderId}`;
+  const eventKey = eventType === "status_changed"
+    ? `${eventType}:${orderId}:${order.status}:${order.updated_at || "current"}`
+    : eventType === "fulfillment_updated"
+      ? `${eventType}:${orderId}:${order.updated_at || "current"}`
+      : `${eventType}:${orderId}`;
   await Promise.allSettled([...recipients].map((recipient) => notifyLine(env, eventKey, recipient, `order_${eventType}`, message)));
 }
 
@@ -279,6 +283,7 @@ const databaseErrors: Record<string, string> = {
   INVALID_FINAL_PAYMENT_LAST_FIVE: "尾款匯款末五碼格式不正確",
   INVALID_SHIPPING_FEE: "實際運費必須是 0 或正整數",
   SHIPPING_FEE_STORE_PICKUP: "到店取貨不可設定寄送運費",
+  SELLER_DELIVERY_NO_SHIPPING_FEE: "賣貨便運費由 7-11 向客戶收取，不計入訂單",
   FINAL_PAYMENT_REQUIRED: "請填寫尾款匯款末五碼並確認尾款與運費已入帳",
   FINAL_PAYMENT_NOT_ALLOWED: "訂單尚未進入可出貨或可取貨狀態",
   ORDER_FULFILLMENT_NOT_EDITABLE: "此訂單目前不可修改尾款或運費資訊",
@@ -603,13 +608,19 @@ async function updateAdminOrderFulfillment(request: Request, env: Env, orderId: 
   if (!Number.isInteger(body.shipping_fee) || (body.shipping_fee as number) < 0) return json({ error: "實際運費必須是 0 或正整數" }, { status: 400 });
   if (body.final_payment_last_five && !/^\d{5}$/.test(body.final_payment_last_five)) return json({ error: "尾款匯款末五碼須為 5 位數字" }, { status: 400 });
   if ((body.note || "").length > 1000) return json({ error: "管理備註不可超過 1000 字" }, { status: 400 });
+  const orderLookup = await fetch(`${env.SUPABASE_URL}/rest/v1/orders?select=delivery_method&id=eq.${orderId}&limit=1`, { headers: serviceHeaders(env) });
+  if (!orderLookup.ok) return json({ error: "訂單資料暫時無法讀取" }, { status: 503 });
+  const orderRows = await orderLookup.json() as Array<{ delivery_method?: string }>;
+  if (!orderRows.length) return json({ error: "找不到訂單" }, { status: 404 });
+  const sellerDelivery = orderRows[0].delivery_method === "seller_delivery";
+  if (sellerDelivery && body.shipping_fee !== 0) return json({ error: "賣貨便運費由 7-11 向客戶收取，不計入訂單" }, { status: 400 });
   const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_order_fulfillment`, {
     method: "POST",
     headers: serviceHeaders(env),
     body: JSON.stringify({
       p_actor_id: admin.user.id,
       p_order_id: orderId,
-      p_shipping_fee: body.shipping_fee,
+      p_shipping_fee: sellerDelivery ? 0 : body.shipping_fee,
       p_final_payment_confirmed: body.final_payment_confirmed === true,
       p_final_payment_last_five: body.final_payment_last_five?.trim() || null,
       p_note: body.note?.trim() || null

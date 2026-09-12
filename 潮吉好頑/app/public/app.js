@@ -17,7 +17,7 @@ let adminData = null;
 const deliveryMethodLabels = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配" };
 const deliveryMethodNotes = {
   store_pickup: "台南市中西區民生路二段 90 號，免運。",
-  seller_delivery: "到貨後由客服通知實際運費；尾款與運費確認入帳後安排寄出。",
+  seller_delivery: "賣貨便運費由 7-11 於取貨時向客戶收取，不計入本站訂單；如有尾款，將由客服通知。",
   home_delivery: "到貨後由客服依包裹狀況通知實際運費；尾款與運費確認入帳後安排寄出。"
 };
 
@@ -518,10 +518,11 @@ function renderPaymentOrder(order) {
   const balance = Math.max(order.amount_due - order.deposit_due, 0);
   const deliveryMethod = order.delivery_method || "store_pickup";
   const storePayment = !order.bank_account_id;
-  const deliveryNotice = deliveryMethod === "store_pickup" ? "到店取貨免運。" : order.shipping_fee ? `實際運費 ${money(order.shipping_fee)}；請將尾款與運費一併匯款，確認入帳後安排寄出。` : "到貨後由客服通知實際運費，請將尾款與運費一併匯款，確認入帳後安排寄出。";
+  const sellerDelivery = deliveryMethod === "seller_delivery";
+  const deliveryNotice = deliveryMethod === "store_pickup" ? "到店取貨免運。" : sellerDelivery ? "賣貨便運費由 7-11 於取貨時向客戶收取，不計入訂單；如有尾款，請依客服通知完成付款。" : order.shipping_fee ? `實際運費 ${money(order.shipping_fee)}；請將尾款與運費一併匯款，確認入帳後安排寄出。` : "到貨後由客服通知實際運費，請將尾款與運費一併匯款，確認入帳後安排寄出。";
   const paymentText = storePayment ? "到店支付" : "匯款／轉帳";
   const bankDetail = storePayment ? "到店取貨時支付，不需回報匯款末五碼。" : `<strong>${escapeHtml(account?.label || account?.bank_name || "收款帳戶")}</strong><br />銀行：${escapeHtml(account?.bank_name || "-")}<br />帳號：${escapeHtml(account?.account_number || "-")}<br />戶名：${escapeHtml(account?.account_name || "-")}`;
-  document.querySelector("#payment-order-detail").innerHTML = `<div class="payment-order-card"><h3>${escapeHtml(order.order_number)}</h3><div class="payment-row"><span>取貨方式</span><strong>${escapeHtml(deliveryMethodLabels[deliveryMethod] || "到店取貨")}</strong></div><div class="payment-row"><span>付款方式</span><strong>${paymentText}</strong></div><div class="payment-row"><span>商品原價</span><strong>${money(order.subtotal)}</strong></div>${order.coupon_discount ? `<div class="payment-row"><span>優惠券</span><strong>-${money(order.coupon_discount)}</strong></div>` : ""}${order.point_discount ? `<div class="payment-row"><span>點數折抵</span><strong>-${money(order.point_discount)}</strong></div>` : ""}${deliveryMethod !== "store_pickup" ? `<div class="payment-row"><span>實際運費</span><strong>${order.shipping_fee ? money(order.shipping_fee) : "待客服通知"}</strong></div>` : ""}<div class="payment-row"><span>訂單總額</span><strong>${money(order.amount_due)}</strong></div><div class="payment-row amount"><span>本次應付</span><strong>${money(order.deposit_due)}</strong></div>${balance ? `<div class="payment-row"><span>尾款／運費</span><strong>${money(balance)}</strong></div>` : ""}<p class="dialog-copy">${escapeHtml(deliveryNotice)}</p>${order.shipping_address ? `<p class="dialog-copy">宅配地址：${escapeHtml(order.shipping_address)}</p>` : ""}<div class="bank-detail">${bankDetail}</div><p class="deadline">付款／保留期限：${formatDateTime(order.payment_deadline)}</p></div>`;
+  document.querySelector("#payment-order-detail").innerHTML = `<div class="payment-order-card"><h3>${escapeHtml(order.order_number)}</h3><div class="payment-row"><span>取貨方式</span><strong>${escapeHtml(deliveryMethodLabels[deliveryMethod] || "到店取貨")}</strong></div><div class="payment-row"><span>付款方式</span><strong>${paymentText}</strong></div><div class="payment-row"><span>商品原價</span><strong>${money(order.subtotal)}</strong></div>${order.coupon_discount ? `<div class="payment-row"><span>優惠券</span><strong>-${money(order.coupon_discount)}</strong></div>` : ""}${order.point_discount ? `<div class="payment-row"><span>點數折抵</span><strong>-${money(order.point_discount)}</strong></div>` : ""}${deliveryMethod !== "store_pickup" ? `<div class="payment-row"><span>${sellerDelivery ? "賣貨便運費" : "實際運費"}</span><strong>${sellerDelivery ? "由 7-11 向客戶收取" : order.shipping_fee ? money(order.shipping_fee) : "待客服通知"}</strong></div>` : ""}<div class="payment-row"><span>訂單總額</span><strong>${money(order.amount_due)}</strong></div><div class="payment-row amount"><span>本次應付</span><strong>${money(order.deposit_due)}</strong></div>${balance ? `<div class="payment-row"><span>尾款／運費</span><strong>${money(balance)}</strong></div>` : ""}<p class="dialog-copy">${escapeHtml(deliveryNotice)}</p>${order.shipping_address ? `<p class="dialog-copy">宅配地址：${escapeHtml(order.shipping_address)}</p>` : ""}<div class="bank-detail">${bankDetail}</div><p class="deadline">付款／保留期限：${formatDateTime(order.payment_deadline)}</p></div>`;
   document.querySelector("#payment-last-five-label")?.classList.toggle("hidden", storePayment);
   const lastFiveInput = document.querySelector("#payment-last-five");
   if (lastFiveInput) lastFiveInput.required = !storePayment;
@@ -622,7 +623,7 @@ function renderOrders() {
     const items = (order.order_items || []).map((item) => `${escapeHtml(item.product_name)}${item.variant_name === "單一規格" ? "" : ` · ${escapeHtml(item.variant_name)}`} × ${item.quantity}`).join("<br />");
     const expired = order.status === "pending_payment" && new Date(order.payment_deadline) <= new Date();
     const deliveryMethod = order.delivery_method || "store_pickup";
-    const deliveryNotice = deliveryMethod === "store_pickup" ? "到店取貨免運" : order.shipping_fee ? `實際運費 ${money(order.shipping_fee)}` : "運費到貨後由客服通知";
+    const deliveryNotice = deliveryMethod === "store_pickup" ? "到店取貨免運" : deliveryMethod === "seller_delivery" ? "賣貨便運費由 7-11 於取貨時收取，不計入訂單" : order.shipping_fee ? `實際運費 ${money(order.shipping_fee)}` : "運費到貨後由客服通知";
     const paymentNotice = order.bank_account_id ? "匯款／轉帳" : "到店支付";
     return `<article class="order-card"><div class="order-card-head"><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(deliveryMethodLabels[deliveryMethod] || "到店取貨")}</small></div><span class="status-chip">${expired ? "付款逾期" : escapeHtml(orderStatusLabels[order.status] || order.status)}</span></div><div class="order-items">${items}</div><div class="payment-row"><span>付款方式</span><strong>${paymentNotice}</strong></div><div class="payment-row"><span>配送費用</span><strong>${deliveryNotice}</strong></div><div class="payment-row"><span>訂單總額</span><strong>${money(order.amount_due)}</strong></div><div class="payment-row"><span>本次應付</span><strong>${money(order.deposit_due)}</strong></div>${deliveryMethod !== "store_pickup" ? `<div class="payment-row"><span>尾款／運費</span><strong>${order.final_payment_confirmed_at ? "已確認" : "待客服通知或確認"}</strong></div>` : ""}${order.bank_account_id && order.status === "pending_payment" && !expired ? `<button type="button" data-order-payment="${order.id}">回報匯款末五碼</button>` : ""}</article>`;
   }).join("");
@@ -765,13 +766,13 @@ function removeLegacyShippingUI() {
   document.querySelector("[data-admin-tab='shipping']")?.remove();
   document.querySelector("[data-admin-panel='shipping']")?.remove();
   const checkoutCopy = document.querySelector("#checkout-form > .dialog-copy");
-  if (checkoutCopy) checkoutCopy.textContent = "確認後會保留商品；匯款訂單請在 24 小時內完成匯款並回報帳號末五碼，到店支付的現貨訂單最長保留 3 個月。賣貨便與宅配運費不會在下單時加總，商品到貨後由客服通知實際運費，請將尾款與運費一併匯款，確認後才安排寄出。";
+  if (checkoutCopy) checkoutCopy.textContent = "確認後會保留商品；匯款訂單請在 24 小時內完成匯款並回報帳號末五碼，到店支付的現貨訂單最長保留 3 個月。賣貨便運費由 7-11 於取貨時向客戶收取，不計入本站訂單；宅配實際運費於商品到貨後由客服通知，請將尾款與運費一併匯款，確認後才安排寄出。";
   const checkoutTerms = document.querySelector("#checkout-form > .terms");
-  if (checkoutTerms) checkoutTerms.textContent = "送出後將立即保留庫存；逾期未回報付款，系統會自動取消並釋放庫存。付款完成視同同意代購規則；賣貨便與宅配運費於到貨後由客服通知，尾款與運費確認後才安排寄出，任何原因不接受退換貨。";
+  if (checkoutTerms) checkoutTerms.textContent = "送出後將立即保留庫存；逾期未回報付款，系統會自動取消並釋放庫存。付款完成視同同意代購規則；賣貨便運費由 7-11 於取貨時收取，不計入本站訂單，宅配運費則於到貨後由客服通知，尾款與應付運費確認後才安排寄出，任何原因不接受退換貨。";
   const productCopy = document.querySelector("[data-admin-panel='products'] > .dialog-copy");
   if (productCopy) productCopy.textContent = "每件商品可上傳 1 張主圖，支援 JPG、PNG、WebP，上限 5MB。商品到貨後由客服通知取貨或寄送安排。";
   const orderCopy = document.querySelector("[data-admin-panel='orders'] > .dialog-copy");
-  if (orderCopy) orderCopy.textContent = "確認訂金／付款後才會扣除庫存；賣貨便與宅配到貨後先填寫實際運費，確認尾款與運費入帳後才安排寄出。";
+  if (orderCopy) orderCopy.textContent = "確認訂金／付款後才會扣除庫存；賣貨便運費由 7-11 向客戶收取，不計入訂單；宅配到貨後再填寫實際運費，確認尾款與運費入帳後才安排寄出。";
   const ordersCopy = document.querySelector("#orders-dialog .dialog-copy");
   if (ordersCopy) ordersCopy.textContent = "可查看訂單狀態，匯款訂單可補填匯款帳號末五碼；到店支付訂單請依通知到店付款。";
 }
@@ -925,7 +926,7 @@ function renderAdminOrders() {
     const history = adminOrderHistory(order.id).slice(0, 5).map((entry) => { const actor = relationOne(entry.profiles); return `<li><span>${escapeHtml(orderStatusLabels[entry.from_status] || entry.from_status)} → ${escapeHtml(orderStatusLabels[entry.to_status] || entry.to_status)}</span><small>${formatDateTime(entry.created_at)}${actor?.full_name ? ` · ${escapeHtml(actor.full_name)}` : ""}${entry.note ? ` · ${escapeHtml(entry.note)}` : ""}</small></li>`; }).join("");
     const balance = Math.max(order.amount_due - order.paid_amount, 0);
     const deliveryLabel = deliveryMethodLabels[order.delivery_method || "store_pickup"] || "到店取貨";
-    const shippingInfo = order.delivery_method !== "store_pickup" ? `<p class="admin-order-note">收件人：${escapeHtml(order.shipping_recipient_name || "未填寫")}<br />電話：${escapeHtml(order.shipping_phone || "未填寫")}<br />地址：${escapeHtml(order.shipping_address || "未填寫")}</p>` : "";
+    const shippingInfo = order.delivery_method === "home_delivery" ? `<p class="admin-order-note">收件人：${escapeHtml(order.shipping_recipient_name || "未填寫")}<br />電話：${escapeHtml(order.shipping_phone || "未填寫")}<br />地址：${escapeHtml(order.shipping_address || "未填寫")}</p>` : "";
     return `<article class="admin-order-card"><header><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(deliveryLabel)} · ${order.pickup_plan === "split" ? "分批取貨" : "等候到齊"}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(orderStatusLabels[order.status] || order.status)}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div><div class="admin-order-payment"><span>總額 <b>${money(order.amount_due)}</b></span><span>運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span>訂金應付 <b>${money(order.deposit_due)}</b></span><span>已確認 <b>${money(order.paid_amount || 0)}</b></span><span>待收尾款 <b>${money(balance)}</b></span></div>${shippingInfo}<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span>匯款末五碼：<b>${escapeHtml(order.payment_last_five || "尚未回報")}</b></span></div>${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status">${options}</select></label><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消與退款相關操作必填；其他操作可選填"></textarea></label><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>'}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
   }).join("");
   container.querySelectorAll(".admin-order-card").forEach((card, index) => {
@@ -934,12 +935,20 @@ function renderAdminOrders() {
     if (!paymentNode || !order) return;
     paymentNode.innerHTML = `付款方式 <b>${order.bank_account_id ? "匯款／轉帳" : "到店支付"}</b>`;
     const paymentGrid = card.querySelector(".admin-order-payment");
-    if (paymentGrid) paymentGrid.insertAdjacentHTML("beforeend", `<span>實際運費 <b>${order.delivery_method === "store_pickup" ? "免運" : order.shipping_fee ? money(order.shipping_fee) : "待客服通知"}</b></span><span>尾款／運費 <b>${order.delivery_method === "store_pickup" ? "到店確認" : order.final_payment_confirmed_at ? "已確認" : "尚未確認"}</b></span>`);
+    const shippingFeeLabel = order.delivery_method === "store_pickup" ? "免運" : order.delivery_method === "seller_delivery" ? "由 7-11 收取" : order.shipping_fee ? money(order.shipping_fee) : "待客服通知";
+    const balanceLabel = order.delivery_method === "store_pickup" ? "到店確認" : order.final_payment_confirmed_at ? "已確認" : "尚未確認";
+    if (paymentGrid) paymentGrid.insertAdjacentHTML("beforeend", `<span>${order.delivery_method === "seller_delivery" ? "賣貨便運費" : "實際運費"} <b>${shippingFeeLabel}</b></span><span>尾款／運費 <b>${balanceLabel}</b></span>`);
     if (order.delivery_method !== "store_pickup") {
       const form = document.createElement("form");
       form.className = "admin-fulfillment-form";
       form.dataset.adminFulfillmentForm = order.id;
-      form.innerHTML = `<div class="form-grid"><label>實際運費<input name="shipping_fee" type="number" min="0" step="1" value="${Number(order.shipping_fee || 0)}" required /><small>到貨／包裝完成後填寫，會加入待收金額。</small></label><label>尾款匯款末五碼<input name="final_payment_last_five" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" value="${escapeHtml(order.final_payment_last_five || "")}" placeholder="付款後填寫" /></label><label class="check-field"><input name="final_payment_confirmed" type="checkbox" ${order.final_payment_confirmed_at ? "checked" : ""} /> 已確認尾款與運費入帳</label><label class="wide">收款備註<textarea name="note" rows="2" maxlength="1000" placeholder="例如：宅配大箱運費、客服通知日期">${escapeHtml(order.admin_note || "")}</textarea></label></div><button class="secondary-button" type="submit">儲存尾款／運費</button>`;
+      const shippingFeeField = order.delivery_method === "seller_delivery"
+        ? '<input type="hidden" name="shipping_fee" value="0" /><p class="admin-order-terminal">賣貨便運費由 7-11 向客戶收取，不計入訂單金額。</p>'
+        : `<label>實際運費<input name="shipping_fee" type="number" min="0" step="1" value="${Number(order.shipping_fee || 0)}" required /><small>到貨／包裝完成後填寫，會加入待收金額。</small></label>`;
+      const finalPaymentLabel = order.delivery_method === "seller_delivery" ? "已確認尾款入帳" : "已確認尾款與運費入帳";
+      const submitLabel = order.delivery_method === "seller_delivery" ? "儲存尾款／出貨資料" : "儲存尾款／運費";
+      const notePlaceholder = order.delivery_method === "seller_delivery" ? "例如：7-11 取貨連結或客服通知日期" : "例如：宅配大箱運費、客服通知日期";
+      form.innerHTML = `<div class="form-grid"><div>${shippingFeeField}</div><label>尾款匯款末五碼<input name="final_payment_last_five" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" value="${escapeHtml(order.final_payment_last_five || "")}" placeholder="付款後填寫" /></label><label class="check-field"><input name="final_payment_confirmed" type="checkbox" ${order.final_payment_confirmed_at ? "checked" : ""} /> ${finalPaymentLabel}</label><label class="wide">收款備註<textarea name="note" rows="2" maxlength="1000" placeholder="${notePlaceholder}">${escapeHtml(order.admin_note || "")}</textarea></label></div><button class="secondary-button" type="submit">${submitLabel}</button>`;
       card.insertBefore(form, card.querySelector(".admin-order-action") || card.querySelector(".admin-order-history"));
     }
   });

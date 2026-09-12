@@ -43,7 +43,9 @@ export const LINE_NOTIFICATION_COPY = {
     delivery: {
       remoteBalancePending: "待到貨後通知",
       genericBalancePending: "待到貨後客服通知",
+      sellerBalancePending: "尾款待到貨後通知；賣貨便運費由 7-11 收取",
       arrivalNote: "到貨由客服通知補尾款後出貨",
+      sellerNote: "到貨由客服通知補尾款後寄出；賣貨便運費由 7-11 於取貨時收取",
       storeBalance: "到店確認",
       storeNote: "到貨通知後到店取貨，尾款於取貨時確認"
     }
@@ -129,6 +131,7 @@ export function buildOrderNotificationMessage(data: OrderMessageData) {
 
   if (isArrival && isRemote) {
     const tailAmount = Math.max(balance - data.shippingFee, 0);
+    const isSellerDelivery = data.deliveryLine === "賣貨便";
     return [
       data.storeName,
       `${copy.labels.order}：${data.orderNumber}`,
@@ -136,8 +139,10 @@ export function buildOrderNotificationMessage(data: OrderMessageData) {
       "",
       productLine,
       `${copy.labels.delivery}：${data.deliveryLine}`,
-      `${copy.labels.balance}：尾款${tailAmount.toLocaleString("zh-TW")}元/運費${data.shippingFee.toLocaleString("zh-TW")}元`,
-      `${copy.labels.totalBalance}：${balance.toLocaleString("zh-TW")}元`,
+      isSellerDelivery
+        ? `${copy.labels.balance}：尾款${tailAmount.toLocaleString("zh-TW")}元／賣貨便運費由 7-11 收取`
+        : `${copy.labels.balance}：尾款${tailAmount.toLocaleString("zh-TW")}元/運費${data.shippingFee.toLocaleString("zh-TW")}元`,
+      `${copy.labels.totalBalance}：${(isSellerDelivery ? tailAmount : balance).toLocaleString("zh-TW")}元`,
       "",
       copy.labels.recipientHeading,
       `${copy.labels.recipient}：${data.shippingRecipientName || ""}`,
@@ -167,9 +172,9 @@ export function buildOrderNotificationMessage(data: OrderMessageData) {
       `${copy.labels.status}：${depositStatus}`,
       "",
       `${copy.labels.delivery}：${data.deliveryLine}`,
-      `${copy.labels.balance}：${isRemote ? copy.delivery.genericBalancePending : copy.delivery.storeBalance}`,
+      `${copy.labels.balance}：${isRemote ? (data.deliveryLine === "賣貨便" ? copy.delivery.sellerBalancePending : copy.delivery.genericBalancePending) : copy.delivery.storeBalance}`,
       `${copy.labels.deliveryNote}：`,
-      isRemote ? copy.delivery.arrivalNote : copy.delivery.storeNote
+      isRemote ? (data.deliveryLine === "賣貨便" ? copy.delivery.sellerNote : copy.delivery.arrivalNote) : copy.delivery.storeNote
     ].join("\n");
   }
 
@@ -180,7 +185,7 @@ export function buildOrderNotificationMessage(data: OrderMessageData) {
     "",
     productLine,
     `${copy.labels.delivery}：${data.deliveryLine}`,
-    `${copy.labels.balance}：${isRemote ? copy.delivery.genericBalancePending : copy.delivery.storeBalance}`
+    `${copy.labels.balance}：${isRemote ? (data.deliveryLine === "賣貨便" ? copy.delivery.sellerBalancePending : copy.delivery.genericBalancePending) : copy.delivery.storeBalance}`
   ].join("\n");
 }
 
