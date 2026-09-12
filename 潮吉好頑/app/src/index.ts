@@ -561,7 +561,7 @@ async function adminDashboard(request: Request, env: Env): Promise<Response> {
     return json({ error: "管理資料暫時無法載入" }, { status: 503 });
   }
   const [products, accounts, movements, orders, orderHistory, members, pointEntries, pointSettings, coupons, birthdaySettings] = await Promise.all([
-    productsResponse.json(), accountsResponse.json(), movementsResponse.json(), ordersResponse.json() as Promise<Array<{ status: string }>>, historyResponse.json(), membersResponse.json(), pointsResponse.json(), pointSettingsResponse.json() as Promise<unknown[]>, couponsResponse.json(), birthdaySettingsResponse.json() as Promise<unknown[]>
+    productsResponse.json(), accountsResponse.json(), movementsResponse.json(), ordersResponse.json() as Promise<Array<{ status: string; delivery_method?: string }>>, historyResponse.json(), membersResponse.json(), pointsResponse.json(), pointSettingsResponse.json() as Promise<unknown[]>, couponsResponse.json(), birthdaySettingsResponse.json() as Promise<unknown[]>
   ]);
   return json({
     products,
@@ -576,6 +576,7 @@ async function adminDashboard(request: Request, env: Env): Promise<Response> {
     birthdaySettings: birthdaySettings[0] || null,
     stats: {
       pendingReview: orders.filter((order) => order.status === "pending_review").length,
+      sellerPending: orders.filter((order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment").length,
       readyForPickup: orders.filter((order) => ["partially_ready", "ready_for_pickup"].includes(order.status)).length,
       lowStock: (products as Array<{ product_variants?: Array<{ stock_on_hand: number; safety_stock: number }> }>).flatMap((product) => product.product_variants || []).filter((variant) => variant.stock_on_hand <= variant.safety_stock).length,
       memberCount: (members as unknown[]).length
