@@ -1,3 +1,11 @@
+import {
+  buildBirthdayCouponMessage,
+  buildLineTestMessage,
+  buildLowStockMessage,
+  buildOrderNotificationMessage,
+  type LineOrderEventType
+} from "./line-notification-messages";
+
 interface Env {
   ASSETS: Fetcher;
   STORE_NAME: string;
@@ -147,7 +155,7 @@ async function testLineNotification(request: Request, env: Env): Promise<Respons
   if (!recipients.length) return json({ error: "尚未設定 LINE_ADMIN_USER_IDS" }, { status: 503 });
   const eventKey = `line-test:${crypto.randomUUID()}`;
   const timestamp = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(new Date());
-  const message = `潮吉好頑\nLINE 通知測試成功\n測試時間：${timestamp}\n這是一則由管理後台發出的測試訊息。`;
+  const message = buildLineTestMessage(env.STORE_NAME, timestamp);
   const results = await Promise.allSettled(recipients.map(async (recipientId) => notifyLine(env, `${eventKey}:${recipientId}`, recipientId, "line_test", message)));
   const sent = results.filter((result): result is PromiseFulfilledResult<boolean> => result.status === "fulfilled" && result.value).length;
   if (!sent) return json({ error: "LINE 測試通知未送出，請確認管理員 LINE ID、頻道權杖與 Bot 好友關係" }, { status: 502 });
@@ -165,19 +173,31 @@ async function loadOrderNotification(env: Env, orderId: string) {
   return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; paid_amount?: number; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number }> };
 }
 
-async function notifyOrderEvent(env: Env, orderId: string, eventType: "created" | "payment_reported" | "status_changed" | "fulfillment_updated") {
+async function notifyOrderEvent(env: Env, orderId: string, eventType: LineOrderEventType) {
   const order = await loadOrderNotification(env, orderId);
   if (!order || !lineNotificationEnabled(env)) return;
   const items = (order.order_items || []).map((item) => `${item.product_name}${item.variant_name === "單一規格" ? "" : ` · ${item.variant_name}`} ×${item.quantity}`).join("、");
-  const title = eventType === "created" ? "訂單已建立" : eventType === "payment_reported" ? "會員已回報匯款" : eventType === "fulfillment_updated" ? "到貨／尾款資訊更新" : `訂單狀態更新：${lineOrderStatusLabels[order.status] || order.status}`;
   const deliveryLabels: Record<string, string> = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配" };
   const deliveryLine = deliveryLabels[order.delivery_method || "store_pickup"] || "到店取貨";
   const deliveryNote = order.delivery_method === "store_pickup" ? "到店取貨免運" : "運費到貨後由客服通知，尾款與運費確認後安排寄出";
   const paymentLine = order.bank_account_id ? "匯款／轉帳" : "到店支付";
   const fulfillmentLine = order.delivery_method === "store_pickup" ? "到店取貨，尾款於取貨時確認" : `實際運費：${order.shipping_fee ? `NT$${order.shipping_fee.toLocaleString("zh-TW")}` : "待客服通知"}\n尾款／運費：${order.final_payment_confirmed_at ? "已確認入帳" : "尚未確認"}`;
-  const message = `潮吉好頑\n${title}\n訂單：${order.order_number}\n商品：${items || "-"}\n取貨方式：${deliveryLine}\n付款方式：${paymentLine}\n配送說明：${deliveryNote}\n訂單金額：NT$${order.amount_due.toLocaleString("zh-TW")}\n訂金：NT$${order.deposit_due.toLocaleString("zh-TW")}\n${fulfillmentLine}`;
+  const message = buildOrderNotificationMessage({
+    storeName: env.STORE_NAME,
+    eventType,
+    statusLabel: lineOrderStatusLabels[order.status] || order.status,
+    orderNumber: order.order_number,
+    items,
+    deliveryLine,
+    paymentLine,
+    deliveryNote,
+    amountDue: order.amount_due,
+    depositDue: order.deposit_due,
+    fulfillmentLine
+  });
   const recipients = new Set<string>(lineAdminRecipients(env));
-  if (order.profiles?.line_user_id) recipients.add(order.profiles.line_user_id);
+  // 會員回報匯款只通知管理員，避免會員收到「會員已回報匯款」的內部作業訊息。
+  if (eventType !== "payment_reported" && order.profiles?.line_user_id) recipients.add(order.profiles.line_user_id);
   const eventKey = eventType === "fulfillment_updated" ? `${eventType}:${orderId}:${order.updated_at || "current"}` : `${eventType}:${orderId}`;
   await Promise.allSettled([...recipients].map((recipient) => notifyLine(env, eventKey, recipient, `order_${eventType}`, message)));
 }
@@ -205,7 +225,7 @@ async function notifyLowStock(env: Env) {
   if (!toNotify.length) return;
   const lines = toNotify.map((variant) => `• ${variant.products?.name || "商品"} · ${variant.name} (${variant.sku})：剩 ${variant.stock_on_hand} 件`);
   const eventKey = `low-stock:${new Date().toISOString().slice(0, 10)}:${toNotify.map((item) => `${item.id}-${item.stock_on_hand}`).join(",")}`;
-  const sent = await Promise.all(lineAdminRecipients(env).map((recipient) => notifyLine(env, eventKey, recipient, "low_stock", `潮吉好頑\n低庫存提醒（統一通知）\n${lines.join("\n")}`)));
+  const sent = await Promise.all(lineAdminRecipients(env).map((recipient) => notifyLine(env, eventKey, recipient, "low_stock", buildLowStockMessage(env.STORE_NAME, lines))));
   if (sent.some(Boolean)) {
     for (const variant of toNotify) {
       await fetch(`${base}/rest/v1/line_low_stock_states`, { method: "POST", headers: serviceHeaders(env, "resolution=merge-duplicates,return=minimal"), body: JSON.stringify({ variant_id: variant.id, last_notified_stock: variant.stock_on_hand, last_notified_at: new Date().toISOString(), updated_at: new Date().toISOString() }) });
@@ -224,7 +244,7 @@ async function notifyBirthdayCoupons(env: Env) {
   if (!response.ok) return;
   const coupons = await response.json() as Array<{ id: string; code: string; name: string; discount_amount: number; coupon_members?: Array<{ profiles?: { line_user_id?: string } }> }>;
   for (const coupon of coupons) for (const member of coupon.coupon_members || []) if (member.profiles?.line_user_id) {
-    await notifyLine(env, `birthday:${coupon.id}`, member.profiles.line_user_id, "birthday_coupon", `潮吉好頑\n生日快樂！\n您收到優惠券：${coupon.name}\n優惠碼：${coupon.code}\n折抵：NT$${coupon.discount_amount.toLocaleString("zh-TW")}`);
+    await notifyLine(env, `birthday:${coupon.id}`, member.profiles.line_user_id, "birthday_coupon", buildBirthdayCouponMessage(env.STORE_NAME, { name: coupon.name, code: coupon.code, discountAmount: coupon.discount_amount }));
   }
 }
 
