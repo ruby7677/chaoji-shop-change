@@ -44,7 +44,8 @@ export const LINE_NOTIFICATION_COPY = {
       remoteBalancePending: "待到貨後通知",
       genericBalancePending: "待到貨後客服通知",
       arrivalNote: "到貨由客服通知補尾款後出貨",
-      storeNote: "到店取貨，尾款於取貨時確認"
+      storeBalance: "到店確認",
+      storeNote: "到貨通知後到店取貨，尾款於取貨時確認"
     }
   },
   lowStock: {
@@ -165,9 +166,9 @@ export function buildOrderNotificationMessage(data: OrderMessageData) {
       `${copy.labels.status}：${copy.status.paymentReported}`,
       "",
       `${copy.labels.delivery}：${data.deliveryLine}`,
-      `${copy.labels.balance}：${copy.delivery.genericBalancePending}`,
+      `${copy.labels.balance}：${isRemote ? copy.delivery.genericBalancePending : copy.delivery.storeBalance}`,
       `${copy.labels.deliveryNote}：`,
-      copy.delivery.arrivalNote
+      isRemote ? copy.delivery.arrivalNote : copy.delivery.storeNote
     ].join("\n");
   }
 
@@ -178,7 +179,7 @@ export function buildOrderNotificationMessage(data: OrderMessageData) {
     "",
     productLine,
     `${copy.labels.delivery}：${data.deliveryLine}`,
-    `${copy.labels.balance}：${isRemote ? copy.delivery.genericBalancePending : copy.delivery.storeNote}`
+    `${copy.labels.balance}：${isRemote ? copy.delivery.genericBalancePending : copy.delivery.storeBalance}`
   ].join("\n");
 }
 
