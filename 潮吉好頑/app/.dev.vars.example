@@ -1,0 +1,13 @@
+# 複製為 .dev.vars；此檔案不可提交版本控制。
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+# 僅供 Worker 的管理端操作使用；不可提供給瀏覽器。
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_CUSTOM_PROVIDER=custom:line-web
+LINE_AUTH_ENABLED=true
+# LINE Messaging API channel access token（僅放 .dev.vars / Cloudflare secret）
+LINE_MESSAGING_CHANNEL_ACCESS_TOKEN=
+# 逗號分隔的管理員 LINE user ID；低庫存及訂單管理通知會發送至這些帳號
+LINE_ADMIN_USER_IDS=
+# 設為 false 可暫停通知，但不會停用登入
+LINE_NOTIFY_ENABLED=true

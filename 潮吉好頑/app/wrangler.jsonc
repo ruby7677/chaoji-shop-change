@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "chaoji-haowan-shop",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-08",
+  "assets": { "directory": "./public", "not_found_handling": "single-page-application" },
+  "vars": {
+    "STORE_NAME": "潮吉好頑",
+    "SUPABASE_CUSTOM_PROVIDER": "custom:line-web",
+    "LINE_AUTH_ENABLED": "true",
+    "LINE_NOTIFY_ENABLED": "true"
+  },
+  "triggers": {
+    "crons": ["0 * * * *"]
+  }
+}

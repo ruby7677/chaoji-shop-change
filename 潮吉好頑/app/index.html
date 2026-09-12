@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="潮吉好頑｜玩具、公仔、戰鬥陀螺選物" />
+  <title>潮吉好頑｜好頑玩具選物</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="潮吉好頑首頁"><img src="logo.jpg" alt="潮吉好頑 Logo" /><span><strong>潮吉好頑</strong><small>好頑玩具選物</small></span></a>
+    <nav aria-label="主選單"><a href="#products">商品</a><a href="#pickup">到店取貨</a><a href="#policy">購物須知</a></nav>
+    <div class="header-actions"><button class="login-button" type="button" data-demo="login">LINE 登入</button><button class="cart-button" type="button" data-cart-toggle aria-label="開啟購物車">購物車 <b data-cart-count>0</b></button></div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div><p class="eyebrow">TOYS · FIGURES · BEYBLADE</p><h1>把喜歡的<br /><em>帶回家。</em></h1><p class="hero-copy">潮吉好頑精選玩具、公仔與戰鬥陀螺。現貨可到店取貨；預購商品收 50% 訂金。</p><a class="primary-button" href="#products">開始選購</a></div>
+      <div class="hero-art" aria-label="潮吉好頑選物展示"><span>⚡</span><strong>SUPER<br />COOL<br />PLAYFUL</strong><i>玩</i></div>
+    </section>
+
+    <section class="notice"><span>店取資訊</span><strong>台南市中西區民生路二段 190 號</strong><span>週二公休 · 14:00–20:00</span><a href="https://line.me/R/ti/p/@345adwzw" target="_blank" rel="noreferrer">LINE 客服 ↗</a></section>
+
+    <section class="content" id="products">
+      <div class="section-heading"><div><p class="eyebrow">SHOP</p><h2>好頑選物</h2></div><label class="search"><span>⌕</span><input id="product-search" type="search" placeholder="搜尋商品、系列" /></label></div>
+      <div class="filter-row" aria-label="商品分類"><button class="filter active" data-category="all">全部</button><button class="filter" data-category="BX系列">BX 系列</button><button class="filter" data-category="UX系列">UX 系列</button><button class="filter" data-category="預購">預購</button></div>
+      <div class="product-grid" id="product-grid"></div>
+    </section>
+
+    <section class="pickup-section" id="pickup"><div class="pickup-number">01</div><div><p class="eyebrow">PICK UP</p><h2>到店取貨，慢慢挑。</h2><p>本站訂單限到店取貨，免運費。可選擇現貨與預購一起取，或到貨後分批取貨。賣貨便為商品頁獨立下單連結。</p></div><div class="pickup-cards"><div><small>現貨</small><strong>確認付款後備貨</strong></div><div><small>預購</small><strong>訂金 50% 保留名額</strong></div><div><small>提醒</small><strong>24 小時未付款自動取消</strong></div></div></section>
+
+    <section class="policy" id="policy"><div><p class="eyebrow">SHOPPING POLICY</p><h2>購物前，請先看看。</h2><p>下單前請詳細閱讀代購資訊；付款完成即視同同意以下所有規則。</p></div><div class="policy-list"><details open><summary>代購須知與退換貨規則</summary><p><strong>下單請詳細閱讀相關代購資訊。付款完成視同同意所有規則，不接受任何原因退換貨。</strong></p><ul><li>⭐️ 新品發售／商品預訂後 7–10 個工作天到貨（不含假日）；如遇海關查驗、颱風等天候因素影響，會再順延 3–5 個工作天到貨時間。</li><li>⭐️ 不保商品價格漲跌；下單付訂完成後，後續價格如有波動皆不受影響。</li><li>⭐️ 到貨通知後，需於 7 日內付完尾款；如有要延後請主動告知，超過時間視同棄單，訂金不退還，商品不保留。</li><li>⭐️ 預訂皆須付訂金，訂金為預訂商品總價的 50%。</li><li>⭐️ 價格每日波動，請依當天小幫手報價為主。</li><li>⭐️ 潮玩為大量生產產品，不保官方產品瑕疵。</li><li>⭐️ 不保國際物流運送盒損。</li><li>⭐️ 不保海關查驗拆檢商品。</li><li>⭐️ 不保寄送貨物遺失／毀損。</li></ul></details></div></section>
+  </main>
+
+  <footer><span>© 潮吉好頑</span><a href="https://line.me/R/ti/p/@345adwzw" target="_blank" rel="noreferrer">LINE 客服</a><button type="button" data-admin-open>管理員示範入口</button></footer>
+
+  <aside class="cart-drawer" id="cart-drawer" aria-label="購物車" aria-hidden="true"><div class="drawer-head"><h2>購物車</h2><button type="button" data-cart-toggle aria-label="關閉購物車">×</button></div><div id="cart-items"></div><div class="cart-empty" id="cart-empty">購物車還沒有商品。</div><div class="cart-summary"><div><span>商品總額</span><strong id="cart-total">NT$0</strong></div><button class="primary-button" type="button" data-checkout>前往到店取貨結帳</button></div></aside><div class="overlay" data-cart-toggle></div>
+
+  <dialog id="checkout-dialog"><form method="dialog" id="checkout-form"><button class="dialog-close" value="cancel" aria-label="關閉">×</button><p class="eyebrow">CHECKOUT</p><h2>建立到店取貨訂單</h2><p class="dialog-copy">請使用 LINE 登入。送出後將建立訂單並保留庫存 24 小時。</p><label>姓名 <input id="checkout-name" required placeholder="LINE 登入後可帶入" /></label><label>手機 <input id="checkout-phone" required inputmode="tel" placeholder="09xx-xxx-xxx" /></label><fieldset><legend>取貨方式</legend><label class="radio"><input checked type="radio" name="pickup" value="together" /> 等全部商品到貨後一次取貨</label><label class="radio"><input type="radio" name="pickup" value="split" /> 現貨與預購分批到店取貨</label></fieldset><label>匯款帳號末五碼 <input id="checkout-last-five" maxlength="5" pattern="[0-9]{5}" inputmode="numeric" placeholder="請輸入 5 位數字" /></label><p class="terms">送出後將保留庫存 24 小時。付款完成視同同意代購規則，任何原因不接受退換貨。</p><button class="primary-button" value="submit">建立到店取貨訂單</button></form></dialog>
+
+  <dialog id="admin-dialog"><div class="admin-shell"><div class="admin-nav"><strong>潮吉好頑後台</strong><button class="active">訂單處理</button><button>商品與規格</button><button>庫存異動</button><button>會員與積分</button><button>優惠券</button><button>系統設定</button></div><div class="admin-content"><button class="dialog-close" data-admin-close aria-label="關閉">×</button><p class="eyebrow">ADMIN DEMO</p><h2>待處理訂單</h2><div class="stats"><div><small>待確認訂金</small><b>0</b></div><div><small>可取貨</small><b>0</b></div><div><small>低庫存規格</small><b>0</b></div></div><div class="admin-table"><div><strong>訂單編號</strong><strong>會員</strong><strong>狀態</strong><strong>動作</strong></div><p>尚無訂單。正式版本會在此顯示末五碼、付款確認、可取貨通知及核銷操作。</p></div></div></div></dialog>
+  <div class="toast" id="toast" role="status"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
