@@ -16,7 +16,7 @@ let adminData = null;
 
 const deliveryMethodLabels = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配" };
 const deliveryMethodNotes = {
-  store_pickup: "台南市中西區民生路二段 190 號，免運。",
+  store_pickup: "台南市中西區民生路二段 90 號，免運。",
   seller_delivery: "到貨後由客服通知實際運費；尾款與運費確認入帳後安排寄出。",
   home_delivery: "到貨後由客服依包裹狀況通知實際運費；尾款與運費確認入帳後安排寄出。"
 };
