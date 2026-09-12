@@ -284,6 +284,7 @@ const databaseErrors: Record<string, string> = {
   INVALID_SHIPPING_FEE: "實際運費必須是 0 或正整數",
   SHIPPING_FEE_STORE_PICKUP: "到店取貨不可設定寄送運費",
   SELLER_DELIVERY_NO_SHIPPING_FEE: "賣貨便運費由 7-11 向客戶收取，不計入訂單",
+  SELLER_DELIVERY_EXTERNAL_ONLY: "賣貨便請前往 7-ELEVEN 賣貨便完成結帳，本站不建立賣貨便訂單",
   FINAL_PAYMENT_REQUIRED: "請填寫尾款匯款末五碼並確認尾款與運費已入帳",
   FINAL_PAYMENT_NOT_ALLOWED: "訂單尚未進入可出貨或可取貨狀態",
   ORDER_FULFILLMENT_NOT_EDITABLE: "此訂單目前不可修改尾款或運費資訊",
@@ -893,6 +894,7 @@ async function createOrder(request: Request, env: Env): Promise<Response> {
   if (paymentMethod === "bank_transfer" && !body.bank_account_id) return json({ error: "請選擇收款帳戶" }, { status: 400 });
   if (!Number.isInteger(body.points_to_redeem ?? 0) || (body.points_to_redeem ?? 0) < 0) return json({ error: "點數使用數量不正確" }, { status: 400 });
   const deliveryMethod = body.delivery_method ?? "store_pickup";
+  if (deliveryMethod === "seller_delivery") return json({ error: "賣貨便請前往賣貨便完成結帳，本站不建立賣貨便訂單" }, { status: 400 });
   const shippingRecipientName = body.shipping_recipient_name?.trim() || null;
   const shippingPhone = body.shipping_phone?.replace(/[\s-]/g, "") || null;
   if (deliveryMethod === "home_delivery") {

@@ -13,6 +13,11 @@ let currentOrders = [];
 let activePaymentOrder = null;
 let activeDetailProductId = null;
 let adminData = null;
+let cartDeliveryMethod = "store_pickup";
+try {
+  const savedDeliveryMethod = sessionStorage.getItem("cj-cart-delivery-method");
+  if (["store_pickup", "seller_delivery", "home_delivery"].includes(savedDeliveryMethod)) cartDeliveryMethod = savedDeliveryMethod;
+} catch { /* sessionStorage may be unavailable in restricted previews. */ }
 
 const deliveryMethodLabels = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配" };
 const deliveryMethodNotes = {
@@ -104,7 +109,7 @@ function renderHeroSpotlight() {
 function renderProducts() {
   const keyword = search.value.trim().toLowerCase();
   const visible = products.filter((product) => (activeCategory === "all" || product.category === activeCategory || product.type === activeCategory) && `${product.category}${product.name}`.toLowerCase().includes(keyword));
-  grid.innerHTML = visible.length ? visible.map((product) => `<article class="product-card" data-product-id="${escapeHtml(product.id)}"><div class="product-image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" loading="lazy" />` : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`}</div><div class="product-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${escapeHtml(product.name)}</h3><p class="stock">${escapeHtml(productAvailability(product))}</p><div class="price">${money(Number(product.price || 0))}</div><div class="card-actions"><button type="button" data-add="${escapeHtml(product.id)}">加入選物盒</button><button type="button" class="detail-button" data-detail="${escapeHtml(product.id)}">查看規格</button>${product.link ? `<a href="${escapeHtml(product.link)}" target="_blank" rel="noreferrer">賣貨便 ↗</a>` : ""}</div></div></article>`).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
+  grid.innerHTML = visible.length ? visible.map((product) => `<article class="product-card" data-product-id="${escapeHtml(product.id)}"><div class="product-image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" loading="lazy" />` : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`}</div><div class="product-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${escapeHtml(product.name)}</h3><p class="stock">${escapeHtml(productAvailability(product))}</p><div class="price">${money(Number(product.price || 0))}</div><div class="card-actions"><button type="button" data-add="${escapeHtml(product.id)}">加入選物盒</button><button type="button" class="detail-button" data-detail="${escapeHtml(product.id)}">查看規格</button></div></div></article>`).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
 }
 function renderCart() {
   const items = document.querySelector("#cart-items");
@@ -114,6 +119,8 @@ function renderCart() {
   document.querySelector("[data-tray-count]")?.replaceChildren(document.createTextNode(`${count} 件`));
   document.querySelector("[data-tray-total]")?.replaceChildren(document.createTextNode(money(total)));
   document.querySelector("#selection-tray")?.classList.toggle("has-items", count > 0);
+  document.querySelectorAll("input[name='cart_delivery_method']").forEach((input) => { input.checked = input.value === cartDeliveryMethod; });
+  updateCartCheckoutAction();
   document.querySelector("#cart-total").textContent = money(total);
   document.querySelector("#cart-empty").classList.toggle("hidden", cart.length > 0);
   items.innerHTML = cart.map((item) => `<div class="cart-item"><div><h3>${item.name}</h3><small>${money(item.price)} · ${item.category}</small><div class="quantity"><button type="button" data-quantity="${item.id}" data-delta="-1">−</button><b>${item.quantity}</b><button type="button" data-quantity="${item.id}" data-delta="1">＋</button></div></div><div><strong>${money(item.price * item.quantity)}</strong><button class="remove" type="button" data-remove="${item.id}">移除</button></div></div>`).join("");
@@ -121,6 +128,37 @@ function renderCart() {
 function saveCart() { sessionStorage.setItem("cj-cart", JSON.stringify(cart)); }
 function addToCart(id) { const product = products.find((item) => item.id === id); const existing = cart.find((item) => item.id === id); if (existing) { if (existing.quantity >= product.stock) return showToast("已達可選購庫存上限"); existing.quantity += 1; } else cart.push({ ...product, quantity: 1 }); saveCart(); renderCart(); showToast(`${product.name} 已加入購物車`); }
 function toggleCart() { const drawer = document.querySelector("#cart-drawer"); const open = drawer.classList.toggle("open"); document.querySelector(".overlay").classList.toggle("visible", open); drawer.setAttribute("aria-hidden", String(!open)); }
+function selectedCartDeliveryMethod() { return cartDeliveryMethod; }
+function setCartDeliveryMethod(method) {
+  if (!["store_pickup", "seller_delivery", "home_delivery"].includes(method)) return;
+  cartDeliveryMethod = method;
+  try { sessionStorage.setItem("cj-cart-delivery-method", method); } catch { /* ignore restricted storage */ }
+  document.querySelectorAll("input[name='cart_delivery_method']").forEach((input) => { input.checked = input.value === cartDeliveryMethod; });
+  updateCartCheckoutAction();
+}
+function updateCartCheckoutAction() {
+  const button = document.querySelector("#cart-drawer [data-checkout]");
+  if (!button) return;
+  const sellerCheckout = selectedCartDeliveryMethod() === "seller_delivery";
+  button.textContent = sellerCheckout ? "前往賣貨便結帳" : "前往 結帳";
+  button.setAttribute("aria-label", sellerCheckout ? "前往賣貨便結帳" : "前往本站結帳");
+  button.classList.toggle("seller-checkout-button", sellerCheckout);
+}
+function openSellerDeliveryCheckout() {
+  if (!cart.length) return showToast("請先加入商品");
+  const links = [...new Set(cart.map((item) => item.link || item.seller_link).filter(Boolean))];
+  if (!links.length) return showToast("購物車商品尚未設定賣貨便連結，請改選其他取貨方式");
+  if (links.length > 1) return showToast("購物車內商品屬於不同賣場，請分開前往賣貨便結帳");
+  window.location.assign(links[0]);
+}
+function handleCartCheckout() {
+  if (selectedCartDeliveryMethod() === "seller_delivery") return openSellerDeliveryCheckout();
+  openCheckout();
+}
+function removeLegacySellerCheckoutOption() {
+  const sellerInput = document.querySelector("input[name='delivery_method'][value='seller_delivery']");
+  sellerInput?.closest("label")?.remove();
+}
 
 function detailVariants(product) {
   if (!product?.product_id) return [product].filter(Boolean);
@@ -136,7 +174,7 @@ function renderProductDetail() {
   const maxQuantity = purchaseLimit ? Math.min(product.stock, purchaseLimit) : product.stock;
   const variantOptions = variants.length > 1 ? `<label class="product-detail-field">選擇規格<select id="product-detail-variant">${variants.map((variant) => `<option value="${escapeHtml(variant.id)}" ${variant.id === product.id ? "selected" : ""}>${escapeHtml(variant.variant_name || variant.name)} · ${money(variant.price)} · ${variant.type === "現貨" ? `庫存 ${variant.stock}` : "預購"}</option>`).join("")}</select></label>` : `<p class="product-detail-variant"><strong>規格</strong>${escapeHtml(product.variant_name || "單一規格")}</p>`;
   const stockText = product.type === "現貨" ? `現貨庫存 ${product.stock} 件` : `預購${product.preorder_arrival ? `，預計 ${escapeHtml(product.preorder_arrival)} 到貨` : "，訂金 50%"}`;
-  container.innerHTML = `<div class="product-detail-layout"><div class="product-detail-image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" />` : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`}</div><div class="product-detail-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h2>${escapeHtml(product.product_name || product.name)}</h2><p class="product-detail-description">${escapeHtml(product.description || "尚未填寫商品說明")}</p>${variantOptions}<div class="product-detail-meta"><span>${escapeHtml(stockText)}</span><strong>${money(product.price)}</strong></div>${purchaseLimit ? `<small class="product-detail-limit">每位會員限購 ${purchaseLimit} 件</small>` : ""}<label class="product-detail-field">數量<input id="product-detail-quantity" type="number" min="1" max="${Math.max(maxQuantity, 1)}" step="1" value="${maxQuantity > 0 ? 1 : 0}" ${maxQuantity > 0 ? "" : "disabled"} /></label><button class="primary-button product-detail-add" type="button" data-detail-add ${maxQuantity > 0 ? "" : "disabled"}>${maxQuantity > 0 ? "加入購物車" : "目前無可售庫存"}</button>${product.link ? `<a class="product-detail-seller" href="${escapeHtml(product.link)}" target="_blank" rel="noreferrer">至賣貨便下單 ↗</a>` : ""}</div></div>`;
+  container.innerHTML = `<div class="product-detail-layout"><div class="product-detail-image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" />` : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`}</div><div class="product-detail-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h2>${escapeHtml(product.product_name || product.name)}</h2><p class="product-detail-description">${escapeHtml(product.description || "尚未填寫商品說明")}</p>${variantOptions}<div class="product-detail-meta"><span>${escapeHtml(stockText)}</span><strong>${money(product.price)}</strong></div>${purchaseLimit ? `<small class="product-detail-limit">每位會員限購 ${purchaseLimit} 件</small>` : ""}<label class="product-detail-field">數量<input id="product-detail-quantity" type="number" min="1" max="${Math.max(maxQuantity, 1)}" step="1" value="${maxQuantity > 0 ? 1 : 0}" ${maxQuantity > 0 ? "" : "disabled"} /></label><button class="primary-button product-detail-add" type="button" data-detail-add ${maxQuantity > 0 ? "" : "disabled"}>${maxQuantity > 0 ? "加入購物車" : "目前無可售庫存"}</button></div></div>`;
 }
 
 function openProductDetail(id) {
@@ -497,6 +535,12 @@ async function openCheckout() {
   if (!auth.accessToken || !auth.user) return beginLineLogin();
   if (!profileIsComplete()) return showProfileDialog(true);
   if (!await requireLineFriendshipForCheckout()) return;
+  removeLegacySellerCheckoutOption();
+  const cartMethod = selectedCartDeliveryMethod();
+  if (cartMethod !== "seller_delivery") {
+    const deliveryInput = document.querySelector(`input[name='delivery_method'][value='${cartMethod}']`);
+    if (deliveryInput) deliveryInput.checked = true;
+  }
   try { await loadPoints(); } catch { /* 結帳仍可不使用優惠 */ }
   if (document.querySelector("#cart-drawer").classList.contains("open")) toggleCart();
   ensurePaymentMethodUI();
@@ -1256,7 +1300,7 @@ document.addEventListener("click", (event) => {
   const detail = event.target.closest("[data-detail]"); if (detail) openProductDetail(detail.dataset.detail);
   if (event.target.closest("[data-detail-add]")) addDetailToCart();
   if (event.target.closest("[data-cart-toggle]")) toggleCart();
-  if (event.target.closest("[data-checkout]")) openCheckout();
+  if (event.target.closest("[data-checkout]")) handleCartCheckout();
   if (event.target.closest("[data-admin-open]")) openAdmin();
   if (event.target.closest("[data-admin-close]")) document.querySelector("#admin-dialog").close();
   if (event.target.closest("[data-checkout-close]")) document.querySelector("#checkout-dialog").close();
@@ -1304,6 +1348,8 @@ document.addEventListener("change", (event) => {
   if (event.target.matches("#admin-new-kind")) syncDepositField(event.target, document.querySelector("#admin-new-deposit-rate"));
   if (event.target.matches("[data-edit-variant-form] select[name='kind']")) syncDepositField(event.target, event.target.form.elements.deposit_rate);
   if (event.target.matches("input[name='delivery_method']")) syncDeliveryFields();
+  if (event.target.matches("input[name='cart_delivery_method']")) setCartDeliveryMethod(event.target.value);
+  if (event.target.matches("input[name='delivery_method']")) setCartDeliveryMethod(event.target.value);
   if (event.target.matches("input[name='payment_method']")) syncPaymentFields();
   if (event.target.matches("input[name='pickup']")) renderCheckoutSummary();
   if (event.target.matches("#product-detail-variant")) {
@@ -1383,6 +1429,7 @@ async function loadProducts() {
 }
 
 removeLegacyShippingUI();
+removeLegacySellerCheckoutOption();
 captureAuthSession();
 await Promise.all([loadRuntimeConfig(), loadProducts()]);
 await loadMember();
