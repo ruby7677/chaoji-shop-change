@@ -45,6 +45,14 @@ const adminOrderTransitions = {
 
 function money(value) { return `NT$${value.toLocaleString("zh-TW")}`; }
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]); }
+function productMark(product) {
+  const source = String(product?.category || product?.product_name || product?.name || "玩具").replace(/\s+/g, "");
+  return escapeHtml(source.slice(0, 2) || "玩具");
+}
+function productAvailability(product) {
+  if (product?.type === "現貨") return `現貨 ${Number(product.stock || 0)} 件`;
+  return product?.preorder_arrival ? `預購 · ${product.preorder_arrival}` : "預購 · 海運與集運依實際進度";
+}
 function formatDateTime(value) { return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
 let toastTimer = null;
 function showToast(message) {
@@ -60,15 +68,52 @@ function showToast(message) {
 }
 function selectedDeliveryMethod() { return document.querySelector("input[name='delivery_method']:checked")?.value || "store_pickup"; }
 function selectedPaymentMethod() { return document.querySelector("input[name='payment_method']:checked")?.value || "bank_transfer"; }
+function renderHeroSpotlight() {
+  const visual = document.querySelector("#hero-product-visual");
+  if (!visual) return;
+  const product = products.find((item) => item.type === "現貨" && Number(item.stock || 0) > 0) || products.find((item) => Number(item.stock || 0) > 0) || products[0];
+  const nameNode = document.querySelector("[data-hero-name]");
+  const categoryNode = document.querySelector("[data-hero-category]");
+  const availabilityNode = document.querySelector("[data-hero-availability]");
+  const typeNode = document.querySelector("[data-hero-type]");
+  const priceNode = document.querySelector("[data-hero-price]");
+  const addButton = document.querySelector("[data-hero-add]");
+  if (!product) {
+    visual.innerHTML = '<div class="hero-placeholder"><span>玩具</span><small>目前沒有上架商品</small></div>';
+    if (nameNode) nameNode.textContent = "等待下一個喜歡的";
+    if (availabilityNode) availabilityNode.textContent = "暫無商品";
+    if (addButton) { addButton.disabled = true; addButton.removeAttribute("data-hero-add"); addButton.textContent = "暫無商品"; }
+    return;
+  }
+  const productName = product.product_name || product.name || "好頑選物";
+  if (categoryNode) categoryNode.textContent = product.category || "好頑選物";
+  if (availabilityNode) availabilityNode.textContent = productAvailability(product);
+  if (typeNode) typeNode.textContent = `${product.category || "TOYS"} · ${product.type || "選物"}`;
+  if (nameNode) nameNode.textContent = productName;
+  if (priceNode) priceNode.textContent = money(Number(product.price || 0));
+  visual.innerHTML = product.image_url
+    ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(productName)}" />`
+    : `<div class="hero-placeholder"><span>${productMark(product)}</span><small>${product.type === "現貨" ? "READY TO PLAY" : "COMING FROM AFAR"}</small></div>`;
+  if (addButton) {
+    const available = Number(product.stock || 0) > 0;
+    addButton.dataset.heroAdd = product.id;
+    addButton.disabled = !available;
+    addButton.textContent = available ? "加入選物盒" : "目前無庫存";
+  }
+}
 function renderProducts() {
   const keyword = search.value.trim().toLowerCase();
   const visible = products.filter((product) => (activeCategory === "all" || product.category === activeCategory || product.type === activeCategory) && `${product.category}${product.name}`.toLowerCase().includes(keyword));
-  grid.innerHTML = visible.length ? visible.map((product) => `<article class="product-card"><div class="product-image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" loading="lazy" />` : `<span>${product.icon ?? "🎁"}</span>`}</div><div class="product-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${escapeHtml(product.name)}</h3><p class="stock">${product.type === "現貨" ? `現貨 ${product.stock} 件` : `預購${product.preorder_arrival ? ` · ${escapeHtml(product.preorder_arrival)}` : " · 訂金 50%"}`}</p><div class="price">${money(product.price)}</div><div class="card-actions"><button type="button" data-add="${product.id}">加入購物車</button><button type="button" class="detail-button" data-detail="${product.id}">商品詳情</button>${product.link ? `<a href="${escapeHtml(product.link)}" target="_blank" rel="noreferrer">賣貨便 ↗</a>` : ""}</div></div></article>`).join("") : "<p>目前沒有符合的商品。</p>";
+  grid.innerHTML = visible.length ? visible.map((product) => `<article class="product-card" data-product-id="${escapeHtml(product.id)}"><div class="product-image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" loading="lazy" />` : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`}</div><div class="product-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${escapeHtml(product.name)}</h3><p class="stock">${escapeHtml(productAvailability(product))}</p><div class="price">${money(Number(product.price || 0))}</div><div class="card-actions"><button type="button" data-add="${escapeHtml(product.id)}">加入選物盒</button><button type="button" class="detail-button" data-detail="${escapeHtml(product.id)}">查看規格</button>${product.link ? `<a href="${escapeHtml(product.link)}" target="_blank" rel="noreferrer">賣貨便 ↗</a>` : ""}</div></div></article>`).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
 }
 function renderCart() {
   const items = document.querySelector("#cart-items");
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  document.querySelectorAll("[data-cart-count]").forEach((node) => node.textContent = cart.reduce((sum, item) => sum + item.quantity, 0));
+  const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+  document.querySelectorAll("[data-cart-count]").forEach((node) => node.textContent = count);
+  document.querySelector("[data-tray-count]")?.replaceChildren(document.createTextNode(`${count} 件`));
+  document.querySelector("[data-tray-total]")?.replaceChildren(document.createTextNode(money(total)));
+  document.querySelector("#selection-tray")?.classList.toggle("has-items", count > 0);
   document.querySelector("#cart-total").textContent = money(total);
   document.querySelector("#cart-empty").classList.toggle("hidden", cart.length > 0);
   items.innerHTML = cart.map((item) => `<div class="cart-item"><div><h3>${item.name}</h3><small>${money(item.price)} · ${item.category}</small><div class="quantity"><button type="button" data-quantity="${item.id}" data-delta="-1">−</button><b>${item.quantity}</b><button type="button" data-quantity="${item.id}" data-delta="1">＋</button></div></div><div><strong>${money(item.price * item.quantity)}</strong><button class="remove" type="button" data-remove="${item.id}">移除</button></div></div>`).join("");
@@ -91,7 +136,7 @@ function renderProductDetail() {
   const maxQuantity = purchaseLimit ? Math.min(product.stock, purchaseLimit) : product.stock;
   const variantOptions = variants.length > 1 ? `<label class="product-detail-field">選擇規格<select id="product-detail-variant">${variants.map((variant) => `<option value="${escapeHtml(variant.id)}" ${variant.id === product.id ? "selected" : ""}>${escapeHtml(variant.variant_name || variant.name)} · ${money(variant.price)} · ${variant.type === "現貨" ? `庫存 ${variant.stock}` : "預購"}</option>`).join("")}</select></label>` : `<p class="product-detail-variant"><strong>規格</strong>${escapeHtml(product.variant_name || "單一規格")}</p>`;
   const stockText = product.type === "現貨" ? `現貨庫存 ${product.stock} 件` : `預購${product.preorder_arrival ? `，預計 ${escapeHtml(product.preorder_arrival)} 到貨` : "，訂金 50%"}`;
-  container.innerHTML = `<div class="product-detail-layout"><div class="product-detail-image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" />` : `<span>${product.icon || "🎁"}</span>`}</div><div class="product-detail-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h2>${escapeHtml(product.product_name || product.name)}</h2><p class="product-detail-description">${escapeHtml(product.description || "尚未填寫商品說明")}</p>${variantOptions}<div class="product-detail-meta"><span>${escapeHtml(stockText)}</span><strong>${money(product.price)}</strong></div>${purchaseLimit ? `<small class="product-detail-limit">每位會員限購 ${purchaseLimit} 件</small>` : ""}<label class="product-detail-field">數量<input id="product-detail-quantity" type="number" min="1" max="${Math.max(maxQuantity, 1)}" step="1" value="${maxQuantity > 0 ? 1 : 0}" ${maxQuantity > 0 ? "" : "disabled"} /></label><button class="primary-button product-detail-add" type="button" data-detail-add ${maxQuantity > 0 ? "" : "disabled"}>${maxQuantity > 0 ? "加入購物車" : "目前無可售庫存"}</button>${product.link ? `<a class="product-detail-seller" href="${escapeHtml(product.link)}" target="_blank" rel="noreferrer">至賣貨便下單 ↗</a>` : ""}</div></div>`;
+  container.innerHTML = `<div class="product-detail-layout"><div class="product-detail-image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" />` : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`}</div><div class="product-detail-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h2>${escapeHtml(product.product_name || product.name)}</h2><p class="product-detail-description">${escapeHtml(product.description || "尚未填寫商品說明")}</p>${variantOptions}<div class="product-detail-meta"><span>${escapeHtml(stockText)}</span><strong>${money(product.price)}</strong></div>${purchaseLimit ? `<small class="product-detail-limit">每位會員限購 ${purchaseLimit} 件</small>` : ""}<label class="product-detail-field">數量<input id="product-detail-quantity" type="number" min="1" max="${Math.max(maxQuantity, 1)}" step="1" value="${maxQuantity > 0 ? 1 : 0}" ${maxQuantity > 0 ? "" : "disabled"} /></label><button class="primary-button product-detail-add" type="button" data-detail-add ${maxQuantity > 0 ? "" : "disabled"}>${maxQuantity > 0 ? "加入購物車" : "目前無可售庫存"}</button>${product.link ? `<a class="product-detail-seller" href="${escapeHtml(product.link)}" target="_blank" rel="noreferrer">至賣貨便下單 ↗</a>` : ""}</div></div>`;
 }
 
 function openProductDetail(id) {
@@ -1173,6 +1218,7 @@ function syncDepositField(kindSelector, rateInput) {
 
 document.addEventListener("click", (event) => {
   const add = event.target.closest("[data-add]"); if (add) addToCart(add.dataset.add);
+  const heroAdd = event.target.closest("[data-hero-add]"); if (heroAdd) addToCart(heroAdd.dataset.heroAdd);
   const change = event.target.closest("[data-quantity]"); if (change) { const item = cart.find((entry) => entry.id === change.dataset.quantity); const delta = Number(change.dataset.delta); const max = products.find((product) => product.id === item.id).stock; item.quantity = Math.min(max, item.quantity + delta); if (item.quantity <= 0) cart.splice(cart.indexOf(item), 1); saveCart(); renderCart(); }
   const remove = event.target.closest("[data-remove]"); if (remove) { const item = cart.find((entry) => entry.id === remove.dataset.remove); cart.splice(cart.indexOf(item), 1); saveCart(); renderCart(); }
   const detail = event.target.closest("[data-detail]"); if (detail) openProductDetail(detail.dataset.detail);
@@ -1309,4 +1355,4 @@ captureAuthSession();
 await Promise.all([loadRuntimeConfig(), loadProducts()]);
 await loadMember();
 try { const savedCart = JSON.parse(sessionStorage.getItem("cj-cart") || "[]"); if (Array.isArray(savedCart)) cart.push(...savedCart.filter((item) => products.some((product) => product.id === item.id))); } catch { sessionStorage.removeItem("cj-cart"); }
-renderProducts(); renderCart();
+renderHeroSpotlight(); renderProducts(); renderCart();
