@@ -12,29 +12,40 @@ export const LINE_NOTIFICATION_COPY = {
     note: "這是一則由管理後台發出的測試訊息。"
   },
   order: {
-    titles: {
-      created: "訂單已建立",
-      payment_reported: "會員已回報匯款",
-      fulfillment_updated: "到貨／尾款資訊更新"
+    status: {
+      created: "待確認中",
+      paymentReported: "已確認收到訂金",
+      depositConfirmed: "已確認收到訂金",
+      arrived: "已到貨，待付尾款出貨",
+      shipping: "已確認收到尾款，出貨中",
+      completed: "已完成"
     },
-    statusPrefix: "訂單狀態更新：",
     labels: {
-      order: "訂單",
+      order: "訂單編號",
+      status: "訂單狀態",
       items: "商品",
       delivery: "取貨方式",
       payment: "付款方式",
       deliveryNote: "配送說明",
-      total: "訂單金額",
-      deposit: "訂金"
+      total: "總金額",
+      deposit: "訂金",
+      balance: "尾款／運費",
+      totalBalance: "總計尾款",
+      recipient: "姓名",
+      phone: "電話",
+      address: "地址",
+      recipientHeading: "收件資訊確認"
     },
-    storeDeliveryNote: "到店取貨免運",
-    remoteDeliveryNote: "運費到貨後由客服通知，尾款與運費確認後安排寄出",
-    storeFulfillment: "到店取貨，尾款於取貨時確認",
-    remoteShippingLabel: "實際運費",
-    remoteShippingPending: "待客服通知",
-    remoteBalanceLabel: "尾款／運費",
-    remoteBalanceConfirmed: "已確認入帳",
-    remoteBalancePending: "尚未確認"
+    payment: {
+      bankPending: "匯款／轉帳後、待客服確認通知",
+      storePending: "到店支付後、待客服確認通知"
+    },
+    delivery: {
+      remoteBalancePending: "待到貨後通知",
+      genericBalancePending: "待到貨後客服通知",
+      arrivalNote: "到貨由客服通知補尾款後出貨",
+      storeNote: "到店取貨，尾款於取貨時確認"
+    }
   },
   lowStock: {
     title: "低庫存提醒（統一通知）",
@@ -53,15 +64,20 @@ export type LineOrderEventType = "created" | "payment_reported" | "status_change
 type OrderMessageData = {
   storeName: string;
   eventType: LineOrderEventType;
+  orderStatus: string;
   statusLabel: string;
   orderNumber: string;
   items: string;
   deliveryLine: string;
   paymentLine: string;
-  deliveryNote: string;
   amountDue: number;
   depositDue: number;
-  fulfillmentLine: string;
+  paidAmount: number;
+  shippingFee: number;
+  finalPaymentConfirmed: boolean;
+  shippingRecipientName?: string | null;
+  shippingPhone?: string | null;
+  shippingAddress?: string | null;
 };
 
 function money(value: number) {
@@ -75,18 +91,94 @@ export function buildLineTestMessage(storeName: string, timestamp: string) {
 
 export function buildOrderNotificationMessage(data: OrderMessageData) {
   const copy = LINE_NOTIFICATION_COPY.order;
-  const title = data.eventType === "status_changed" ? `${copy.statusPrefix}${data.statusLabel}` : copy.titles[data.eventType];
+  const isRemote = data.deliveryLine !== "到店取貨";
+  const isHomeDelivery = data.deliveryLine === "宅配";
+  const isDepositConfirmed = data.eventType === "payment_reported"
+    || (data.eventType === "status_changed" && data.orderStatus === "confirmed");
+  const isArrival = (data.eventType === "fulfillment_updated" && !data.finalPaymentConfirmed)
+    || (data.eventType === "status_changed" && ["partially_ready", "ready_for_pickup"].includes(data.orderStatus));
+  const balance = Math.max(data.amountDue - data.paidAmount, 0);
+  const productLine = `${copy.labels.items}：${data.items || "-"}`;
+  const orderHeader = [
+    data.storeName,
+    `${copy.labels.order}：${data.orderNumber}`,
+    `${copy.labels.status}：${copy.status.created}`,
+    ""
+  ];
+
+  if (data.eventType === "created") {
+    return [
+      ...orderHeader,
+      productLine,
+      `${copy.labels.total}：${money(data.amountDue)}`,
+      `${copy.labels.deposit}：${money(data.depositDue)}`,
+      `${copy.labels.payment}：${data.paymentLine === "到店支付" ? copy.payment.storePending : copy.payment.bankPending}`
+    ].join("\n");
+  }
+
+  if (data.finalPaymentConfirmed && isRemote) {
+    return [
+      data.storeName,
+      `${copy.labels.order}：${data.orderNumber}`,
+      `${copy.labels.status}：${copy.status.shipping}`,
+      "",
+      productLine
+    ].join("\n");
+  }
+
+  if (isArrival && isRemote) {
+    const tailAmount = Math.max(balance - data.shippingFee, 0);
+    return [
+      data.storeName,
+      `${copy.labels.order}：${data.orderNumber}`,
+      `${copy.labels.status}：${copy.status.arrived}`,
+      "",
+      productLine,
+      `${copy.labels.delivery}：${data.deliveryLine}`,
+      `${copy.labels.balance}：尾款${tailAmount.toLocaleString("zh-TW")}元/運費${data.shippingFee.toLocaleString("zh-TW")}元`,
+      `${copy.labels.totalBalance}：${balance.toLocaleString("zh-TW")}元`,
+      "",
+      copy.labels.recipientHeading,
+      `${copy.labels.recipient}：${data.shippingRecipientName || ""}`,
+      `${copy.labels.phone}：${data.shippingPhone || ""}`,
+      `${copy.labels.address}：${data.shippingAddress || ""}`
+    ].join("\n");
+  }
+
+  if (isDepositConfirmed) {
+    if (isHomeDelivery) {
+      return [
+        data.storeName,
+        `${copy.labels.order}：${data.orderNumber}`,
+        `${copy.labels.status}：${copy.status.depositConfirmed}`,
+        "",
+        productLine,
+        `${copy.labels.delivery}：${data.deliveryLine}`,
+        `${copy.labels.balance}：${copy.delivery.remoteBalancePending}`,
+        `${copy.labels.deliveryNote}：`,
+        copy.delivery.arrivalNote
+      ].join("\n");
+    }
+    return [
+      data.storeName,
+      `${copy.labels.order}：${data.orderNumber}`,
+      `${copy.labels.status}：${copy.status.paymentReported}`,
+      "",
+      `${copy.labels.delivery}：${data.deliveryLine}`,
+      `${copy.labels.balance}：${copy.delivery.genericBalancePending}`,
+      `${copy.labels.deliveryNote}：`,
+      copy.delivery.arrivalNote
+    ].join("\n");
+  }
+
   return [
     data.storeName,
-    title,
     `${copy.labels.order}：${data.orderNumber}`,
-    `${copy.labels.items}：${data.items || "-"}`,
+    `${copy.labels.status}：${data.statusLabel || data.orderStatus}`,
+    "",
+    productLine,
     `${copy.labels.delivery}：${data.deliveryLine}`,
-    `${copy.labels.payment}：${data.paymentLine}`,
-    `${copy.labels.deliveryNote}：${data.deliveryNote}`,
-    `${copy.labels.total}：${money(data.amountDue)}`,
-    `${copy.labels.deposit}：${money(data.depositDue)}`,
-    data.fulfillmentLine
+    `${copy.labels.balance}：${isRemote ? copy.delivery.genericBalancePending : copy.delivery.storeNote}`
   ].join("\n");
 }
 
@@ -105,4 +197,3 @@ export function buildBirthdayCouponMessage(storeName: string, coupon: { name: st
     `${copy.discount}：${money(coupon.discountAmount)}`
   ].join("\n");
 }
-

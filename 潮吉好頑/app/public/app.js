@@ -350,6 +350,14 @@ function renderCheckoutSummary() {
   document.querySelector("#checkout-order-summary").innerHTML = cart.map((item) => `<div><span>${escapeHtml(item.name)} × ${item.quantity}</span><span>${money(item.price * item.quantity)}</span></div>`).join("") + `<div><span>商品總額</span><span>${money(total)}</span></div>${pointDiscount ? `<div><span>點數折抵（最終以系統計算為準）</span><span>-${money(pointDiscount)}</span></div>` : ""}<div><span>預估應付總額</span><span>${money(estimatedTotal)}</span></div><p class="checkout-summary-note"><strong>${escapeHtml(deliveryMethodLabels[deliveryMethod])}</strong>：${escapeHtml(deliveryMethodNotes[deliveryMethod])}</p>`;
 }
 
+function ensureShippingRecipientFields() {
+  const addressLabel = document.querySelector("#checkout-address-label");
+  if (!addressLabel || document.querySelector("#checkout-recipient-name-label")) return;
+  addressLabel.insertAdjacentHTML("beforebegin", '<label id="checkout-recipient-name-label" class="hidden">宅配收件人姓名 <input id="checkout-recipient-name" maxlength="60" autocomplete="name" placeholder="請填寫收件人姓名" /></label><label id="checkout-recipient-phone-label" class="hidden">宅配收件人電話 <input id="checkout-recipient-phone" type="tel" inputmode="numeric" maxlength="14" autocomplete="tel" placeholder="09xx-xxx-xxx" /></label>');
+  if (auth.profile?.full_name) document.querySelector("#checkout-recipient-name").value = auth.profile.full_name;
+  if (auth.profile?.phone) document.querySelector("#checkout-recipient-phone").value = auth.profile.phone;
+}
+
 function ensurePaymentMethodUI() {
   const bankAccounts = document.querySelector("#checkout-bank-accounts");
   const bankFieldset = bankAccounts?.closest("fieldset");
@@ -365,14 +373,23 @@ function ensurePaymentMethodUI() {
 }
 
 function syncDeliveryFields() {
+  ensureShippingRecipientFields();
   const method = selectedDeliveryMethod();
   const planFieldset = document.querySelector("#pickup-plan-fieldset");
   const addressLabel = document.querySelector("#checkout-address-label");
   const addressInput = document.querySelector("#checkout-address");
+  const recipientLabel = document.querySelector("#checkout-recipient-name-label");
+  const recipientInput = document.querySelector("#checkout-recipient-name");
+  const recipientPhoneLabel = document.querySelector("#checkout-recipient-phone-label");
+  const recipientPhoneInput = document.querySelector("#checkout-recipient-phone");
   const isHome = method === "home_delivery";
   if (planFieldset) planFieldset.classList.toggle("hidden", method !== "store_pickup");
   if (addressLabel) addressLabel.classList.toggle("hidden", !isHome);
   if (addressInput) addressInput.required = isHome;
+  if (recipientLabel) recipientLabel.classList.toggle("hidden", !isHome);
+  if (recipientInput) recipientInput.required = isHome;
+  if (recipientPhoneLabel) recipientPhoneLabel.classList.toggle("hidden", !isHome);
+  if (recipientPhoneInput) recipientPhoneInput.required = isHome;
   syncPaymentFields();
   renderCheckoutSummary();
 }
@@ -536,17 +553,22 @@ async function submitOrder() {
   const paymentMethod = selectedPaymentMethod();
   const pickupPlan = document.querySelector("input[name='pickup']:checked")?.value || "together";
   const shippingAddress = document.querySelector("#checkout-address").value.trim();
+  const shippingRecipientName = document.querySelector("#checkout-recipient-name")?.value.trim() || "";
+  const shippingPhone = document.querySelector("#checkout-recipient-phone")?.value.trim() || "";
   const bankAccountId = paymentMethod === "bank_transfer" ? document.querySelector("input[name='bank_account']:checked")?.value : null;
   const normalizedPhone = phone.replace(/[\s-]/g, "");
+  const normalizedShippingPhone = shippingPhone.replace(/[\s-]/g, "");
   if (!/^09\d{8}$/.test(normalizedPhone)) throw new Error("請輸入有效的台灣手機號碼（09 開頭，共 10 碼）");
   if (paymentMethod === "store_payment" && (deliveryMethod !== "store_pickup" || cart.some((item) => item.type === "預購"))) throw new Error("到店支付僅適用到店取貨的現貨商品");
   if (paymentMethod === "bank_transfer" && !bankAccountId) throw new Error("請選擇收款帳戶");
   if (deliveryMethod === "home_delivery" && !shippingAddress) throw new Error("宅配請填寫收件地址");
+  if (deliveryMethod === "home_delivery" && !shippingRecipientName) throw new Error("宅配請填寫收件人姓名");
+  if (deliveryMethod === "home_delivery" && !/^09\d{8}$/.test(normalizedShippingPhone)) throw new Error("宅配請填寫有效的收件人手機號碼");
   await saveProfile({ full_name: fullName, phone: normalizedPhone, birthday: auth.profile?.birthday || null, address: deliveryMethod === "home_delivery" ? shippingAddress : (auth.profile?.address || null) });
   const response = await fetch("/api/orders", {
     method: "POST",
     headers: { Authorization: `Bearer ${auth.accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ items: cart.map((item) => ({ variant_id: item.id, quantity: item.quantity })), pickup_plan: pickupPlan, delivery_method: deliveryMethod, payment_method: paymentMethod, shipping_address: deliveryMethod === "home_delivery" ? shippingAddress : null, bank_account_id: bankAccountId, coupon_code: document.querySelector("#checkout-coupon-code")?.value.trim() || null, points_to_redeem: Number(document.querySelector("#checkout-points")?.value || 0) })
+    body: JSON.stringify({ items: cart.map((item) => ({ variant_id: item.id, quantity: item.quantity })), pickup_plan: pickupPlan, delivery_method: deliveryMethod, payment_method: paymentMethod, shipping_address: deliveryMethod === "home_delivery" ? shippingAddress : null, shipping_recipient_name: deliveryMethod === "home_delivery" ? shippingRecipientName : null, shipping_phone: deliveryMethod === "home_delivery" ? normalizedShippingPhone : null, bank_account_id: bankAccountId, coupon_code: document.querySelector("#checkout-coupon-code")?.value.trim() || null, points_to_redeem: Number(document.querySelector("#checkout-points")?.value || 0) })
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || result.message || "訂單建立失敗");
@@ -903,7 +925,8 @@ function renderAdminOrders() {
     const history = adminOrderHistory(order.id).slice(0, 5).map((entry) => { const actor = relationOne(entry.profiles); return `<li><span>${escapeHtml(orderStatusLabels[entry.from_status] || entry.from_status)} → ${escapeHtml(orderStatusLabels[entry.to_status] || entry.to_status)}</span><small>${formatDateTime(entry.created_at)}${actor?.full_name ? ` · ${escapeHtml(actor.full_name)}` : ""}${entry.note ? ` · ${escapeHtml(entry.note)}` : ""}</small></li>`; }).join("");
     const balance = Math.max(order.amount_due - order.paid_amount, 0);
     const deliveryLabel = deliveryMethodLabels[order.delivery_method || "store_pickup"] || "到店取貨";
-    return `<article class="admin-order-card"><header><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(deliveryLabel)} · ${order.pickup_plan === "split" ? "分批取貨" : "等候到齊"}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(orderStatusLabels[order.status] || order.status)}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div><div class="admin-order-payment"><span>總額 <b>${money(order.amount_due)}</b></span><span>運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span>訂金應付 <b>${money(order.deposit_due)}</b></span><span>已確認 <b>${money(order.paid_amount || 0)}</b></span><span>待收尾款 <b>${money(balance)}</b></span></div>${order.shipping_address ? `<p class="admin-order-note">宅配地址：${escapeHtml(order.shipping_address)}</p>` : ""}<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span>匯款末五碼：<b>${escapeHtml(order.payment_last_five || "尚未回報")}</b></span></div>${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status">${options}</select></label><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消與退款相關操作必填；其他操作可選填"></textarea></label><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>'}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
+    const shippingInfo = order.delivery_method !== "store_pickup" ? `<p class="admin-order-note">收件人：${escapeHtml(order.shipping_recipient_name || "未填寫")}<br />電話：${escapeHtml(order.shipping_phone || "未填寫")}<br />地址：${escapeHtml(order.shipping_address || "未填寫")}</p>` : "";
+    return `<article class="admin-order-card"><header><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(deliveryLabel)} · ${order.pickup_plan === "split" ? "分批取貨" : "等候到齊"}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(orderStatusLabels[order.status] || order.status)}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div><div class="admin-order-payment"><span>總額 <b>${money(order.amount_due)}</b></span><span>運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span>訂金應付 <b>${money(order.deposit_due)}</b></span><span>已確認 <b>${money(order.paid_amount || 0)}</b></span><span>待收尾款 <b>${money(balance)}</b></span></div>${shippingInfo}<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span>匯款末五碼：<b>${escapeHtml(order.payment_last_five || "尚未回報")}</b></span></div>${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status">${options}</select></label><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消與退款相關操作必填；其他操作可選填"></textarea></label><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>'}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
   }).join("");
   container.querySelectorAll(".admin-order-card").forEach((card, index) => {
     const paymentNode = card.querySelector(".admin-order-payment > span:nth-child(2)");

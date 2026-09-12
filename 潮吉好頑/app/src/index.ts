@@ -165,12 +165,12 @@ async function testLineNotification(request: Request, env: Env): Promise<Respons
 async function loadOrderNotification(env: Env, orderId: string) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set("select", "id,order_number,status,delivery_method,bank_account_id,shipping_fee,paid_amount,final_payment_last_five,final_payment_confirmed_at,updated_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,profiles!orders_member_id_fkey(full_name,line_user_id),order_items(product_name,variant_name,quantity)");
+  url.searchParams.set("select", "id,order_number,status,delivery_method,bank_account_id,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,paid_amount,final_payment_last_five,final_payment_confirmed_at,updated_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,profiles!orders_member_id_fkey(full_name,line_user_id),order_items(product_name,variant_name,quantity)");
   url.searchParams.set("id", `eq.${orderId}`);
   const response = await fetch(url, { headers: serviceHeaders(env) });
   if (!response.ok) return null;
   const rows = await response.json() as unknown[];
-  return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; paid_amount?: number; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number }> };
+  return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; shipping_address?: string | null; shipping_recipient_name?: string | null; shipping_phone?: string | null; shipping_fee_notified_at?: string | null; paid_amount?: number; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number }> };
 }
 
 async function notifyOrderEvent(env: Env, orderId: string, eventType: LineOrderEventType) {
@@ -179,21 +179,24 @@ async function notifyOrderEvent(env: Env, orderId: string, eventType: LineOrderE
   const items = (order.order_items || []).map((item) => `${item.product_name}${item.variant_name === "單一規格" ? "" : ` · ${item.variant_name}`} ×${item.quantity}`).join("、");
   const deliveryLabels: Record<string, string> = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配" };
   const deliveryLine = deliveryLabels[order.delivery_method || "store_pickup"] || "到店取貨";
-  const deliveryNote = order.delivery_method === "store_pickup" ? "到店取貨免運" : "運費到貨後由客服通知，尾款與運費確認後安排寄出";
   const paymentLine = order.bank_account_id ? "匯款／轉帳" : "到店支付";
-  const fulfillmentLine = order.delivery_method === "store_pickup" ? "到店取貨，尾款於取貨時確認" : `實際運費：${order.shipping_fee ? `NT$${order.shipping_fee.toLocaleString("zh-TW")}` : "待客服通知"}\n尾款／運費：${order.final_payment_confirmed_at ? "已確認入帳" : "尚未確認"}`;
   const message = buildOrderNotificationMessage({
     storeName: env.STORE_NAME,
     eventType,
+    orderStatus: order.status,
     statusLabel: lineOrderStatusLabels[order.status] || order.status,
     orderNumber: order.order_number,
     items,
     deliveryLine,
     paymentLine,
-    deliveryNote,
     amountDue: order.amount_due,
     depositDue: order.deposit_due,
-    fulfillmentLine
+    paidAmount: order.paid_amount ?? order.deposit_due,
+    shippingFee: order.shipping_fee ?? 0,
+    finalPaymentConfirmed: Boolean(order.final_payment_confirmed_at),
+    shippingRecipientName: order.shipping_recipient_name,
+    shippingPhone: order.shipping_phone,
+    shippingAddress: order.shipping_address
   });
   const recipients = new Set<string>(lineAdminRecipients(env));
   // 會員回報匯款只通知管理員，避免會員收到「會員已回報匯款」的內部作業訊息。
@@ -263,6 +266,8 @@ const databaseErrors: Record<string, string> = {
   SHIPPING_SETTINGS_NOT_FOUND: "配送設定尚未完成",
   INVALID_SHIPPING_SETTINGS: "配送設定不正確",
   SHIPPING_ADDRESS_REQUIRED: "宅配請填寫收件地址",
+  SHIPPING_RECIPIENT_REQUIRED: "宅配請填寫收件人姓名",
+  SHIPPING_PHONE_REQUIRED: "宅配請填寫有效的收件人手機號碼",
   INVALID_DISCOUNT: "折扣資料不正確",
   EMPTY_CART: "購物車不可為空",
   BANK_ACCOUNT_REQUIRED: "請選擇收款帳戶",
@@ -455,7 +460,7 @@ async function listBankAccounts(request: Request, env: Env): Promise<Response> {
 async function loadOrder(env: Env, orderId: string, memberId: string) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set("select", "id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,payment_last_five,bank_account_id,created_at,bank_accounts(label,bank_name,account_name,account_number),order_items(product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)");
+  url.searchParams.set("select", "id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,payment_last_five,bank_account_id,created_at,bank_accounts(label,bank_name,account_name,account_number),order_items(product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)");
   url.searchParams.set("id", `eq.${orderId}`);
   url.searchParams.set("member_id", `eq.${memberId}`);
   const response = await fetch(url, {
@@ -471,7 +476,7 @@ async function listOrders(request: Request, env: Env): Promise<Response> {
   if (authResult instanceof Response) return authResult;
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "訂單服務尚未設定" }, { status: 503 });
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set("select", "id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,payment_last_five,bank_account_id,created_at,bank_accounts(label,bank_name,account_name,account_number),order_items(product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)");
+  url.searchParams.set("select", "id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,payment_last_five,bank_account_id,created_at,bank_accounts(label,bank_name,account_name,account_number),order_items(product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)");
   url.searchParams.set("member_id", `eq.${authResult.user.id}`);
   url.searchParams.set("order", "created_at.desc");
   url.searchParams.set("limit", "50");
@@ -538,7 +543,7 @@ async function adminDashboard(request: Request, env: Env): Promise<Response> {
     fetch(`${base}/rest/v1/products?select=id,name,description,image_path,image_updated_at,purchase_limit,is_published,display_order,category_id,categories(name),product_variants(id,name,sku,kind,price,stock_on_hand,safety_stock,preorder_arrival,deposit_rate,seller_link,is_published,display_order,updated_at)&order=display_order.asc`, { headers }),
     fetch(`${base}/rest/v1/bank_accounts?select=id,label,bank_name,account_name,account_number,is_active,display_order,created_at&order=display_order.asc`, { headers }),
     fetch(`${base}/rest/v1/inventory_movements?select=id,variant_id,kind,quantity_delta,reason,created_at,product_variants(name,sku,products(name))&order=created_at.desc&limit=50`, { headers }),
-    fetch(`${base}/rest/v1/orders?select=id,member_id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,paid_amount,payment_deadline,payment_last_five,bank_account_id,admin_note,confirmed_at,payment_confirmed_at,completed_at,cancelled_at,created_at,profiles!orders_member_id_fkey(full_name,phone),bank_accounts(label,bank_name,account_name,account_number),order_items(id,product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)&order=created_at.desc&limit=200`, { headers }),
+    fetch(`${base}/rest/v1/orders?select=id,member_id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,paid_amount,payment_deadline,payment_last_five,bank_account_id,admin_note,confirmed_at,payment_confirmed_at,completed_at,cancelled_at,created_at,profiles!orders_member_id_fkey(full_name,phone),bank_accounts(label,bank_name,account_name,account_number),order_items(id,product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)&order=created_at.desc&limit=200`, { headers }),
     fetch(`${base}/rest/v1/order_status_history?select=id,order_id,from_status,to_status,note,created_at,profiles(full_name)&order=created_at.desc&limit=500`, { headers }),
     fetch(`${base}/rest/v1/admin_member_summary?select=id,full_name,phone,birthday,address,is_admin,created_at,point_balance,lifetime_spend,order_count&order=created_at.desc`, { headers }),
     fetch(`${base}/rest/v1/point_ledger?select=id,member_id,order_id,kind,points,reason,created_at,profiles!point_ledger_member_id_fkey(full_name),actor:profiles!point_ledger_actor_id_fkey(full_name),orders(order_number)&order=created_at.desc&limit=500`, { headers }),
@@ -867,7 +872,7 @@ async function createOrder(request: Request, env: Env): Promise<Response> {
   if (authResult instanceof Response) return authResult;
   const { authorization, user } = authResult;
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "資料庫尚未設定" }, { status: 503 });
-  let body: { items?: Array<{ variant_id: string; quantity: number }>; pickup_plan?: "together" | "split"; delivery_method?: "store_pickup" | "seller_delivery" | "home_delivery"; payment_method?: "bank_transfer" | "store_payment"; shipping_address?: string; coupon_code?: string; points_to_redeem?: number; bank_account_id?: string; payment_last_five?: string };
+  let body: { items?: Array<{ variant_id: string; quantity: number }>; pickup_plan?: "together" | "split"; delivery_method?: "store_pickup" | "seller_delivery" | "home_delivery"; payment_method?: "bank_transfer" | "store_payment"; shipping_address?: string; shipping_recipient_name?: string; shipping_phone?: string; coupon_code?: string; points_to_redeem?: number; bank_account_id?: string; payment_last_five?: string };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   if (!Array.isArray(body.items) || body.items.length === 0) return json({ error: "購物車不可為空" }, { status: 400 });
   if (body.items.some((item) => !item.variant_id || !Number.isInteger(item.quantity) || item.quantity < 1)) return json({ error: "商品數量錯誤" }, { status: 400 });
@@ -876,18 +881,28 @@ async function createOrder(request: Request, env: Env): Promise<Response> {
   if (paymentMethod === "store_payment" && body.delivery_method && body.delivery_method !== "store_pickup") return json({ error: "到店支付僅適用到店取貨" }, { status: 400 });
   if (paymentMethod === "bank_transfer" && !body.bank_account_id) return json({ error: "請選擇收款帳戶" }, { status: 400 });
   if (!Number.isInteger(body.points_to_redeem ?? 0) || (body.points_to_redeem ?? 0) < 0) return json({ error: "點數使用數量不正確" }, { status: 400 });
+  const deliveryMethod = body.delivery_method ?? "store_pickup";
+  const shippingRecipientName = body.shipping_recipient_name?.trim() || null;
+  const shippingPhone = body.shipping_phone?.replace(/[\s-]/g, "") || null;
+  if (deliveryMethod === "home_delivery") {
+    if (!shippingRecipientName) return json({ error: "宅配請填寫收件人姓名" }, { status: 400 });
+    if (!shippingPhone || !/^09\d{8}$/.test(shippingPhone)) return json({ error: "宅配請填寫有效的收件人手機號碼" }, { status: 400 });
+    if (!body.shipping_address?.trim()) return json({ error: "宅配請填寫收件地址" }, { status: 400 });
+  }
   const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/create_delivery_order`, {
     method: "POST",
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authorization, "Content-Type": "application/json" },
     body: JSON.stringify({
       p_items: body.items,
       p_pickup_plan: body.pickup_plan ?? "together",
-      p_delivery_method: body.delivery_method ?? "store_pickup",
+      p_delivery_method: deliveryMethod,
       p_coupon_code: body.coupon_code?.trim() || null,
       p_points_to_redeem: body.points_to_redeem ?? 0,
       p_bank_account_id: body.bank_account_id ?? null,
       p_payment_last_five: body.payment_last_five ?? null,
-      p_shipping_address: body.shipping_address?.trim() || null
+      p_shipping_address: body.shipping_address?.trim() || null,
+      p_shipping_recipient_name: shippingRecipientName,
+      p_shipping_phone: shippingPhone
     })
   });
   if (!response.ok) return databaseError(response);
