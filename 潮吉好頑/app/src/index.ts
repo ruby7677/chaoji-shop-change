@@ -179,7 +179,7 @@ async function notifyOrderEvent(env: Env, orderId: string, eventType: LineOrderE
   const items = (order.order_items || []).map((item) => `${item.product_name}${item.variant_name === "單一規格" ? "" : ` · ${item.variant_name}`} ×${item.quantity}`).join("、");
   const deliveryLabels: Record<string, string> = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配" };
   const deliveryLine = deliveryLabels[order.delivery_method || "store_pickup"] || "到店取貨";
-  const paymentLine = order.bank_account_id ? "匯款／轉帳" : "到店支付";
+  const paymentLine = order.delivery_method === "seller_delivery" ? "賣貨便付款（外部）" : order.bank_account_id ? "匯款／轉帳" : "到店支付";
   const message = buildOrderNotificationMessage({
     storeName: env.STORE_NAME,
     eventType,
@@ -615,6 +615,7 @@ async function updateAdminOrderFulfillment(request: Request, env: Env, orderId: 
   if (!orderRows.length) return json({ error: "找不到訂單" }, { status: 404 });
   const sellerDelivery = orderRows[0].delivery_method === "seller_delivery";
   if (sellerDelivery && body.shipping_fee !== 0) return json({ error: "賣貨便運費由 7-11 向客戶收取，不計入訂單" }, { status: 400 });
+  if (sellerDelivery && body.final_payment_confirmed === true) return json({ error: "賣貨便付款由外部平台處理，不需在本站確認尾款" }, { status: 400 });
   const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_order_fulfillment`, {
     method: "POST",
     headers: serviceHeaders(env),
@@ -888,13 +889,13 @@ async function createOrder(request: Request, env: Env): Promise<Response> {
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   if (!Array.isArray(body.items) || body.items.length === 0) return json({ error: "購物車不可為空" }, { status: 400 });
   if (body.items.some((item) => !item.variant_id || !Number.isInteger(item.quantity) || item.quantity < 1)) return json({ error: "商品數量錯誤" }, { status: 400 });
+  const deliveryMethod = body.delivery_method ?? "store_pickup";
   const paymentMethod = body.payment_method ?? (body.bank_account_id ? "bank_transfer" : "store_payment");
   if (!['bank_transfer', 'store_payment'].includes(paymentMethod)) return json({ error: "付款方式不正確" }, { status: 400 });
-  if (paymentMethod === "store_payment" && body.delivery_method && body.delivery_method !== "store_pickup") return json({ error: "到店支付僅適用到店取貨" }, { status: 400 });
+  if (paymentMethod === "store_payment" && !["store_pickup", "seller_delivery"].includes(deliveryMethod)) return json({ error: "到店支付僅適用到店取貨" }, { status: 400 });
+  if (deliveryMethod === "seller_delivery" && (paymentMethod !== "store_payment" || body.bank_account_id)) return json({ error: "賣貨便訂單請在賣貨便完成付款，本站不收取賣貨便款項" }, { status: 400 });
   if (paymentMethod === "bank_transfer" && !body.bank_account_id) return json({ error: "請選擇收款帳戶" }, { status: 400 });
   if (!Number.isInteger(body.points_to_redeem ?? 0) || (body.points_to_redeem ?? 0) < 0) return json({ error: "點數使用數量不正確" }, { status: 400 });
-  const deliveryMethod = body.delivery_method ?? "store_pickup";
-  if (deliveryMethod === "seller_delivery") return json({ error: "賣貨便請前往賣貨便完成結帳，本站不建立賣貨便訂單" }, { status: 400 });
   const shippingRecipientName = body.shipping_recipient_name?.trim() || null;
   const shippingPhone = body.shipping_phone?.replace(/[\s-]/g, "") || null;
   if (deliveryMethod === "home_delivery") {

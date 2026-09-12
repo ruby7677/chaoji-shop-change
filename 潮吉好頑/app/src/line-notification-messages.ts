@@ -16,6 +16,7 @@ export const LINE_NOTIFICATION_COPY = {
       created: "待確認中",
       paymentReported: "會員已回報匯款",
       depositConfirmed: "已確認收到訂金",
+      sellerConfirmed: "已建立訂單，出貨中",
       arrived: "已到貨，待付尾款出貨",
       shipping: "已確認收到尾款，出貨中",
       completed: "已完成"
@@ -38,7 +39,8 @@ export const LINE_NOTIFICATION_COPY = {
     },
     payment: {
       bankPending: "匯款／轉帳後、待客服確認通知",
-      storePending: "到店支付後、待客服確認通知"
+      storePending: "到店支付後、待客服確認通知",
+      sellerPending: "賣貨便結帳後、待管理員核對通知"
     },
     delivery: {
       remoteBalancePending: "待到貨後通知",
@@ -115,7 +117,7 @@ export function buildOrderNotificationMessage(data: OrderMessageData) {
       productLine,
       `${copy.labels.total}：${money(data.amountDue)}`,
       `${copy.labels.deposit}：${money(data.depositDue)}`,
-      `${copy.labels.payment}：${data.paymentLine === "到店支付" ? copy.payment.storePending : copy.payment.bankPending}`
+      `${copy.labels.payment}：${data.paymentLine === "到店支付" ? copy.payment.storePending : data.paymentLine === "賣貨便付款（外部）" ? copy.payment.sellerPending : copy.payment.bankPending}`
     ].join("\n");
   }
 
@@ -126,6 +128,17 @@ export function buildOrderNotificationMessage(data: OrderMessageData) {
       `${copy.labels.status}：${copy.status.shipping}`,
       "",
       productLine
+    ].join("\n");
+  }
+
+  if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "賣貨便") {
+    return [
+      data.storeName,
+      `${copy.labels.order}：${data.orderNumber}`,
+      `${copy.labels.status}：${copy.status.completed}`,
+      "",
+      productLine,
+      `${copy.labels.delivery}：${data.deliveryLine}`
     ].join("\n");
   }
 
@@ -153,6 +166,16 @@ export function buildOrderNotificationMessage(data: OrderMessageData) {
 
   if (isPaymentReported || isDepositConfirmed) {
     const depositStatus = isDepositConfirmed ? copy.status.depositConfirmed : copy.status.paymentReported;
+    if (isDepositConfirmed && data.deliveryLine === "賣貨便") {
+      return [
+        data.storeName,
+        `${copy.labels.order}：${data.orderNumber}`,
+        `${copy.labels.status}：${copy.status.sellerConfirmed}`,
+        "",
+        productLine,
+        `${copy.labels.delivery}：${data.deliveryLine}`
+      ].join("\n");
+    }
     if (isHomeDelivery) {
       return [
         data.storeName,
