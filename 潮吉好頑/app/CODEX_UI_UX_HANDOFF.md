@@ -1,12 +1,12 @@
-# 潮吉好頑｜Claude UI/UX 改版交接文件
+# 潮吉好頑｜Codex UI/UX 改版交接文件
 
-> 文件用途：將本文件與 `潮吉好頑/app` 專案一起交給 Claude（Claude Code 或其他 Claude 工作階段），請它先理解產品與現有流程，再提出新的 UI/UX 方案。
+> 文件用途：將本文件與 `潮吉好頑/app` 專案一起交給 Codex（建議使用 GPT-6 Astra）工作階段，請它先理解產品與現有流程，再提出新的 UI/UX 方案。
 >
 > 建立基準：Cloudflare Worker 版本 `90de5147-4ad3-4043-8e57-ef997b857db0`，Git commit `691815b`（`deployed-90de5147`）。
 >
-> 重要：本文件不包含 Supabase、LINE 或 Cloudflare secret。不要要求 Claude 讀取或回傳 `.env`、`.dev.vars`、Cloudflare secrets、Service Role Key、Channel Access Token。
+> 重要：本文件不包含 Supabase、LINE 或 Cloudflare secret。不要要求 Codex 讀取或回傳 `.env`、`.dev.vars`、Cloudflare secrets、Service Role Key、Channel Access Token。
 
-## 1. 給 Claude 的工作指令
+## 1. 給 Codex 的工作指令
 
 你現在是「潮吉好頑」的資深電商 UI/UX 設計師、轉化率優化顧問與前端設計系統工程師。請先閱讀本文件，以及下列檔案：
 
@@ -204,7 +204,7 @@
 - 賣貨便與宅配的費用責任要用短句清楚說明：賣貨便由 7-11 收取；宅配實際費用到貨後由客服通知；本站結帳不預先加總未知運費。
 - 管理後台優先呈現「現在需要處理什麼」：待確認款項、賣貨便待核對、可取貨、低庫存、逾期／退款。
 
-## 6. Claude 必須先交付的設計成果
+## 6. Codex 必須先交付的設計成果
 
 請先以 Markdown 回傳，並以實際畫面與流程為中心：
 
@@ -265,4 +265,4 @@
 - 最新 Git commit：`691815b fix: simplify homepage store support rail`
 - 最新部署 tag：`deployed-90de5147`
 - 本文件只是一份 UI/UX 交接與設計約束，不代表已批准任何新視覺方向。
-- 若 Claude 發現 `PRODUCT.md`、規格書、目前程式與本文件有衝突，請先回報衝突與影響範圍，等待店主決定。
+- 若 Codex 發現 `PRODUCT.md`、規格書、目前程式與本文件有衝突，請先回報衝突與影響範圍，等待店主決定。
