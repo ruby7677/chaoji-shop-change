@@ -39,7 +39,7 @@ type Product = {
 type AuthUser = {
   id: string;
   user_metadata?: Record<string, unknown>;
-  identities?: Array<{ identity_data?: Record<string, unknown> }>;
+  identities?: Array<{ provider?: string; identity_data?: Record<string, unknown> }>;
 };
 
 const demoProducts: Product[] = [
@@ -47,9 +47,32 @@ const demoProducts: Product[] = [
   { id: "ux20", category: "UX系列", name: "UX20 榮耀戰神 亞洲版", price: 1350, stock: 23, type: "現貨", seller_link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" }
 ];
 
-function json(data: unknown, init: ResponseInit = {}) {
-  return Response.json(data, { ...init, headers: { "Cache-Control": "no-store", ...init.headers } });
+const SECURITY_HEADERS: Record<string, string> = {
+  "Content-Security-Policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; form-action 'self'; upgrade-insecure-requests",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  "Strict-Transport-Security": "max-age=31536000"
+};
+
+function withSecurityHeaders(response: Response) {
+  const headers = new Headers(response.headers);
+  Object.entries(SECURITY_HEADERS).forEach(([name, value]) => headers.set(name, value));
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
+
+function json(data: unknown, init: ResponseInit = {}) {
+  const headers = new Headers(SECURITY_HEADERS);
+  headers.set("Cache-Control", "no-store");
+  new Headers(init.headers).forEach((value, name) => headers.set(name, value));
+  return Response.json(data, { ...init, headers });
+}
+
+const MAX_JSON_REQUEST_BYTES = 128 * 1024;
+const MAX_ORDER_ITEMS = 50;
+const MAX_ITEM_QUANTITY = 100;
+const LINE_FRIEND_VERIFICATION_TTL_SECONDS = 15 * 60;
 
 function bearerToken(request: Request) {
   const authorization = request.headers.get("Authorization");
@@ -93,15 +116,42 @@ function serviceHeaders(env: Env, prefer?: string) {
 
 async function syncLineIdentity(env: Env, user: AuthUser) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return;
-  const metadataSources = [user.user_metadata || {}, ...(user.identities || []).map((identity) => identity.identity_data || {})];
+  // `user_metadata` is editable by the signed-in user. Only use provider identity
+  // data and never overwrite an existing binding from a later client request.
+  const metadataSources = (user.identities || [])
+    .filter((identity) => {
+      const provider = identity.provider?.toLowerCase();
+      return !provider || provider === "line" || provider === "custom:line-web" || provider === (env.SUPABASE_CUSTOM_PROVIDER || "").toLowerCase();
+    })
+    .map((identity) => identity.identity_data || {});
   const lineId = metadataSources.flatMap((metadata) => [metadata.line_user_id, metadata.lineUserId, metadata.user_id, metadata.sub])
-    .find((value) => typeof value === "string" && value.trim()) as string | undefined;
+    .find((value) => typeof value === "string" && /^U[0-9a-f]{32}$/i.test(value.trim())) as string | undefined;
   if (!lineId) return;
-  await fetch(`${env.SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`, {
+  const profileUrl = new URL(`${env.SUPABASE_URL}/rest/v1/profiles`);
+  profileUrl.searchParams.set("id", `eq.${user.id}`);
+  profileUrl.searchParams.set("line_user_id", "is.null");
+  await fetch(profileUrl, {
     method: "PATCH",
     headers: serviceHeaders(env, "return=minimal"),
     body: JSON.stringify({ line_user_id: lineId.trim() })
   });
+}
+
+function lineFriendVerificationIsFresh(value: string | null | undefined) {
+  const verifiedAt = value ? Date.parse(value) : NaN;
+  return Number.isFinite(verifiedAt) && Date.now() - verifiedAt <= LINE_FRIEND_VERIFICATION_TTL_SECONDS * 1000;
+}
+
+async function setLineFriendVerification(env: Env, userId: string, verified: boolean) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return false;
+  const url = new URL(`${env.SUPABASE_URL}/rest/v1/profiles`);
+  url.searchParams.set("id", `eq.${userId}`);
+  const response = await fetch(url, {
+    method: "PATCH",
+    headers: serviceHeaders(env, "return=minimal"),
+    body: JSON.stringify({ line_friend_verified_at: verified ? new Date().toISOString() : null })
+  });
+  return response.ok;
 }
 
 const lineOrderStatusLabels: Record<string, string> = {
@@ -292,6 +342,12 @@ const databaseErrors: Record<string, string> = {
   PRODUCT_NOT_FOUND: "商品已下架或不存在",
   INSUFFICIENT_STOCK: "商品庫存不足，請重新整理購物車",
   ORDER_NOT_PAYABLE: "訂單已逾期、已回報付款或無法付款",
+  LINE_FRIEND_REQUIRED: "請先加入官方 LINE，並重新檢查好友狀態",
+  ORDER_RATE_LIMITED: "近期建立訂單次數過多，請稍後再試",
+  PENDING_ORDER_LIMIT: "目前待處理訂單已達上限，請等待客服確認",
+  PURCHASE_LIMIT_EXCEEDED: "已達此商品的會員限購數量",
+  DUPLICATE_ORDER_ITEM: "購物車中不可重複相同商品規格",
+  REQUEST_BODY_TOO_LARGE: "請求內容過大，請縮減購物車或欄位內容",
   ADMIN_REQUIRED: "僅限管理員使用",
   REQUIRED_FIELDS_MISSING: "請填寫所有必填欄位",
   INVALID_NUMBER: "價格或庫存數量不正確",
@@ -334,7 +390,8 @@ async function databaseError(response: Response) {
   let payload: { message?: string } = {};
   try { payload = await response.json() as { message?: string }; } catch { /* ignore malformed upstream errors */ }
   const matched = Object.keys(databaseErrors).find((code) => payload.message?.includes(code));
-  return json({ error: matched ? databaseErrors[matched] : "訂單服務暫時無法處理" }, { status: response.status >= 500 ? 503 : 400 });
+  const status = matched === "LINE_FRIEND_REQUIRED" ? 403 : response.status >= 500 ? 503 : 400;
+  return json({ error: matched ? databaseErrors[matched] : "訂單服務暫時無法處理" }, { status });
 }
 
 async function publicCatalog(env: Env): Promise<Product[]> {
@@ -367,7 +424,8 @@ function storageObjectUrl(env: Env, path: string) {
 
 async function serveProductImage(env: Env, productId: string): Promise<Response> {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "圖片服務尚未設定" }, { status: 503 });
-  const productResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/products?select=image_path&id=eq.${productId}&limit=1`, {
+  // Unpublished product images must not be exposed by guessing an old UUID.
+  const productResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/products?select=image_path&id=eq.${productId}&is_published=eq.true&limit=1`, {
     headers: serviceHeaders(env)
   });
   if (!productResponse.ok) return json({ error: "圖片暫時無法載入" }, { status: 503 });
@@ -378,12 +436,11 @@ async function serveProductImage(env: Env, productId: string): Promise<Response>
     headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` }
   });
   if (!imageResponse.ok || !imageResponse.body) return json({ error: "圖片暫時無法載入" }, { status: imageResponse.status === 404 ? 404 : 503 });
+  const imageHeaders = new Headers(SECURITY_HEADERS);
+  imageHeaders.set("Content-Type", imageResponse.headers.get("Content-Type") || "application/octet-stream");
+  imageHeaders.set("Cache-Control", "public, max-age=31536000, immutable");
   return new Response(imageResponse.body, {
-    headers: {
-      "Content-Type": imageResponse.headers.get("Content-Type") || "application/octet-stream",
-      "Cache-Control": "public, max-age=31536000, immutable",
-      "X-Content-Type-Options": "nosniff"
-    }
+    headers: imageHeaders
   });
 }
 
@@ -513,30 +570,37 @@ async function memberLineFriendship(request: Request, env: Env): Promise<Respons
   const authResult = await requireUser(request, env);
   if (authResult instanceof Response) return authResult;
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) return json({ error: "LINE 好友狀態服務尚未設定" }, { status: 503 });
-  const profileResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/profiles?select=line_user_id&id=eq.${authResult.user.id}&limit=1`, { headers: serviceHeaders(env) });
+  const profileUrl = new URL(`${env.SUPABASE_URL}/rest/v1/profiles`);
+  profileUrl.searchParams.set("select", "line_user_id,line_friend_verified_at");
+  profileUrl.searchParams.set("id", `eq.${authResult.user.id}`);
+  profileUrl.searchParams.set("limit", "1");
+  const profileResponse = await fetch(profileUrl, { headers: serviceHeaders(env) });
   if (!profileResponse.ok) return json({ error: "無法讀取 LINE 會員資料" }, { status: 503 });
-  const profiles = await profileResponse.json() as Array<{ line_user_id?: string | null }>;
+  const profiles = await profileResponse.json() as Array<{ line_user_id?: string | null; line_friend_verified_at?: string | null }>;
   const lineUserId = profiles[0]?.line_user_id;
   if (!lineUserId) return json({ friendFlag: false, reason: "LINE_ID_MISSING" });
-  const lineLoginAccessToken = request.headers.get("X-LINE-Login-Access-Token");
-  if (lineLoginAccessToken) {
-    const [friendshipResponse, profileCheckResponse] = await Promise.all([
-      fetch("https://api.line.me/friendship/v1/status", { headers: { Authorization: `Bearer ${lineLoginAccessToken}` } }),
-      fetch("https://api.line.me/v2/profile", { headers: { Authorization: `Bearer ${lineLoginAccessToken}` } })
-    ]);
-    if (friendshipResponse.ok && profileCheckResponse.ok) {
-      const friendship = await friendshipResponse.json() as { friendFlag?: boolean };
-      const lineProfile = await profileCheckResponse.json() as { userId?: string };
-      if (lineProfile.userId !== lineUserId) return json({ error: "LINE 會員驗證不一致，請重新登入" }, { status: 401 });
-      return json({ friendFlag: friendship.friendFlag === true, source: "line_login" });
-    }
-    if ([401, 403].includes(friendshipResponse.status) || [401, 403].includes(profileCheckResponse.status)) return json({ error: "LINE 登入授權已過期，請重新登入" }, { status: 401 });
+  const lineLoginAccessToken = request.headers.get("X-LINE-Login-Access-Token")?.trim() || null;
+  if (!lineLoginAccessToken) {
+    // A cached verification is safe for a short window, but a Bot API profile
+    // lookup alone cannot prove that this requester owns the LINE identity.
+    return json(lineFriendVerificationIsFresh(profiles[0]?.line_friend_verified_at)
+      ? { friendFlag: true, source: "cached" }
+      : { friendFlag: false, reason: "LINE_PROVIDER_TOKEN_REQUIRED" });
   }
-  const lineResponse = await fetch(`https://api.line.me/v2/bot/profile/${encodeURIComponent(lineUserId)}`, {
-    headers: { Authorization: `Bearer ${env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}` }
-  });
-  if (lineResponse.ok) return json({ friendFlag: true });
-  if (lineResponse.status === 404) return json({ friendFlag: false, reason: "NOT_FRIEND_OR_BLOCKED" });
+  if (lineLoginAccessToken.length > 4096) return json({ error: "LINE 登入授權格式不正確" }, { status: 400 });
+  const [friendshipResponse, profileCheckResponse] = await Promise.all([
+    fetch("https://api.line.me/friendship/v1/status", { headers: { Authorization: `Bearer ${lineLoginAccessToken}` } }),
+    fetch("https://api.line.me/v2/profile", { headers: { Authorization: `Bearer ${lineLoginAccessToken}` } })
+  ]);
+  if (friendshipResponse.ok && profileCheckResponse.ok) {
+    const friendship = await friendshipResponse.json() as { friendFlag?: boolean };
+    const lineProfile = await profileCheckResponse.json() as { userId?: string };
+    if (lineProfile.userId !== lineUserId) return json({ error: "LINE 會員驗證不一致，請重新登入" }, { status: 401 });
+    const isFriend = friendship.friendFlag === true;
+    if (!await setLineFriendVerification(env, authResult.user.id, isFriend)) return json({ error: "LINE 好友驗證紀錄失敗，請稍後再試" }, { status: 503 });
+    return json({ friendFlag: isFriend, source: "line_login" });
+  }
+  if ([401, 403].includes(friendshipResponse.status) || [401, 403].includes(profileCheckResponse.status)) return json({ error: "LINE 登入授權已過期，請重新登入" }, { status: 401 });
   return json({ error: "LINE 好友狀態暫時無法確認" }, { status: 503 });
 }
 
@@ -886,10 +950,20 @@ async function createOrder(request: Request, env: Env): Promise<Response> {
   if (authResult instanceof Response) return authResult;
   const { authorization, user } = authResult;
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "資料庫尚未設定" }, { status: 503 });
+  const contentLength = Number(request.headers.get("Content-Length") || 0);
+  if (Number.isFinite(contentLength) && contentLength > MAX_JSON_REQUEST_BYTES) return json({ error: databaseErrors.REQUEST_BODY_TOO_LARGE }, { status: 413 });
   let body: { items?: Array<{ variant_id: string; quantity: number }>; pickup_plan?: "together" | "split"; delivery_method?: "store_pickup" | "seller_delivery" | "home_delivery"; payment_method?: "bank_transfer" | "store_payment"; shipping_address?: string; shipping_recipient_name?: string; shipping_phone?: string; coupon_code?: string; points_to_redeem?: number; bank_account_id?: string; payment_last_five?: string };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   if (!Array.isArray(body.items) || body.items.length === 0) return json({ error: "購物車不可為空" }, { status: 400 });
-  if (body.items.some((item) => !item.variant_id || !Number.isInteger(item.quantity) || item.quantity < 1)) return json({ error: "商品數量錯誤" }, { status: 400 });
+  if (body.items.length > MAX_ORDER_ITEMS) return json({ error: "購物車品項數量超過上限" }, { status: 400 });
+  const variantIds = new Set<string>();
+  let duplicateVariant = false;
+  if (body.items.some((item) => {
+    if (!item.variant_id || !/^[0-9a-f-]{36}$/i.test(item.variant_id) || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > MAX_ITEM_QUANTITY) return true;
+    if (variantIds.has(item.variant_id.toLowerCase())) { duplicateVariant = true; return true; }
+    variantIds.add(item.variant_id.toLowerCase());
+    return false;
+  })) return json({ error: duplicateVariant ? databaseErrors.DUPLICATE_ORDER_ITEM : "商品數量錯誤" }, { status: 400 });
   const deliveryMethod = body.delivery_method ?? "store_pickup";
   const paymentMethod = body.payment_method ?? (body.bank_account_id ? "bank_transfer" : "store_payment");
   if (!['bank_transfer', 'store_payment'].includes(paymentMethod)) return json({ error: "付款方式不正確" }, { status: 400 });
@@ -948,6 +1022,11 @@ async function submitOrderPayment(request: Request, env: Env, orderId: string): 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    const isProductImageUpload = request.method === "POST" && /^\/api\/admin\/products\/[0-9a-f-]{36}\/image$/i.test(url.pathname);
+    const contentLength = Number(request.headers.get("Content-Length") || 0);
+    if (url.pathname.startsWith("/api/") && ["POST", "PUT", "PATCH"].includes(request.method) && !isProductImageUpload && Number.isFinite(contentLength) && contentLength > MAX_JSON_REQUEST_BYTES) {
+      return json({ error: databaseErrors.REQUEST_BODY_TOO_LARGE }, { status: 413 });
+    }
     if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, store: env.STORE_NAME, database: Boolean(env.SUPABASE_URL) });
     if (request.method === "GET" && url.pathname === "/api/config") return json(await runtimeConfig(env));
     if (request.method === "GET" && url.pathname === "/api/catalog") {
@@ -1016,7 +1095,7 @@ export default {
       return response;
     }
     if (url.pathname.startsWith("/api/")) return json({ error: "找不到 API" }, { status: 404 });
-    return env.ASSETS.fetch(request);
+    return withSecurityHeaders(await env.ASSETS.fetch(request));
   },
 
   scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {

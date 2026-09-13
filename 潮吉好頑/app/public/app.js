@@ -123,7 +123,7 @@ function renderCart() {
   updateCartCheckoutAction();
   document.querySelector("#cart-total").textContent = money(total);
   document.querySelector("#cart-empty").classList.toggle("hidden", cart.length > 0);
-  items.innerHTML = cart.map((item) => `<div class="cart-item"><div><h3>${item.name}</h3><small>${money(item.price)} · ${item.category}</small><div class="quantity"><button type="button" data-quantity="${item.id}" data-delta="-1">−</button><b>${item.quantity}</b><button type="button" data-quantity="${item.id}" data-delta="1">＋</button></div></div><div><strong>${money(item.price * item.quantity)}</strong><button class="remove" type="button" data-remove="${item.id}">移除</button></div></div>`).join("");
+  items.innerHTML = cart.map((item) => `<div class="cart-item"><div><h3>${escapeHtml(item.name)}</h3><small>${money(item.price)} · ${escapeHtml(item.category)}</small><div class="quantity"><button type="button" data-quantity="${escapeHtml(item.id)}" data-delta="-1">−</button><b>${item.quantity}</b><button type="button" data-quantity="${escapeHtml(item.id)}" data-delta="1">＋</button></div></div><div><strong>${money(item.price * item.quantity)}</strong><button class="remove" type="button" data-remove="${escapeHtml(item.id)}">移除</button></div></div>`).join("");
 }
 function saveCart() { sessionStorage.setItem("cj-cart", JSON.stringify(cart)); }
 function addToCart(id) { const product = products.find((item) => item.id === id); const existing = cart.find((item) => item.id === id); if (existing) { if (existing.quantity >= product.stock) return showToast("已達可選購庫存上限"); existing.quantity += 1; } else cart.push({ ...product, quantity: 1 }); saveCart(); renderCart(); showToast(`${product.name} 已加入購物車`); }
