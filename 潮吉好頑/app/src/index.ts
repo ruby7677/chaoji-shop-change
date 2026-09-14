@@ -17,6 +17,9 @@ interface Env {
   LINE_MESSAGING_CHANNEL_ACCESS_TOKEN?: string;
   LINE_ADMIN_USER_IDS?: string;
   LINE_NOTIFY_ENABLED?: string;
+  API_ORDER_RATE_LIMITER?: RateLimit;
+  API_MEMBER_RATE_LIMITER?: RateLimit;
+  API_ADMIN_RATE_LIMITER?: RateLimit;
 }
 
 type Product = {
@@ -74,6 +77,16 @@ const MAX_ORDER_ITEMS = 50;
 const MAX_ITEM_QUANTITY = 100;
 const LINE_FRIEND_VERIFICATION_TTL_SECONDS = 15 * 60;
 
+async function enforceRateLimit(limiter: RateLimit | undefined, key: string): Promise<Response | null> {
+  if (!limiter) return null;
+  try {
+    const outcome = await limiter.limit({ key });
+    return outcome.success ? null : json({ error: "請求過於頻繁，請稍後再試" }, { status: 429, headers: { "Retry-After": "60" } });
+  } catch {
+    return json({ error: "安全限制服務暫時無法使用，請稍後再試" }, { status: 503 });
+  }
+}
+
 function bearerToken(request: Request) {
   const authorization = request.headers.get("Authorization");
   return authorization?.startsWith("Bearer ") ? authorization : null;
@@ -113,6 +126,8 @@ async function requireAdmin(request: Request, env: Env): Promise<{ authorization
   if (!response.ok) return json({ error: "無法確認管理員權限" }, { status: 503 });
   const rows = await response.json() as Array<{ is_admin?: boolean }>;
   if (!rows[0]?.is_admin) return json({ error: "僅限管理員使用" }, { status: 403 });
+  const rateLimitResponse = await enforceRateLimit(env.API_ADMIN_RATE_LIMITER, `admin:${authResult.user.id}`);
+  if (rateLimitResponse) return rateLimitResponse;
   return authResult;
 }
 
@@ -580,6 +595,8 @@ async function memberPoints(request: Request, env: Env): Promise<Response> {
 async function memberLineFriendship(request: Request, env: Env): Promise<Response> {
   const authResult = await requireUser(request, env);
   if (authResult instanceof Response) return authResult;
+  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `friendship:${authResult.user.id}`);
+  if (rateLimitResponse) return rateLimitResponse;
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) return json({ error: "LINE 好友狀態服務尚未設定" }, { status: 503 });
   const profileUrl = new URL(`${env.SUPABASE_URL}/rest/v1/profiles`);
   profileUrl.searchParams.set("select", "line_user_id,line_friend_verified_at");
@@ -960,6 +977,8 @@ async function createOrder(request: Request, env: Env): Promise<Response> {
   const authResult = await requireUser(request, env);
   if (authResult instanceof Response) return authResult;
   const { authorization, user } = authResult;
+  const rateLimitResponse = await enforceRateLimit(env.API_ORDER_RATE_LIMITER, `order:${user.id}`);
+  if (rateLimitResponse) return rateLimitResponse;
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "資料庫尚未設定" }, { status: 503 });
   const contentLength = Number(request.headers.get("Content-Length") || 0);
   if (Number.isFinite(contentLength) && contentLength > MAX_JSON_REQUEST_BYTES) return json({ error: databaseErrors.REQUEST_BODY_TOO_LARGE }, { status: 413 });
@@ -1015,6 +1034,8 @@ async function createOrder(request: Request, env: Env): Promise<Response> {
 async function submitOrderPayment(request: Request, env: Env, orderId: string): Promise<Response> {
   const authResult = await requireUser(request, env);
   if (authResult instanceof Response) return authResult;
+  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `payment:${authResult.user.id}`);
+  if (rateLimitResponse) return rateLimitResponse;
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return json({ error: "訂單服務尚未設定" }, { status: 503 });
   let body: { bank_account_id?: string; payment_last_five?: string };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }

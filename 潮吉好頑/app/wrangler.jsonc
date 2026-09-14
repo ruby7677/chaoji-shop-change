@@ -10,6 +10,23 @@
     "LINE_AUTH_ENABLED": "true",
     "LINE_NOTIFY_ENABLED": "true"
   },
+  "ratelimits": [
+    {
+      "name": "API_ORDER_RATE_LIMITER",
+      "namespace_id": "2026091401",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    {
+      "name": "API_MEMBER_RATE_LIMITER",
+      "namespace_id": "2026091402",
+      "simple": { "limit": 30, "period": 60 }
+    },
+    {
+      "name": "API_ADMIN_RATE_LIMITER",
+      "namespace_id": "2026091403",
+      "simple": { "limit": 20, "period": 60 }
+    }
+  ],
   "triggers": {
     "crons": ["0 * * * *"]
   }
