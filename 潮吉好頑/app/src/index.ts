@@ -79,6 +79,16 @@ function bearerToken(request: Request) {
   return authorization?.startsWith("Bearer ") ? authorization : null;
 }
 
+function hasLineIdentity(user: AuthUser, env: Env) {
+  const expectedProvider = (env.SUPABASE_CUSTOM_PROVIDER || "custom:line-web").toLowerCase();
+  return (user.identities || []).some((identity) => {
+    const provider = identity.provider?.toLowerCase();
+    if (provider && provider !== "line" && provider !== "custom:line-web" && provider !== expectedProvider) return false;
+    if (provider === "line" || provider === "custom:line-web" || provider === expectedProvider) return true;
+    return Object.values(identity.identity_data || {}).some((value) => typeof value === "string" && /^U[0-9a-f]{32}$/i.test(value.trim()));
+  });
+}
+
 async function requireUser(request: Request, env: Env): Promise<{ authorization: string; user: AuthUser } | Response> {
   const authorization = bearerToken(request);
   if (!authorization) return json({ error: "需要會員登入" }, { status: 401 });
@@ -88,6 +98,7 @@ async function requireUser(request: Request, env: Env): Promise<{ authorization:
   });
   if (!response.ok) return json({ error: "登入已過期，請重新登入" }, { status: 401 });
   const user = await response.json() as AuthUser;
+  if (env.LINE_AUTH_ENABLED === "true" && !hasLineIdentity(user, env)) return json({ error: "本網站僅接受 LINE 會員登入" }, { status: 403 });
   await syncLineIdentity(env, user);
   return { authorization, user };
 }
