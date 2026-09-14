@@ -7,6 +7,7 @@ const cart = [];
 const grid = document.querySelector("#product-grid");
 const search = document.querySelector("#product-search");
 const auth = { config: null, accessToken: null, refreshToken: null, lineProviderToken: null, user: null, profile: null, points: null, lineFriendFlag: null };
+const adminMfa = { mode: "manage", continueAdmin: false, factors: [], enrollment: null, challengeId: null, factorId: null, error: "", loading: false };
 let activeCategory = "all";
 let bankAccounts = [];
 let currentOrders = [];
@@ -241,10 +242,7 @@ function addDetailToCart() {
 function captureAuthSession() {
   const fragment = new URLSearchParams(location.hash.replace(/^#/, ""));
   if (fragment.get("access_token")) {
-    auth.accessToken = fragment.get("access_token");
-    auth.refreshToken = fragment.get("refresh_token");
-    auth.lineProviderToken = fragment.get("provider_token");
-    sessionStorage.setItem("cj-auth", JSON.stringify({ accessToken: auth.accessToken, refreshToken: auth.refreshToken, lineProviderToken: auth.lineProviderToken }));
+    storeAuthSession(fragment.get("access_token"), fragment.get("refresh_token"), fragment.get("provider_token"));
     history.replaceState(null, "", location.pathname + location.search);
     return;
   }
@@ -254,6 +252,191 @@ function captureAuthSession() {
     auth.refreshToken = saved?.refreshToken ?? null;
     auth.lineProviderToken = saved?.lineProviderToken ?? null;
   } catch { sessionStorage.removeItem("cj-auth"); }
+}
+
+function storeAuthSession(accessToken, refreshToken, providerToken = auth.lineProviderToken) {
+  auth.accessToken = accessToken || null;
+  auth.refreshToken = refreshToken || null;
+  auth.lineProviderToken = providerToken || null;
+  if (auth.accessToken) sessionStorage.setItem("cj-auth", JSON.stringify({ accessToken: auth.accessToken, refreshToken: auth.refreshToken, lineProviderToken: auth.lineProviderToken }));
+  else sessionStorage.removeItem("cj-auth");
+}
+
+async function mfaFetch(path, options = {}) {
+  if (!auth.accessToken || !auth.config?.supabaseUrl || !auth.config?.supabaseAnonKey) throw new Error("請先登入管理員帳號");
+  const hasBody = options.body != null;
+  const response = await fetch(`${auth.config.supabaseUrl}/auth/v1/${path}`, {
+    ...options,
+    headers: { apikey: auth.config.supabaseAnonKey, Authorization: `Bearer ${auth.accessToken}`, ...(hasBody ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) },
+    body: hasBody && typeof options.body !== "string" ? JSON.stringify(options.body) : options.body
+  });
+  const contentType = response.headers.get("content-type") || "";
+  const result = contentType.includes("application/json") ? await response.json() : null;
+  if (!response.ok) throw new Error(result?.msg || result?.message || result?.error_description || "MFA 操作失敗，請稍後再試");
+  return result;
+}
+
+function mfaFactorId(value) {
+  return typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value) ? value : null;
+}
+
+function mfaQrDataUrl(value) {
+  if (typeof value !== "string" || !value) return "";
+  return value.startsWith("data:") ? value : `data:image/svg+xml;utf-8,${encodeURIComponent(value)}`;
+}
+
+async function loadAdminMfaFactors() {
+  const user = await mfaFetch("user");
+  auth.user = { ...auth.user, ...user };
+  adminMfa.factors = Array.isArray(user?.factors) ? user.factors.filter((factor) => factor?.factor_type === "totp") : [];
+  return adminMfa.factors;
+}
+
+function verifiedAdminMfaFactors() {
+  return adminMfa.factors.filter((factor) => factor.status === "verified" && mfaFactorId(factor.id));
+}
+
+function adminMfaFactorName(factor) {
+  return factor?.friendly_name?.trim() || "管理員驗證器";
+}
+
+function renderAdminMfaDialog() {
+  const content = document.querySelector("#admin-mfa-content");
+  const title = document.querySelector("#admin-mfa-dialog-title");
+  if (!content || !title) return;
+  if (adminMfa.loading) {
+    title.textContent = adminMfa.mode === "challenge" ? "解鎖管理後台" : "管理員雙重驗證";
+    content.innerHTML = '<p class="dialog-copy">載入驗證器狀態中…</p>';
+    return;
+  }
+  const verified = verifiedAdminMfaFactors();
+  const unverified = adminMfa.factors.filter((factor) => factor.status !== "verified");
+  const required = Boolean(auth.config?.adminMfaRequired);
+  const factorOptions = verified.map((factor) => `<option value="${escapeHtml(factor.id)}" ${factor.id === adminMfa.factorId ? "selected" : ""}>${escapeHtml(adminMfaFactorName(factor))}</option>`).join("");
+  if (adminMfa.mode === "challenge") {
+    title.textContent = "解鎖管理後台";
+    if (!verified.length) {
+      content.innerHTML = `<p class="admin-mfa-status is-warning"><b>尚未完成管理員 MFA</b></p><p class="dialog-copy">此後台已要求雙重驗證，但目前帳號沒有已啟用的 TOTP 驗證器。請先完成註冊，再重新開啟後台。</p><div class="admin-mfa-actions"><button class="primary-button" type="button" data-admin-mfa-action="manage">設定管理員驗證器</button></div>`;
+      return;
+    }
+    if (!adminMfa.factorId || !verified.some((factor) => factor.id === adminMfa.factorId)) adminMfa.factorId = verified[0].id;
+    const challengeReady = Boolean(adminMfa.challengeId);
+    content.innerHTML = `<p class="admin-mfa-status is-warning"><b>請輸入驗證器 App 的 6 位數驗證碼</b></p><p class="dialog-copy">管理後台已啟用雙重驗證。每次開啟後台都需要使用已註冊的驗證器。</p><label>驗證器<select id="admin-mfa-factor">${factorOptions}</select></label>${challengeReady ? '<label>驗證碼<input id="admin-mfa-code" class="admin-mfa-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required /></label>' : '<p class="admin-mfa-note">按下按鈕後會建立一次性驗證挑戰。</p>'}<div class="admin-mfa-actions">${challengeReady ? '<button class="primary-button" type="submit" data-admin-mfa-action="verify-challenge">驗證並開啟後台</button>' : '<button class="primary-button" type="button" data-admin-mfa-action="start-challenge">取得驗證碼欄位</button>'}<button class="secondary-button" type="button" data-admin-mfa-action="manage">管理驗證器</button></div><p class="admin-mfa-note">若驗證失敗，請確認手機時間已自動同步，再重新取得驗證碼。</p>`;
+    return;
+  }
+  title.textContent = "管理員雙重驗證";
+  if (adminMfa.enrollment) {
+    const enrollment = adminMfa.enrollment;
+    const qr = mfaQrDataUrl(enrollment.qrCode);
+    content.innerHTML = `<p class="admin-mfa-status is-warning"><b>尚未完成此驗證器註冊</b></p><p class="dialog-copy">請用驗證器 App 掃描 QR Code，再輸入 App 顯示的 6 位數驗證碼完成啟用。QR Code 與密鑰只會在本次畫面暫存。</p><div class="admin-mfa-setup">${qr ? `<img class="admin-mfa-qr" src="${escapeHtml(qr)}" alt="管理員 TOTP QR Code" />` : ""}<div><p class="admin-mfa-note">無法掃描時，請手動輸入密鑰：</p><code class="admin-mfa-secret">${escapeHtml(enrollment.secret || "未提供")}</code><label>驗證碼<input id="admin-mfa-code" class="admin-mfa-code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required /></label></div></div><div class="admin-mfa-actions"><button class="primary-button" type="submit" data-admin-mfa-action="verify-enrollment">驗證並啟用</button><button class="secondary-button" type="button" data-admin-mfa-action="cancel-enrollment">取消設定</button></div><p class="admin-mfa-note">請妥善保存驗證器；若遺失，需由另一位管理員協助處理帳號復原。</p>`;
+    return;
+  }
+  const factorCards = verified.map((factor) => `<div class="admin-mfa-factor"><div><b>${escapeHtml(adminMfaFactorName(factor))}</b><small>TOTP 驗證器 · 已啟用${factor.created_at ? ` · ${formatDateTime(factor.created_at)}` : ""}</small></div><span class="admin-chip chip-live">已啟用</span></div>`).join("");
+  const unverifiedNote = unverified.length ? `<p class="admin-mfa-note">偵測到 ${unverified.length} 個尚未完成的設定。若不是目前使用的裝置，請重新開始設定。</p>` : "";
+  content.innerHTML = `${verified.length ? '<p class="admin-mfa-status is-secure"><b>此帳號已設定管理員雙重驗證</b></p>' : '<p class="admin-mfa-status is-warning"><b>尚未設定管理員雙重驗證</b></p>'}<p class="dialog-copy">${required ? "目前後台已要求 AAL2；請先完成驗證才能進入後台。" : "目前仍是準備階段；完成所有管理員註冊後，再由店主啟用強制驗證。"}</p><div class="admin-mfa-factors">${factorCards || '<p class="admin-mfa-note">尚無已啟用的 TOTP 驗證器。</p>'}</div>${unverifiedNote}<div class="admin-mfa-actions"><button class="primary-button" type="button" data-admin-mfa-action="begin-enrollment">${verified.length ? "新增驗證器" : "開始設定驗證器"}</button>${adminMfa.continueAdmin ? '<button class="secondary-button" type="button" data-admin-mfa-action="close">稍後設定</button>' : ""}</div><p class="admin-mfa-note">建議每位管理員使用自己的驗證器 App，不要共用同一組密鑰。</p>`;
+}
+
+async function openAdminMfa(mode = "manage", continueAdmin = false) {
+  if (!auth.user || auth.profile?.is_admin !== true) return showToast("僅限管理員使用");
+  adminMfa.mode = mode;
+  adminMfa.continueAdmin = continueAdmin;
+  adminMfa.enrollment = null;
+  adminMfa.challengeId = null;
+  adminMfa.factorId = null;
+  adminMfa.error = "";
+  adminMfa.loading = true;
+  const dialog = document.querySelector("#admin-mfa-dialog");
+  if (dialog && !dialog.open) dialog.showModal();
+  renderAdminMfaDialog();
+  try {
+    await loadAdminMfaFactors();
+    const verified = verifiedAdminMfaFactors();
+    adminMfa.factorId = verified[0]?.id || null;
+  } catch (error) {
+    adminMfa.error = error.message;
+  } finally {
+    adminMfa.loading = false;
+    renderAdminMfaDialog();
+    const errorNode = document.querySelector("#admin-mfa-content .admin-mfa-error");
+    if (adminMfa.error && !errorNode) document.querySelector("#admin-mfa-content")?.insertAdjacentHTML("afterbegin", `<p class="form-error admin-mfa-error" role="alert">${escapeHtml(adminMfa.error)}</p>`);
+  }
+}
+
+async function beginAdminMfaEnrollment() {
+  adminMfa.error = "";
+  adminMfa.loading = true;
+  renderAdminMfaDialog();
+  try {
+    const result = await mfaFetch("factors", { method: "POST", body: { factor_type: "totp", friendly_name: "潮吉好頑管理員" } });
+    const factorId = mfaFactorId(result?.id);
+    if (!factorId || !result?.totp) throw new Error("MFA 未回傳有效的 TOTP 設定資料");
+    adminMfa.enrollment = { factorId, qrCode: result.totp.qr_code || "", secret: result.totp.secret || "", uri: result.totp.uri || "" };
+  } catch (error) {
+    adminMfa.error = error.message;
+  } finally {
+    adminMfa.loading = false;
+    renderAdminMfaDialog();
+    if (adminMfa.error) document.querySelector("#admin-mfa-content")?.insertAdjacentHTML("afterbegin", `<p class="form-error admin-mfa-error" role="alert">${escapeHtml(adminMfa.error)}</p>`);
+  }
+}
+
+async function verifyAdminMfaCode(action) {
+  const code = document.querySelector("#admin-mfa-code")?.value.trim() || "";
+  if (!/^\d{6}$/.test(code)) throw new Error("請輸入驗證器 App 顯示的 6 位數驗證碼");
+  const factorId = action === "verify-enrollment" ? adminMfa.enrollment?.factorId : adminMfa.factorId;
+  if (!mfaFactorId(factorId)) throw new Error("找不到可驗證的 TOTP 驗證器");
+  let challengeId = action === "verify-challenge" ? mfaFactorId(adminMfa.challengeId) : null;
+  if (!challengeId) {
+    const challenge = await mfaFetch(`factors/${factorId}/challenge`, { method: "POST", body: {} });
+    challengeId = mfaFactorId(challenge?.id);
+  }
+  if (!challengeId) throw new Error("MFA 未回傳有效的驗證挑戰");
+  const result = await mfaFetch(`factors/${factorId}/verify`, { method: "POST", body: { challenge_id: challengeId, code } });
+  if (!result?.access_token || !result?.refresh_token) throw new Error("MFA 驗證成功但未取得新的安全工作階段，請重新登入後再試");
+  storeAuthSession(result.access_token, result.refresh_token);
+  if (result?.user) auth.user = { ...auth.user, ...result.user };
+  adminMfa.enrollment = null;
+  adminMfa.challengeId = null;
+  await loadMember();
+  await loadAdminMfaFactors();
+  if (action === "verify-challenge" && adminMfa.continueAdmin) {
+    adminMfa.continueAdmin = false;
+    document.querySelector("#admin-mfa-dialog")?.close();
+    showToast("雙重驗證成功，正在開啟管理後台");
+    return openAdmin();
+  }
+  adminMfa.mode = "manage";
+  renderAdminMfaDialog();
+  showToast("管理員雙重驗證已啟用");
+}
+
+async function startAdminMfaChallenge() {
+  const factorId = mfaFactorId(document.querySelector("#admin-mfa-factor")?.value) || mfaFactorId(adminMfa.factorId);
+  if (!factorId) throw new Error("找不到可驗證的 TOTP 驗證器");
+  adminMfa.factorId = factorId;
+  const challenge = await mfaFetch(`factors/${factorId}/challenge`, { method: "POST", body: {} });
+  if (!mfaFactorId(challenge?.id)) throw new Error("MFA 未回傳有效的驗證挑戰");
+  adminMfa.challengeId = challenge.id;
+  renderAdminMfaDialog();
+  document.querySelector("#admin-mfa-code")?.focus();
+}
+
+async function submitAdminMfa(event) {
+  event.preventDefault();
+  const action = event.submitter?.dataset.adminMfaAction;
+  if (!action) return;
+  const button = event.submitter;
+  if (button instanceof HTMLButtonElement) { button.disabled = true; button.textContent = action.startsWith("verify") ? "驗證中…" : "處理中…"; }
+  try {
+    if (action === "verify-enrollment" || action === "verify-challenge") await verifyAdminMfaCode(action);
+    else if (action === "start-challenge") await startAdminMfaChallenge();
+  } catch (error) {
+    adminMfa.error = error.message;
+    renderAdminMfaDialog();
+    document.querySelector("#admin-mfa-content")?.insertAdjacentHTML("afterbegin", `<p class="form-error admin-mfa-error" role="alert">${escapeHtml(adminMfa.error)}</p>`);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 async function loadRuntimeConfig() {
@@ -333,6 +516,7 @@ function updateMemberButton() {
   if (auth.profile?.full_name) document.querySelector("#checkout-name").value = auth.profile.full_name;
   if (auth.profile?.phone) document.querySelector("#checkout-phone").value = auth.profile.phone;
   if (auth.profile?.address) document.querySelector("#checkout-address").value = auth.profile.address;
+  document.querySelector("#admin-mfa-entry")?.classList.toggle("hidden", auth.profile?.is_admin !== true);
 }
 
 function showProfileDialog(required = false) {
@@ -730,7 +914,12 @@ async function adminFetch(path, options = {}) {
     headers: { Authorization: `Bearer ${auth.accessToken}`, ...(options.body && !hasFormData ? { "Content-Type": "application/json" } : {}), ...(options.headers || {}) }
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "管理操作失敗");
+  if (!response.ok) {
+    const error = new Error(result.error || "管理操作失敗");
+    error.code = result.code;
+    error.status = response.status;
+    throw error;
+  }
   return result;
 }
 
@@ -775,6 +964,10 @@ async function loadAdminData() {
   } catch (error) {
     errorNode.textContent = error.message;
     errorNode.classList.remove("hidden");
+    if (error.code === "ADMIN_MFA_REQUIRED") {
+      document.querySelector("#admin-dialog")?.close();
+      await openAdminMfa("challenge", true);
+    }
   } finally {
     loading.classList.add("hidden");
   }
@@ -1343,6 +1536,14 @@ document.addEventListener("click", (event) => {
   if (event.target.closest("[data-checkout]")) handleCartCheckout();
   if (event.target.closest("[data-admin-open]")) openAdmin();
   if (event.target.closest("[data-admin-close]")) document.querySelector("#admin-dialog").close();
+  if (event.target.closest("[data-admin-mfa-open]")) { document.querySelector("#profile-dialog")?.close(); openAdminMfa("manage"); }
+  if (event.target.closest("[data-admin-mfa-close]")) document.querySelector("#admin-mfa-dialog")?.close();
+  const adminMfaAction = event.target.closest("[data-admin-mfa-action]")?.dataset.adminMfaAction;
+  if (adminMfaAction === "begin-enrollment") beginAdminMfaEnrollment().catch((error) => { adminMfa.error = error.message; renderAdminMfaDialog(); document.querySelector("#admin-mfa-content")?.insertAdjacentHTML("afterbegin", `<p class="form-error admin-mfa-error" role="alert">${escapeHtml(adminMfa.error)}</p>`); });
+  if (adminMfaAction === "cancel-enrollment") { adminMfa.enrollment = null; adminMfa.error = ""; renderAdminMfaDialog(); }
+  if (adminMfaAction === "start-challenge") startAdminMfaChallenge().catch((error) => { adminMfa.error = error.message; renderAdminMfaDialog(); document.querySelector("#admin-mfa-content")?.insertAdjacentHTML("afterbegin", `<p class="form-error admin-mfa-error" role="alert">${escapeHtml(adminMfa.error)}</p>`); });
+  if (adminMfaAction === "manage") openAdminMfa("manage", adminMfa.continueAdmin);
+  if (adminMfaAction === "close") document.querySelector("#admin-mfa-dialog")?.close();
   if (event.target.closest("[data-checkout-close]")) document.querySelector("#checkout-dialog").close();
   if (event.target.closest("[data-demo='login']")) auth.user ? showProfileDialog(false) : beginLineLogin();
   if (event.target.closest("[data-profile-close]")) document.querySelector("#profile-dialog").close();
@@ -1391,6 +1592,7 @@ document.addEventListener("change", (event) => {
   if (event.target.matches("input[name='cart_delivery_method']")) setCartDeliveryMethod(event.target.value);
   if (event.target.matches("input[name='delivery_method']")) setCartDeliveryMethod(event.target.value);
   if (event.target.matches("input[name='payment_method']")) syncPaymentFields();
+  if (event.target.matches("#admin-mfa-factor")) { adminMfa.factorId = mfaFactorId(event.target.value); adminMfa.challengeId = null; renderAdminMfaDialog(); }
   if (event.target.matches("input[name='pickup']")) renderCheckoutSummary();
   if (event.target.matches("#product-detail-variant")) {
     activeDetailProductId = event.target.value;
@@ -1405,6 +1607,10 @@ document.addEventListener("input", (event) => {
   if (event.target.matches("#checkout-address")) renderCheckoutSummary();
 });
 document.addEventListener("submit", async (event) => {
+  if (event.target.matches("#admin-mfa-form")) {
+    try { await submitAdminMfa(event); } catch (error) { adminMfa.error = error.message; renderAdminMfaDialog(); document.querySelector("#admin-mfa-content")?.insertAdjacentHTML("afterbegin", `<p class="form-error admin-mfa-error" role="alert">${escapeHtml(adminMfa.error)}</p>`); }
+    return;
+  }
   if (event.target.matches("#admin-coupon-form")) {
     try { await submitCoupon(event); } catch (error) { showToast(error.message); }
     return;

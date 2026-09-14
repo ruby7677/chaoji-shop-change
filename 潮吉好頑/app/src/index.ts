@@ -17,6 +17,8 @@ interface Env {
   LINE_MESSAGING_CHANNEL_ACCESS_TOKEN?: string;
   LINE_ADMIN_USER_IDS?: string;
   LINE_NOTIFY_ENABLED?: string;
+  /** Keep false until every administrator has enrolled and tested TOTP. */
+  ADMIN_MFA_REQUIRED?: string;
   API_ORDER_RATE_LIMITER?: RateLimit;
   API_MEMBER_RATE_LIMITER?: RateLimit;
   API_ADMIN_RATE_LIMITER?: RateLimit;
@@ -92,6 +94,22 @@ function bearerToken(request: Request) {
   return authorization?.startsWith("Bearer ") ? authorization : null;
 }
 
+function tokenHasAal2(authorization: string) {
+  // `requireUser` has already validated this JWT with Supabase Auth. Decode only
+  // the validated token's AAL claim here so privileged routes can require aal2.
+  const token = authorization.replace(/^Bearer\s+/i, "");
+  const payload = token.split(".")[1];
+  if (!payload) return false;
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
+    const bytes = Uint8Array.from(atob(normalized), (character) => character.charCodeAt(0));
+    const decoded = new TextDecoder().decode(bytes);
+    return (JSON.parse(decoded) as { aal?: string }).aal === "aal2";
+  } catch {
+    return false;
+  }
+}
+
 function hasLineIdentity(user: AuthUser, env: Env) {
   const expectedProvider = (env.SUPABASE_CUSTOM_PROVIDER || "custom:line-web").toLowerCase();
   return (user.identities || []).some((identity) => {
@@ -126,6 +144,9 @@ async function requireAdmin(request: Request, env: Env): Promise<{ authorization
   if (!response.ok) return json({ error: "無法確認管理員權限" }, { status: 503 });
   const rows = await response.json() as Array<{ is_admin?: boolean }>;
   if (!rows[0]?.is_admin) return json({ error: "僅限管理員使用" }, { status: 403 });
+  if (env.ADMIN_MFA_REQUIRED === "true" && !tokenHasAal2(authResult.authorization)) {
+    return json({ error: "管理員需要完成雙重驗證", code: "ADMIN_MFA_REQUIRED" }, { status: 403 });
+  }
   const rateLimitResponse = await enforceRateLimit(env.API_ADMIN_RATE_LIMITER, `admin:${authResult.user.id}`);
   if (rateLimitResponse) return rateLimitResponse;
   return authResult;
@@ -531,7 +552,8 @@ async function runtimeConfig(env: Env) {
     supabaseUrl: env.SUPABASE_URL ?? null,
     supabaseAnonKey: env.SUPABASE_ANON_KEY ?? null,
     lineProvider: provider,
-    authEnabled: lineEnabled
+    authEnabled: lineEnabled,
+    adminMfaRequired: env.ADMIN_MFA_REQUIRED === "true"
   };
 }
 

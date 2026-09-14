@@ -497,3 +497,27 @@ footer{padding:26px max(7vw,30px);border-color:var(--home-line);background:var(-
   .trust-rail-link{grid-column:auto;padding:13px 0 17px;border-top:1px solid var(--home-line)}
 }
 @media(max-width:430px){.trust-rail{padding-inline:20px}}
+
+/* Admin TOTP security surface. Keep the setup calm and scannable on mobile. */
+#admin-mfa-dialog{width:min(560px,calc(100% - 28px));max-width:560px}
+#admin-mfa-dialog form{position:relative;padding:28px}
+#admin-mfa-dialog .dialog-close{position:absolute;right:14px;top:10px}
+#admin-mfa-dialog-title{margin:0 0 10px}
+.admin-mfa-entry{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:20px 0;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--paper)}
+.admin-mfa-entry h3{margin:3px 0 5px;font-size:1rem}
+.admin-mfa-entry .dialog-copy{margin:0;font-size:.75rem;line-height:1.55}
+.admin-mfa-status{display:flex;align-items:center;gap:8px;margin:0 0 18px;padding:11px 13px;border-radius:8px;background:var(--paper);font-size:.82rem}
+.admin-mfa-status b{font-weight:850}
+.admin-mfa-status.is-secure{background:#e4f5e8;color:#145b2b}
+.admin-mfa-status.is-warning{background:#fff4ca;color:#745b08}
+.admin-mfa-factors{display:grid;gap:8px;margin:12px 0 20px}
+.admin-mfa-factor{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;border:1px solid var(--line);border-radius:8px;background:#fff;font-size:.8rem}
+.admin-mfa-factor small{display:block;color:var(--muted);margin-top:3px;font-size:.72rem}
+.admin-mfa-setup{display:grid;grid-template-columns:150px 1fr;gap:18px;align-items:start;margin:15px 0;padding:15px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.admin-mfa-qr{width:150px;aspect-ratio:1;border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px;object-fit:contain}
+.admin-mfa-secret{display:block;overflow-wrap:anywhere;padding:8px;border-radius:6px;background:var(--paper);font:600 .72rem/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.05em}
+.admin-mfa-code{display:block;width:100%;margin:8px 0 12px;border:1px solid var(--line);border-radius:7px;padding:11px 12px;font:700 1rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2em;text-align:center}
+.admin-mfa-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:15px}
+.admin-mfa-actions .primary-button,.admin-mfa-actions .secondary-button{min-width:130px}
+.admin-mfa-note{margin:10px 0 0;color:var(--muted);font-size:.74rem;line-height:1.6}
+@media(max-width:520px){#admin-mfa-dialog form{padding:24px 20px}.admin-mfa-entry{align-items:flex-start;flex-direction:column}.admin-mfa-entry .secondary-button{width:100%}.admin-mfa-setup{grid-template-columns:1fr}.admin-mfa-qr{width:170px;justify-self:center}.admin-mfa-actions>*{width:100%}}

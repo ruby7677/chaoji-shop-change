@@ -79,11 +79,14 @@
         <label>生日 <small>選填</small><input id="profile-birthday" name="birthday" type="date" autocomplete="bday" /></label>
         <label>收件地址 <small>選填</small><textarea id="profile-address" name="address" rows="3" maxlength="200" autocomplete="street-address" placeholder="賣貨便或寄送需要時可填寫"></textarea></label>
       </div>
+      <section id="admin-mfa-entry" class="admin-mfa-entry hidden" aria-labelledby="admin-mfa-entry-title"><div><p class="eyebrow">ADMIN SECURITY</p><h3 id="admin-mfa-entry-title">管理員雙重驗證</h3><p class="dialog-copy">為後台管理員設定驗證器 App。完成註冊後，店主可再將後台切換為強制雙重驗證。</p></div><button class="secondary-button" type="button" data-admin-mfa-open>管理驗證器</button></section>
       <p class="form-error hidden" id="profile-error" role="alert"></p>
       <p class="terms">資料僅用於會員識別、訂單聯繫與生日優惠券發送。</p>
       <button class="primary-button profile-submit" type="submit">儲存會員資料</button>
     </form>
   </dialog>
+
+  <dialog id="admin-mfa-dialog" aria-labelledby="admin-mfa-dialog-title"><form id="admin-mfa-form"><button class="dialog-close" type="button" data-admin-mfa-close aria-label="關閉">×</button><p class="eyebrow">ADMIN SECURITY</p><h2 id="admin-mfa-dialog-title">管理員雙重驗證</h2><div id="admin-mfa-content"><p class="dialog-copy">載入驗證器狀態中…</p></div></form></dialog>
 
   <dialog id="line-friend-dialog" aria-labelledby="line-friend-dialog-title"><form id="line-friend-form" method="dialog"><button class="dialog-close" type="submit" aria-label="關閉">×</button><p class="eyebrow">LINE FRIEND</p><h2 id="line-friend-dialog-title">請先加入官方 LINE</h2><p class="dialog-copy">為了讓你收到訂單建立、付款確認、到貨與取貨通知，請先加入「潮吉好頑」官方 LINE。加入後按下重新檢查即可繼續結帳。</p><a class="line-friend-link primary-button" href="https://line.me/R/ti/p/@345adwzw" target="_blank" rel="noreferrer">加入潮吉好頑官方 LINE</a><p class="form-error hidden" id="line-friend-error" role="alert"></p><div class="line-friend-actions"><button class="primary-button" type="button" data-line-friend-check>我已加入，重新檢查</button><button class="text-button" type="submit" data-line-friend-home>先回首頁瀏覽</button></div></form></dialog>
 

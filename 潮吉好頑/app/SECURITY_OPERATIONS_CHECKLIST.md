@@ -13,7 +13,7 @@
   - `API_MEMBER_RATE_LIMITER`：每會員好友驗證／付款 30 次／60 秒。
   - `API_ADMIN_RATE_LIMITER`：每位管理員 API 20 次／60 秒。
 - Worker 安全標頭：CSP、HSTS、X-Frame-Options、X-Content-Type-Options、Referrer-Policy、Permissions-Policy。
-- 最新 Worker：`deployed-9e26f7eb`（Version ID `9e26f7eb-2738-4db1-be37-ba43f03d9ee6`）。
+- 最新 Worker：`deployed-admin-mfa-v2`（Version ID `55e52841-dcca-4a4e-9c33-7cd4acf4cce1`）。
 
 ## A. Supabase Auth：Email／洩漏密碼防護
 
@@ -37,14 +37,14 @@ Worker 也已加入 provider allowlist，因此即使 Email provider 暫時未�
 
 請注意：Supabase 組織 MFA 只保護 Supabase Dashboard，不等於商店後台的三位管理員登入已完成 MFA。
 
-目前商店使用 LINE Login，前端尚未提供 TOTP enrollment／challenge 頁面；不要只在 Supabase Dashboard 開啟組織 MFA 就宣稱商店後台已受 MFA 保護。
+目前商店使用 LINE Login，前端已提供管理員 TOTP enrollment／challenge 頁面；Supabase 組織 MFA 仍只保護 Supabase Dashboard，不等於商店後台的三位管理員登入已完成 MFA。
 
 安全上線順序：
 
 1. 先為三位管理員規劃各自的驗證器（1Password、Authy、Google Authenticator 或 Apple 密碼）。
-2. 下一個開發階段新增管理員 MFA enrollment／challenge UI，使用 Supabase Auth MFA TOTP API。
+2. 管理員登入後開啟「會員資料 → 管理驗證器」，使用 Supabase Auth MFA TOTP API 完成註冊。
 3. 三位管理員各自完成註冊並以測試帳號驗證。
-4. Worker `requireAdmin` 增加 AAL2（`aal2`）要求；確認三位管理員都能登入後，再將 `ADMIN_MFA_REQUIRED=true` 設為 Cloudflare Worker variable。
+4. Worker `requireAdmin` 已支援 AAL2（`aal2`）要求；目前 `ADMIN_MFA_REQUIRED=false`，確認三位管理員都能登入後，再將它設為 `true`（Cloudflare Worker variable）並重新部署。
 5. 測試一般會員不能進入後台、AAL1 管理員不能操作後台、AAL2 管理員可以操作後台。
 
 官方說明：[Supabase MFA](https://supabase.com/docs/guides/auth/auth-mfa)
