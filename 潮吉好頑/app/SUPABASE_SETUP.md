@@ -5,7 +5,7 @@
 1. 開啟 Supabase Dashboard → SQL Editor → New query。
 2. 貼上並執行 `supabase/migrations/202609080001_initial_schema.sql`。
 3. 另開一個 query，貼上並執行 `supabase/seed.sql`。
-4. 若既有專案已完成前述 migration，接著只執行尚未套用的 migration；目前通知 migration 為 `202609100007_line_notifications.sql`，訂單確認補強 migration 為 `202609110001_admin_order_completion.sql`，取貨方式 migration 為 `202609110002_delivery_methods.sql`，運費改由客服到貨後通知 migration 為 `202609110003_remove_shipping_calculation.sql`，到店支付流程為 `202609110004_store_payment.sql`，到貨後尾款／實際運費確認為 `202609110005_final_payment_workflow.sql`，函式權限加固為 `202609110006_harden_function_privileges.sql`，前台商品詳情／規格欄位為 `202609110007_storefront_product_details.sql`，商品限購設定為 `202609110008_purchase_limit_management.sql`。不要重跑已成功執行的 migration。
+4. 若既有專案已完成前述 migration，接著只執行尚未套用的 migration；目前通知 migration 為 `202609100007_line_notifications.sql`，訂單確認補強 migration 為 `202609110001_admin_order_completion.sql`，取貨方式 migration 為 `202609110002_delivery_methods.sql`，運費改由客服到貨後通知 migration 為 `202609110003_remove_shipping_calculation.sql`，到店支付流程為 `202609110004_store_payment.sql`，到貨後尾款／實際運費確認為 `202609110005_final_payment_workflow.sql`，函式權限加固為 `202609110006_harden_function_privileges.sql`，前台商品詳情／規格欄位為 `202609110007_storefront_product_details.sql`，商品限購設定為 `202609110008_purchase_limit_management.sql`，無 MFA 管理員 identity guard 為 `202609140004_no_mfa_identity_guard.sql`。不要重跑已成功執行的 migration。
 5. 重新啟動網站後，`GET /api/catalog` 應回傳 Supabase 內的兩筆示範商品。
 
 僅有 Project URL、anon key、service role key 無法從外部執行任意 SQL；因此初次 migration 必須使用 SQL Editor、Supabase CLI 或資料庫連線密碼完成。
@@ -28,7 +28,7 @@ LINE 的網頁登入 ID Token 使用 HS256，但 LINE 的 OIDC discovery 宣告 
 12. Client ID：LINE Login Channel ID。
 13. Client Secret：LINE Login Channel Secret。
 14. Scopes：`openid, profile`。
-15. 開啟 Allow users without email；本專案不要求 LINE 提供 Email。
+15. 開啟 Allow users without email；本專案不要求 LINE 提供 Email，也不啟用 Supabase MFA。Email provider 維持關閉。
 16. 將 Supabase 畫面顯示的 Callback URL 加入 LINE Developers Console 的 Callback URL。
 17. Provider 啟用後，確認 `wrangler.jsonc` 的 `SUPABASE_CUSTOM_PROVIDER` 為 `custom:line-web`、`LINE_AUTH_ENABLED` 為 `true`；前端登入會帶入 `bot_prompt=normal`，登入同意畫面可提示加入官方 LINE。
 
@@ -59,3 +59,5 @@ Cloudflare Cron 會每小時執行生日券發送與低庫存檢查；生日券�
 ## 5. 管理員權限
 
 管理員權限由 `public.profiles.is_admin` 控制，會員無法透過前台自行提升權限。新增管理員時，先讓該 LINE 帳號登入並完成會員資料，再由受信任的 Supabase SQL Editor 將該會員設為管理員；Worker API 會在每次管理操作時再次驗證此旗標。
+
+本專案採用無 MFA 模式：Worker 會同時比對目前登入的 LINE provider identity 與 `profiles.line_user_id`，並要求 `profiles.is_admin = true`。`line_user_id` 與 `is_admin` 由服務端維護，會員只能更新自己的聯絡資料。

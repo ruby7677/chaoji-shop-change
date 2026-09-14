@@ -8,12 +8,13 @@
 - Supabase `public_catalog_security`：private schema 聚合可售庫存；未公開 reservation 明細不直接暴露給 anon。
 - Supabase `explicit_deny_policies`：service-role-only 表建立明確 deny policies；security advisor 的 RLS 無 policy INFO 已清除。
 - Worker provider allowlist：`LINE_AUTH_ENABLED=true` 時拒絕非 LINE identity 的 Supabase token。
+- 無 MFA 管理模式：管理 API 要求 LINE provider identity、綁定的 `profiles.line_user_id` 與 `is_admin=true` 三者一致。
 - Worker Rate Limiting API：
   - `API_ORDER_RATE_LIMITER`：每會員 10 次／60 秒。
   - `API_MEMBER_RATE_LIMITER`：每會員好友驗證／付款 30 次／60 秒。
   - `API_ADMIN_RATE_LIMITER`：每位管理員 API 20 次／60 秒。
 - Worker 安全標頭：CSP、HSTS、X-Frame-Options、X-Content-Type-Options、Referrer-Policy、Permissions-Policy。
-- 最新 Worker：`deployed-admin-mfa-v2`（Version ID `55e52841-dcca-4a4e-9c33-7cd4acf4cce1`）。
+- 最新 Worker：`deployed-line-admin-no-mfa-v2`（Version ID `e2f56dd1-9454-4310-9fb2-0fd98f403f11`）。
 
 ## A. Supabase Auth：Email／洩漏密碼防護
 
@@ -31,23 +32,18 @@
 - [Supabase Password Security](https://supabase.com/docs/guides/auth/password-security)
 - [Supabase Auth](https://supabase.com/docs/guides/auth)
 
-Worker 也已加入 provider allowlist，因此即使 Email provider 暫時未關閉，非 LINE identity 不能使用商店會員／訂單 API。
+Worker 也已加入 provider allowlist；目前 Email provider 已關閉，非 LINE identity 仍不能使用商店會員／訂單 API。
 
-## B. 管理員 MFA
+## B. 管理員登入（LINE＋is_admin，無 MFA）
 
-請注意：Supabase 組織 MFA 只保護 Supabase Dashboard，不等於商店後台的三位管理員登入已完成 MFA。
+本商店目前不啟用 Supabase MFA。Worker 每次管理 API 請求都會：
 
-目前商店使用 LINE Login，前端已提供管理員 TOTP enrollment／challenge 頁面；Supabase 組織 MFA 仍只保護 Supabase Dashboard，不等於商店後台的三位管理員登入已完成 MFA。
+1. 先用 Supabase Auth 驗證 Bearer token。
+2. 僅接受 LINE／`custom:line-web` provider identity。
+3. 以 service role 讀取 `profiles.is_admin` 與 `profiles.line_user_id`，要求兩者都符合目前登入的 LINE identity。
+4. 由資料庫 trigger 與 column grant 阻止會員修改 `line_user_id`、`is_admin`。
 
-安全上線順序：
-
-1. 先為三位管理員規劃各自的驗證器（1Password、Authy、Google Authenticator 或 Apple 密碼）。
-2. 管理員登入後開啟「會員資料 → 管理驗證器」，使用 Supabase Auth MFA TOTP API 完成註冊。
-3. 三位管理員各自完成註冊並以測試帳號驗證。
-4. Worker `requireAdmin` 已支援 AAL2（`aal2`）要求；目前 `ADMIN_MFA_REQUIRED=false`，確認三位管理員都能登入後，再將它設為 `true`（Cloudflare Worker variable）並重新部署。
-5. 測試一般會員不能進入後台、AAL1 管理員不能操作後台、AAL2 管理員可以操作後台。
-
-官方說明：[Supabase MFA](https://supabase.com/docs/guides/auth/auth-mfa)
+這是單一登入因子，無法防止已被竊取的 LINE 帳號或工作階段；管理員應使用不同 LINE 帳號、裝置鎖定與 LINE 官方安全設定。若未來要恢復 MFA，需重新加入 TOTP／Passkey enrollment 與 challenge 流程，不能只切換 Dashboard 選項。
 
 ## C. Cloudflare Rate Limiting
 

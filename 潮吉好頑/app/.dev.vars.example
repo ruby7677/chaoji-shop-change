@@ -11,5 +11,3 @@ LINE_MESSAGING_CHANNEL_ACCESS_TOKEN=
 LINE_ADMIN_USER_IDS=
 # 設為 false 可暫停通知，但不會停用登入
 LINE_NOTIFY_ENABLED=true
-# 三位管理員完成 TOTP 測試後才改為 true
-ADMIN_MFA_REQUIRED=false

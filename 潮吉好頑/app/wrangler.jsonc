@@ -8,8 +8,7 @@
     "STORE_NAME": "潮吉好頑",
     "SUPABASE_CUSTOM_PROVIDER": "custom:line-web",
     "LINE_AUTH_ENABLED": "true",
-    "LINE_NOTIFY_ENABLED": "true",
-    "ADMIN_MFA_REQUIRED": "false"
+    "LINE_NOTIFY_ENABLED": "true"
   },
   "ratelimits": [
     {

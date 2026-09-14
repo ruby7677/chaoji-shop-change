@@ -17,8 +17,6 @@ interface Env {
   LINE_MESSAGING_CHANNEL_ACCESS_TOKEN?: string;
   LINE_ADMIN_USER_IDS?: string;
   LINE_NOTIFY_ENABLED?: string;
-  /** Keep false until every administrator has enrolled and tested TOTP. */
-  ADMIN_MFA_REQUIRED?: string;
   API_ORDER_RATE_LIMITER?: RateLimit;
   API_MEMBER_RATE_LIMITER?: RateLimit;
   API_ADMIN_RATE_LIMITER?: RateLimit;
@@ -94,30 +92,22 @@ function bearerToken(request: Request) {
   return authorization?.startsWith("Bearer ") ? authorization : null;
 }
 
-function tokenHasAal2(authorization: string) {
-  // `requireUser` has already validated this JWT with Supabase Auth. Decode only
-  // the validated token's AAL claim here so privileged routes can require aal2.
-  const token = authorization.replace(/^Bearer\s+/i, "");
-  const payload = token.split(".")[1];
-  if (!payload) return false;
-  try {
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
-    const bytes = Uint8Array.from(atob(normalized), (character) => character.charCodeAt(0));
-    const decoded = new TextDecoder().decode(bytes);
-    return (JSON.parse(decoded) as { aal?: string }).aal === "aal2";
-  } catch {
-    return false;
-  }
+function lineIdentityId(user: AuthUser, env: Env) {
+  const expectedProvider = (env.SUPABASE_CUSTOM_PROVIDER || "custom:line-web").toLowerCase();
+  const metadataSources = (user.identities || [])
+    .filter((identity) => {
+      const provider = identity.provider?.toLowerCase();
+      return !provider || provider === "line" || provider === "custom:line-web" || provider === expectedProvider;
+    })
+    .map((identity) => identity.identity_data || {});
+  const value = metadataSources
+    .flatMap((metadata) => [metadata.line_user_id, metadata.lineUserId, metadata.user_id, metadata.sub])
+    .find((candidate) => typeof candidate === "string" && /^U[0-9a-f]{32}$/i.test(candidate.trim()));
+  return typeof value === "string" ? value.trim() : null;
 }
 
 function hasLineIdentity(user: AuthUser, env: Env) {
-  const expectedProvider = (env.SUPABASE_CUSTOM_PROVIDER || "custom:line-web").toLowerCase();
-  return (user.identities || []).some((identity) => {
-    const provider = identity.provider?.toLowerCase();
-    if (provider && provider !== "line" && provider !== "custom:line-web" && provider !== expectedProvider) return false;
-    if (provider === "line" || provider === "custom:line-web" || provider === expectedProvider) return true;
-    return Object.values(identity.identity_data || {}).some((value) => typeof value === "string" && /^U[0-9a-f]{32}$/i.test(value.trim()));
-  });
+  return Boolean(lineIdentityId(user, env));
 }
 
 async function requireUser(request: Request, env: Env): Promise<{ authorization: string; user: AuthUser } | Response> {
@@ -138,15 +128,14 @@ async function requireAdmin(request: Request, env: Env): Promise<{ authorization
   const authResult = await requireUser(request, env);
   if (authResult instanceof Response) return authResult;
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "管理服務尚未設定" }, { status: 503 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/profiles?select=is_admin&id=eq.${authResult.user.id}`, {
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/profiles?select=is_admin,line_user_id&id=eq.${authResult.user.id}`, {
     headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` }
   });
   if (!response.ok) return json({ error: "無法確認管理員權限" }, { status: 503 });
-  const rows = await response.json() as Array<{ is_admin?: boolean }>;
+  const rows = await response.json() as Array<{ is_admin?: boolean; line_user_id?: string | null }>;
   if (!rows[0]?.is_admin) return json({ error: "僅限管理員使用" }, { status: 403 });
-  if (env.ADMIN_MFA_REQUIRED === "true" && !tokenHasAal2(authResult.authorization)) {
-    return json({ error: "管理員需要完成雙重驗證", code: "ADMIN_MFA_REQUIRED" }, { status: 403 });
-  }
+  const authenticatedLineId = lineIdentityId(authResult.user, env);
+  if (!authenticatedLineId || !rows[0].line_user_id || rows[0].line_user_id.toLowerCase() !== authenticatedLineId.toLowerCase()) return json({ error: "管理員 LINE 身分尚未綁定，請重新登入", code: "ADMIN_LINE_ID_MISMATCH" }, { status: 403 });
   const rateLimitResponse = await enforceRateLimit(env.API_ADMIN_RATE_LIMITER, `admin:${authResult.user.id}`);
   if (rateLimitResponse) return rateLimitResponse;
   return authResult;
@@ -165,14 +154,7 @@ async function syncLineIdentity(env: Env, user: AuthUser) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return;
   // `user_metadata` is editable by the signed-in user. Only use provider identity
   // data and never overwrite an existing binding from a later client request.
-  const metadataSources = (user.identities || [])
-    .filter((identity) => {
-      const provider = identity.provider?.toLowerCase();
-      return !provider || provider === "line" || provider === "custom:line-web" || provider === (env.SUPABASE_CUSTOM_PROVIDER || "").toLowerCase();
-    })
-    .map((identity) => identity.identity_data || {});
-  const lineId = metadataSources.flatMap((metadata) => [metadata.line_user_id, metadata.lineUserId, metadata.user_id, metadata.sub])
-    .find((value) => typeof value === "string" && /^U[0-9a-f]{32}$/i.test(value.trim())) as string | undefined;
+  const lineId = lineIdentityId(user, env);
   if (!lineId) return;
   const profileUrl = new URL(`${env.SUPABASE_URL}/rest/v1/profiles`);
   profileUrl.searchParams.set("id", `eq.${user.id}`);
@@ -180,7 +162,7 @@ async function syncLineIdentity(env: Env, user: AuthUser) {
   await fetch(profileUrl, {
     method: "PATCH",
     headers: serviceHeaders(env, "return=minimal"),
-    body: JSON.stringify({ line_user_id: lineId.trim() })
+    body: JSON.stringify({ line_user_id: lineId })
   });
 }
 
@@ -553,7 +535,7 @@ async function runtimeConfig(env: Env) {
     supabaseAnonKey: env.SUPABASE_ANON_KEY ?? null,
     lineProvider: provider,
     authEnabled: lineEnabled,
-    adminMfaRequired: env.ADMIN_MFA_REQUIRED === "true"
+    adminIdentityMode: "line_user_id+is_admin"
   };
 }
 
