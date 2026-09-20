@@ -7,6 +7,18 @@ const cart = [];
 const grid = document.querySelector("#product-grid");
 const search = document.querySelector("#product-search");
 const auth = { config: null, accessToken: null, refreshToken: null, lineProviderToken: null, user: null, profile: null, points: null, lineFriendFlag: null };
+const MEMBER_POINTS_TTL_MS = 12 * 60 * 1000;
+const LINE_FRIENDSHIP_TTL_MS = 15 * 60 * 1000;
+const AUTH_RETURN_STATE_KEY = "chaoji:auth-return-state";
+const AUTH_RETURN_MAX_AGE_MS = 10 * 60 * 1000;
+let memberPointsCache = { userId: null, value: null, expiresAt: 0 };
+let memberPointsInFlight = null;
+let lineFriendshipCache = { userId: null, value: null, expiresAt: 0 };
+let lineFriendshipInFlight = null;
+let authReturnState = null;
+let shouldRestoreAuthReturnState = false;
+let authReturnError = null;
+let pendingReturnCheckout = null;
 let activeCategory = "all";
 let bankAccounts = [];
 let currentOrders = [];
@@ -14,16 +26,64 @@ let activePaymentOrder = null;
 let activeDetailProductId = null;
 let adminData = null;
 let cartDeliveryMethod = "store_pickup";
+let activeCheckoutScope = null;
+let activeCheckoutItems = null;
+const cartGroupDeliveryMethods = { in_stock: "store_pickup", preorder: "store_pickup" };
+const MEMBER_CART_SYNC_DEBOUNCE_MS = 750;
+let cartSyncTimer = null;
+let cartSyncRevision = 0;
+let cartSyncUserId = null;
+let lastSyncedCartHash = null;
+let pendingCartSnapshot = null;
+let pendingCartHash = null;
+let cartSyncInFlight = null;
+let cartSyncGeneration = 0;
+let identitySyncUserId = null;
+let identitySyncInFlight = null;
+const adminSections = ["overview", "orders", "members", "products", "inventory", "discounts", "settings"];
+const adminSectionLoaded = new Set();
+const adminSectionInFlight = new Map();
+
+function resetMemberCartSyncState() {
+  if (cartSyncTimer) window.clearTimeout(cartSyncTimer);
+  cartSyncTimer = null;
+  cartSyncRevision += 1;
+  cartSyncGeneration += 1;
+  lastSyncedCartHash = null;
+  pendingCartSnapshot = null;
+  pendingCartHash = null;
+  // A pending fetch cannot be cancelled reliably across browsers. Drop the
+  // guard and use cartSyncGeneration so its completion cannot update a new
+  // member session.
+  cartSyncInFlight = null;
+  cartSyncUserId = null;
+}
+
+function clearMemberStateCache() {
+  memberPointsCache = { userId: null, value: null, expiresAt: 0 };
+  memberPointsInFlight = null;
+  lineFriendshipCache = { userId: null, value: null, expiresAt: 0 };
+  lineFriendshipInFlight = null;
+  auth.points = null;
+  auth.lineFriendFlag = null;
+  resetMemberCartSyncState();
+  renderMemberPoints();
+}
 try {
   const savedDeliveryMethod = sessionStorage.getItem("cj-cart-delivery-method");
   if (["store_pickup", "seller_delivery", "home_delivery"].includes(savedDeliveryMethod)) cartDeliveryMethod = savedDeliveryMethod;
+  for (const scope of Object.keys(cartGroupDeliveryMethods)) {
+    const savedGroupMethod = sessionStorage.getItem(`cj-cart-delivery-method-${scope}`);
+    if (["store_pickup", "seller_delivery", "home_delivery"].includes(savedGroupMethod)) cartGroupDeliveryMethods[scope] = savedGroupMethod;
+    else cartGroupDeliveryMethods[scope] = cartDeliveryMethod;
+  }
 } catch { /* sessionStorage may be unavailable in restricted previews. */ }
 
 const deliveryMethodLabels = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配" };
 const deliveryMethodNotes = {
-  store_pickup: "台南市中西區民生路二段 90 號，免運。",
-  seller_delivery: "賣貨便運費由 7-11 於取貨時向客戶收取，不計入本站訂單；如有尾款，將由客服通知。",
-  home_delivery: "到貨後由客服依包裹狀況通知實際運費；尾款與運費確認入帳後安排寄出。"
+  store_pickup: "台南市中西區民生路二段 93 號，免運。",
+  seller_delivery: "本站先建立待確認訂單，再前往賣貨便完成結帳；運費由 7-11 於取貨時向客戶收取。",
+  home_delivery: "現貨宅配匯款時先私訊小幫手確認運費再連同商品一併匯款即可；預購商品到貨後通知，尾款與運費確認入帳後安排寄出。"
 };
 
 const orderStatusLabels = {
@@ -31,8 +91,8 @@ const orderStatusLabels = {
   pending_review: "待確認款項",
   confirmed: "已確認",
   partially_ready: "部分到貨",
-  ready_for_pickup: "可取貨",
-  completed: "已完成",
+  ready_for_pickup: "配送處理中",
+  completed: "已完成訂單",
   cancelled: "已取消",
   refund_pending: "退款處理中",
   refunded: "已退款"
@@ -41,8 +101,8 @@ const orderStatusLabels = {
 const adminOrderTransitions = {
   pending_payment: [{ value: "confirmed", label: "確認到店付款", storePaymentOnly: true }, { value: "cancelled", label: "取消未付款訂單" }],
   pending_review: [{ value: "confirmed", label: "確認款項並扣除庫存" }, { value: "cancelled", label: "取消訂單" }],
-  confirmed: [{ value: "partially_ready", label: "標記部分可取貨", splitOnly: true }, { value: "ready_for_pickup", label: "標記全部可取貨" }, { value: "completed", label: "完成取貨並確認尾款" }, { value: "refund_pending", label: "進入退款處理" }, { value: "cancelled", label: "取消訂單" }],
-  partially_ready: [{ value: "ready_for_pickup", label: "標記全部可取貨" }, { value: "completed", label: "完成取貨並確認尾款" }, { value: "refund_pending", label: "進入退款處理" }, { value: "cancelled", label: "取消訂單" }],
+  confirmed: [{ value: "partially_ready", label: "標記預購商品部分到貨", splitOnly: true }, { value: "ready_for_pickup", label: "更新到貨狀態" }, { value: "completed", label: "完成取貨並確認尾款" }, { value: "refund_pending", label: "進入退款處理" }, { value: "cancelled", label: "取消訂單" }],
+  partially_ready: [{ value: "ready_for_pickup", label: "更新到貨狀態" }, { value: "completed", label: "完成取貨並確認尾款" }, { value: "refund_pending", label: "進入退款處理" }, { value: "cancelled", label: "取消訂單" }],
   ready_for_pickup: [{ value: "completed", label: "完成取貨並確認尾款" }, { value: "refund_pending", label: "進入退款處理" }, { value: "cancelled", label: "取消訂單" }],
   completed: [{ value: "refund_pending", label: "進入退款處理" }],
   refund_pending: [{ value: "refunded", label: "確認已退款" }, { value: "completed", label: "取消退款，恢復已完成" }]
@@ -50,6 +110,10 @@ const adminOrderTransitions = {
 
 function money(value) { return `NT$${value.toLocaleString("zh-TW")}`; }
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]); }
+const customerServiceLineUrl = "https://line.me/R/ti/p/@078isxfl?ts=03122133&oat_content=url";
+function linkCustomerServiceText(value) {
+  return escapeHtml(value).replaceAll("小幫手", `<a class="helper-contact-link" href="${customerServiceLineUrl}" target="_blank" rel="noopener noreferrer">小幫手</a>`);
+}
 function productMark(product) {
   const source = String(product?.category || product?.product_name || product?.name || "玩具").replace(/\s+/g, "");
   return escapeHtml(source.slice(0, 2) || "玩具");
@@ -58,18 +122,133 @@ function productAvailability(product) {
   if (product?.type === "現貨") return `現貨 ${Number(product.stock || 0)} 件`;
   return product?.preorder_arrival ? `預購 · ${product.preorder_arrival}` : "預購 · 海運與集運依實際進度";
 }
+function hasProductDiscount(product) {
+  return Number(product?.compare_at_price || 0) > Number(product?.price || 0);
+}
+function productPriceMarkup(product) {
+  const price = Number(product?.price || 0);
+  return hasProductDiscount(product)
+    ? `<s class="price-original">${money(Number(product.compare_at_price))}</s><strong class="price-sale">${money(price)}</strong>`
+    : money(price);
+}
+function productPromotionBadge(product) {
+  return hasProductDiscount(product) ? '<span class="product-promotion-badge">限時優惠</span>' : "";
+}
+function productAvailabilityBadge(product) {
+  return isPreorderItem(product)
+    ? '<span class="product-availability-badge product-availability-badge-preorder">預購</span>'
+    : '<span class="product-availability-badge product-availability-badge-in-stock">現貨</span>';
+}
+function productTagMarkup(product) {
+  const tags = [];
+  if (isPreorderItem(product)) tags.push('<span class="product-tag product-tag-deposit">訂金50%</span>');
+  if (product?.points_eligible === false) tags.push('<span class="product-tag product-tag-no-points">不可積點</span>');
+  return tags.length ? `<div class="product-tags" aria-label="商品標籤">${tags.join("")}</div>` : "";
+}
+function isPreorderItem(item) { return ["預購", "preorder"].includes(String(item?.type || item?.kind || "").toLowerCase()); }
+function orderIncludesPreorder(order) { return (order?.order_items || []).some(isPreorderItem); }
+function orderInventoryTypeLabel(order) {
+  const kinds = (order?.order_items || []).map((item) => String(item?.type || item?.kind || "").toLowerCase());
+  const hasPreorder = kinds.some((kind) => ["預購", "preorder"].includes(kind));
+  const hasInStock = kinds.some((kind) => ["現貨", "in_stock"].includes(kind));
+  if (hasPreorder && hasInStock) return "現貨／預購";
+  return hasPreorder ? "預購" : "現貨";
+}
+function orderStatusLabel(order, status = order?.status) {
+  if (status === "ready_for_pickup") {
+    if (order?.delivery_method === "seller_delivery") return orderIncludesPreorder(order) ? "預購賣貨便已到貨" : "現貨賣貨便已出貨";
+    if (order?.delivery_method === "home_delivery") return orderIncludesPreorder(order) ? "預購宅配待尾款／運費" : "現貨宅配待尾款／運費";
+    if (order?.delivery_method === "store_pickup" && orderIncludesPreorder(order)) return "待取貨";
+    return "配送處理中";
+  }
+  return orderStatusLabels[status] || status || "未知狀態";
+}
+function adminOrderStatusLabel(order, status = order?.status) {
+  if (status === "confirmed" && order?.delivery_method === "store_pickup" && !orderIncludesPreorder(order)) return "待取貨";
+  if (status === "confirmed" && order?.delivery_method === "home_delivery") return orderIncludesPreorder(order) ? "預購宅配待到貨" : "現貨宅配備貨中";
+  if (status === "confirmed" && order?.delivery_method === "seller_delivery") return orderIncludesPreorder(order) ? "預購賣貨便待到貨" : "現貨賣貨便備貨中";
+  if (status === "ready_for_pickup" && order?.delivery_method === "home_delivery") return orderIncludesPreorder(order) ? "預購宅配待尾款／運費" : "現貨宅配待尾款／運費";
+  if (status === "ready_for_pickup" && order?.delivery_method === "seller_delivery") return orderIncludesPreorder(order) ? "預購賣貨便已到貨" : "現貨賣貨便已出貨";
+  if (status === "ready_for_pickup" && order?.delivery_method === "store_pickup" && orderIncludesPreorder(order)) return "預購到店待取貨";
+  if (status === "confirmed") return "到店通知";
+  return orderStatusLabel(order, status);
+}
 function formatDateTime(value) { return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
 let toastTimer = null;
-function showToast(message) {
+let pageScrollLockState = null;
+const pageScrollStyleKeys = ["position", "top", "left", "right", "width", "overflow", "paddingRight"];
+
+function hasOpenOverlay() {
+  return Boolean(document.querySelector("dialog[open], .cart-drawer.open"));
+}
+
+function lockPageScroll() {
+  if (pageScrollLockState) return;
+  const bodyStyle = document.body.style;
+  pageScrollLockState = {
+    scrollX: window.scrollX,
+    scrollY: window.scrollY,
+    styles: Object.fromEntries(pageScrollStyleKeys.map((key) => [key, bodyStyle[key]]))
+  };
+  const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+  bodyStyle.position = "fixed";
+  bodyStyle.top = `-${pageScrollLockState.scrollY}px`;
+  bodyStyle.left = "0";
+  bodyStyle.right = "0";
+  bodyStyle.width = "100%";
+  bodyStyle.overflow = "hidden";
+  bodyStyle.paddingRight = scrollbarWidth ? `${scrollbarWidth}px` : pageScrollLockState.styles.paddingRight;
+  document.documentElement.classList.add("is-scroll-locked");
+}
+
+function unlockPageScroll() {
+  if (!pageScrollLockState) return;
+  const state = pageScrollLockState;
+  pageScrollLockState = null;
+  const bodyStyle = document.body.style;
+  pageScrollStyleKeys.forEach((key) => { bodyStyle[key] = state.styles[key] || ""; });
+  document.documentElement.classList.remove("is-scroll-locked");
+  window.scrollTo(state.scrollX, state.scrollY);
+}
+
+function syncPageScrollLock() {
+  if (hasOpenOverlay()) lockPageScroll();
+  else unlockPageScroll();
+}
+
+function showDialog(dialog) {
+  if (!dialog) return;
+  if (!dialog.open) dialog.showModal();
+  syncPageScrollLock();
+}
+
+function closeDialog(dialog) {
+  if (!dialog) return;
+  if (dialog.open) dialog.close();
+  syncPageScrollLock();
+}
+
+function hideToast() {
+  const toast = document.querySelector("#toast");
+  if (!toast) return;
+  toast.classList.remove("show");
+  toast.setAttribute("aria-hidden", "true");
+  toastTimer = null;
+}
+function showToast(message, kind = "neutral") {
   const toast = document.querySelector("#toast");
   const openDialog = document.querySelector("dialog[open]");
   if (openDialog && toast.parentElement !== openDialog) openDialog.appendChild(toast);
   else if (!openDialog && toast.parentElement !== document.body) document.body.appendChild(toast);
+  const toastKind = ["success", "error", "warning"].includes(kind) ? kind : "neutral";
   toast.textContent = message;
-  toast.classList.remove("show");
+  toast.classList.remove("show", "toast-success", "toast-error", "toast-warning");
+  if (toastKind !== "neutral") toast.classList.add(`toast-${toastKind}`);
+  toast.setAttribute("role", toastKind === "error" ? "alert" : "status");
+  toast.setAttribute("aria-hidden", "false");
   window.requestAnimationFrame(() => toast.classList.add("show"));
   if (toastTimer) window.clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => toast.classList.remove("show"), 3000);
+  toastTimer = window.setTimeout(hideToast, 3000);
 }
 function selectedDeliveryMethod() { return document.querySelector("input[name='delivery_method']:checked")?.value || "store_pickup"; }
 function selectedPaymentMethod() { return document.querySelector("input[name='payment_method']:checked")?.value || "bank_transfer"; }
@@ -95,7 +274,7 @@ function renderHeroSpotlight() {
   if (availabilityNode) availabilityNode.textContent = productAvailability(product);
   if (typeNode) typeNode.textContent = `${product.category || "TOYS"} · ${product.type || "選物"}`;
   if (nameNode) nameNode.textContent = productName;
-  if (priceNode) priceNode.textContent = money(Number(product.price || 0));
+  if (priceNode) priceNode.innerHTML = productPriceMarkup(product);
   visual.innerHTML = product.image_url
     ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(productName)}" />`
     : `<div class="hero-placeholder"><span>${productMark(product)}</span><small>${product.type === "現貨" ? "READY TO PLAY" : "COMING FROM AFAR"}</small></div>`;
@@ -103,14 +282,64 @@ function renderHeroSpotlight() {
     const available = Number(product.stock || 0) > 0;
     addButton.dataset.heroAdd = product.id;
     addButton.disabled = !available;
-    addButton.textContent = available ? "加入選物盒" : "目前無庫存";
+    addButton.textContent = available ? "加入購物車" : "目前無庫存";
   }
 }
 function renderProducts() {
   const keyword = search.value.trim().toLowerCase();
   const visible = products.filter((product) => (activeCategory === "all" || product.category === activeCategory || product.type === activeCategory) && `${product.category}${product.name}`.toLowerCase().includes(keyword));
-  grid.innerHTML = visible.length ? visible.map((product) => `<article class="product-card" data-product-id="${escapeHtml(product.id)}"><div class="product-image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" loading="lazy" />` : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`}</div><div class="product-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${escapeHtml(product.name)}</h3><p class="stock">${escapeHtml(productAvailability(product))}</p><div class="price">${money(Number(product.price || 0))}</div><div class="card-actions"><button type="button" data-add="${escapeHtml(product.id)}">加入選物盒</button><button type="button" class="detail-button" data-detail="${escapeHtml(product.id)}">查看規格</button></div></div></article>`).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
+  grid.innerHTML = visible.length ? visible.map((product) => `<article class="product-card" data-product-id="${escapeHtml(product.id)}"><div class="product-image">${productAvailabilityBadge(product)}${productPromotionBadge(product)}${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" loading="lazy" />` : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`}</div><div class="product-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${escapeHtml(product.name)}</h3>${productTagMarkup(product)}<p class="stock">${escapeHtml(productAvailability(product))}</p><div class="price${hasProductDiscount(product) ? " price-discounted" : ""}">${productPriceMarkup(product)}</div><div class="card-actions"><button type="button" data-add="${escapeHtml(product.id)}">加入選物盒</button><button type="button" class="detail-button" data-detail="${escapeHtml(product.id)}">查看規格</button></div></div></article>`).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
+  grid.querySelectorAll("[data-add]").forEach((button) => { button.textContent = "加入購物車"; });
 }
+function cartItemMarkup(item) {
+  return `<div class="cart-item"><div><h3>${escapeHtml(item.name)}</h3><small>${money(item.price)} · ${escapeHtml(item.category)} · ${isPreorderItem(item) ? "預購" : "現貨"}</small><div class="quantity"><button type="button" data-quantity="${escapeHtml(item.id)}" data-delta="-1">−</button><b>${item.quantity}</b><button type="button" data-quantity="${escapeHtml(item.id)}" data-delta="1">＋</button></div></div><div><strong>${money(item.price * item.quantity)}</strong><button class="remove" type="button" data-remove="${escapeHtml(item.id)}">移除</button></div></div>`;
+}
+
+function renderCartSplitGroups() {
+  const itemsNode = document.querySelector("#cart-items");
+  const groups = cartGroups();
+  const mixed = groups.in_stock.length > 0 && groups.preorder.length > 0;
+  itemsNode?.classList.toggle("is-mixed", mixed);
+  itemsNode?.querySelector("#cart-split-groups")?.remove();
+  const globalChoice = document.querySelector(".cart-delivery-choice");
+  const globalNote = document.querySelector(".cart-delivery-note");
+  globalChoice?.classList.toggle("hidden", mixed);
+  globalNote?.classList.toggle("hidden", mixed);
+  if (!itemsNode || !mixed) return;
+  const wrapper = document.createElement("div");
+  wrapper.id = "cart-split-groups";
+  wrapper.className = "cart-split-groups";
+  wrapper.innerHTML = `<p class="cart-split-note">購物車含現貨與預購，系統會分開建立 2 筆訂單；付款期限、庫存確認與 LINE 通知也會分開計算。</p>` + ["in_stock", "preorder"].map((scope) => {
+    const group = groups[scope];
+    const title = scope === "in_stock" ? "現貨商品" : "預購商品";
+    const subtotal = group.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const method = selectedCartDeliveryMethod(scope);
+    const sellerNote = scope === "preorder"
+      ? "本站先建立預購訂單；到貨後客服通知，再由客服開賣貨便。運費由 7-11 取貨時收取。"
+      : "先建立本站待確認訂單，再前往賣貨便完成結帳；運費由 7-11 取貨時收取。";
+    const options = [
+      ["store_pickup", "到店取貨", "台南市中西區民生路二段 93 號"],
+      ["seller_delivery", "賣貨便", sellerNote],
+  ["home_delivery", "宅配", "現貨備貨完成或預購商品到貨後，由客服通知實際運費。"]
+    ];
+    return `<section class="cart-group" data-cart-group="${scope}"><header><div><span class="eyebrow">${scope === "in_stock" ? "READY" : "PREORDER"}</span><h3>${title}</h3></div><strong>${money(subtotal)}</strong></header><div class="cart-group-items">${group.map(cartItemMarkup).join("")}</div><fieldset class="cart-group-delivery"><legend>此組商品取貨方式</legend>${options.map(([value, label, note]) => `<label class="cart-delivery-option"><input type="radio" name="cart_group_delivery_method_${scope}" value="${value}" data-group-delivery="${scope}" ${method === value ? "checked" : ""} /> <span><strong>${label}</strong><small>${note}</small></span></label>`).join("")}</fieldset><p class="cart-delivery-feedback hidden" data-group-feedback="${scope}" role="status" aria-live="polite"></p><button class="primary-button cart-group-checkout" type="button" data-checkout-scope="${scope}">${scope === "in_stock" ? "結帳現貨商品" : "結帳預購商品"}</button></section>`;
+  }).join("");
+  itemsNode.appendChild(wrapper);
+}
+
+function syncGlobalCartDeliveryCopy() {
+  const allPreorder = cart.length > 0 && cart.every(isPreorderItem);
+  const sellerOption = document.querySelector("input[name='cart_delivery_method'][value='seller_delivery']")?.closest("label");
+  const sellerNote = sellerOption?.querySelector("small");
+  if (sellerNote) sellerNote.textContent = allPreorder
+    ? "本站先建立預購訂單；到貨後客服通知並開立賣貨便，運費由 7-11 取貨時收取。"
+    : "前往賣貨便完成結帳，運費由 7-11 取貨時收取。";
+  const note = document.querySelector(".cart-delivery-note");
+  if (note) note.textContent = allPreorder
+    ? "預購賣貨便流程：先建立本站訂金訂單 → 到貨後客服通知 → 客服開立賣貨便供尾款取貨。"
+    : "現貨賣貨便流程：加入購物車 → 選賣貨便 → 建立本站待確認訂單 → 前往賣貨便 → 管理員人工核對。";
+}
+
 function renderCart() {
   const items = document.querySelector("#cart-items");
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -119,78 +348,326 @@ function renderCart() {
   document.querySelector("[data-tray-count]")?.replaceChildren(document.createTextNode(`${count} 件`));
   document.querySelector("[data-tray-total]")?.replaceChildren(document.createTextNode(money(total)));
   document.querySelector("#selection-tray")?.classList.toggle("has-items", count > 0);
+  const currentGroups = cartGroups();
+  const remainingScope = currentGroups.in_stock.length && !currentGroups.preorder.length ? "in_stock" : currentGroups.preorder.length && !currentGroups.in_stock.length ? "preorder" : null;
+  if (remainingScope && cartGroupDeliveryMethods[remainingScope]) cartDeliveryMethod = cartGroupDeliveryMethods[remainingScope];
   document.querySelectorAll("input[name='cart_delivery_method']").forEach((input) => { input.checked = input.value === cartDeliveryMethod; });
-  updateCartCheckoutAction();
   document.querySelector("#cart-total").textContent = money(total);
   document.querySelector("#cart-empty").classList.toggle("hidden", cart.length > 0);
-  items.innerHTML = cart.map((item) => `<div class="cart-item"><div><h3>${escapeHtml(item.name)}</h3><small>${money(item.price)} · ${escapeHtml(item.category)}</small><div class="quantity"><button type="button" data-quantity="${escapeHtml(item.id)}" data-delta="-1">−</button><b>${item.quantity}</b><button type="button" data-quantity="${escapeHtml(item.id)}" data-delta="1">＋</button></div></div><div><strong>${money(item.price * item.quantity)}</strong><button class="remove" type="button" data-remove="${escapeHtml(item.id)}">移除</button></div></div>`).join("");
+  items.innerHTML = cart.map(cartItemMarkup).join("");
+  items.querySelectorAll(".cart-item small").forEach((meta) => {
+    const [price, ...labels] = meta.textContent.split(" · ");
+    if (!labels.length) return;
+    meta.classList.add("cart-item-meta");
+    meta.innerHTML = `<span>${escapeHtml(price)}</span><span>${escapeHtml(labels.join(" · "))}</span>`;
+  });
+  renderCartSplitGroups();
+  syncGlobalCartDeliveryCopy();
+  updateCartCheckoutAction();
 }
-function saveCart() { sessionStorage.setItem("cj-cart", JSON.stringify(cart)); }
+function cartPayload(items = cart) { return items.map((item) => ({ variant_id: item.id, quantity: item.quantity })); }
+function persistCartLocally() {
+  try { sessionStorage.setItem("cj-cart", JSON.stringify(cart)); } catch { /* ignore restricted storage */ }
+}
+function stableCartHash(items = cart) {
+  const entries = (Array.isArray(items) ? items : []).map((item) => {
+    const variantId = item?.variant_id ?? item?.id;
+    const quantity = Number(item?.quantity);
+    if (variantId === undefined || variantId === null || !Number.isFinite(quantity)) return null;
+    return { variant_id: String(variantId), quantity };
+  }).filter(Boolean);
+  entries.sort((left, right) => left.variant_id.localeCompare(right.variant_id) || left.quantity - right.quantity);
+  return JSON.stringify(entries);
+}
+function snapshotCart(items = cart) {
+  return (Array.isArray(items) ? items : []).map((item) => ({ ...item }));
+}
+function queueMemberCartSnapshot(items = cart) {
+  pendingCartSnapshot = snapshotCart(items);
+  pendingCartHash = stableCartHash(pendingCartSnapshot);
+  return pendingCartHash;
+}
+function scheduleMemberCartSync() {
+  if (!auth.accessToken || !auth.user || !auth.config?.authEnabled) return;
+  cartSyncRevision += 1;
+  const hash = queueMemberCartSnapshot(cart);
+  if (!cartSyncInFlight && hash === lastSyncedCartHash) {
+    pendingCartSnapshot = null;
+    pendingCartHash = null;
+    if (cartSyncTimer) window.clearTimeout(cartSyncTimer);
+    cartSyncTimer = null;
+    return;
+  }
+  if (cartSyncTimer) window.clearTimeout(cartSyncTimer);
+  const revision = cartSyncRevision;
+  cartSyncTimer = window.setTimeout(() => {
+    cartSyncTimer = null;
+    syncMemberCartToServer(revision).catch(() => {});
+  }, MEMBER_CART_SYNC_DEBOUNCE_MS);
+}
+async function replaceMemberCartOnServer(items = cart) {
+  if (!auth.accessToken || !auth.user || !auth.config?.authEnabled) return;
+  const response = await fetch("/api/cart", {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${auth.accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ items: cartPayload(items) })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || "會員購物車同步失敗");
+}
+function runMemberCartSync({ silent = false } = {}) {
+  if (!auth.accessToken || !auth.user || !auth.config?.authEnabled) return Promise.resolve();
+  const userId = auth.user.id;
+  const generation = cartSyncGeneration;
+  if (cartSyncInFlight) return cartSyncInFlight;
+  let pump;
+  pump = (async () => {
+    while (cartSyncGeneration === generation && auth.accessToken && auth.user?.id === userId && auth.config?.authEnabled && pendingCartSnapshot) {
+      const snapshot = pendingCartSnapshot;
+      const hash = pendingCartHash ?? stableCartHash(snapshot);
+      pendingCartSnapshot = null;
+      pendingCartHash = null;
+      if (hash === lastSyncedCartHash) continue;
+      try {
+        await replaceMemberCartOnServer(snapshot);
+      } catch (error) {
+        if (!silent && cartSyncGeneration === generation && auth.user?.id === userId) showToast(error.message || "會員購物車同步失敗，稍後會再試", "warning");
+        return;
+      }
+      if (cartSyncGeneration === generation && auth.user?.id === userId) lastSyncedCartHash = hash;
+    }
+  })();
+  const guardedPump = pump.finally(() => {
+    if (cartSyncInFlight === guardedPump) cartSyncInFlight = null;
+  });
+  cartSyncInFlight = guardedPump;
+  return guardedPump;
+}
+async function syncMemberCartToServer(revision = cartSyncRevision) {
+  if (!auth.accessToken || !auth.user || !auth.config?.authEnabled || revision !== cartSyncRevision) return;
+  // Keep only the newest state at flush time; any snapshot already in flight
+  // is completed before runMemberCartSync drains this replacement.
+  queueMemberCartSnapshot(cart);
+  try { await runMemberCartSync(); }
+  catch (error) { showToast(error.message || "會員購物車同步失敗，稍後會再試", "warning"); }
+}
+async function syncMemberCartNow({ silent = false } = {}) {
+  if (!auth.accessToken || !auth.user || !auth.config?.authEnabled) return;
+  if (cartSyncTimer) { window.clearTimeout(cartSyncTimer); cartSyncTimer = null; }
+  cartSyncRevision += 1;
+  queueMemberCartSnapshot(cart);
+  if (!cartSyncInFlight && pendingCartHash === lastSyncedCartHash) {
+    pendingCartSnapshot = null;
+    pendingCartHash = null;
+    return;
+  }
+  try { await runMemberCartSync({ silent }); }
+  catch (error) { if (!silent) showToast(error.message || "會員購物車同步失敗", "warning"); }
+}
+function saveCart(options = {}) {
+  persistCartLocally();
+  if (options.sync !== false) scheduleMemberCartSync();
+}
+function loadLocalCart() {
+  try {
+    const savedCart = JSON.parse(sessionStorage.getItem("cj-cart") || "[]");
+    if (Array.isArray(savedCart)) {
+      cart.push(...savedCart.slice(0, 50).map((item) => {
+        const product = products.find((entry) => entry.id === item.id);
+        const quantity = Number(item.quantity);
+        const stock = Number(product?.stock || 0);
+        return product && stock > 0 && Number.isInteger(quantity) && quantity > 0 ? { ...product, quantity: Math.min(quantity, stock, 100) } : null;
+      }).filter(Boolean));
+    }
+  } catch { try { sessionStorage.removeItem("cj-cart"); } catch { /* ignore restricted storage */ } }
+}
+async function loadMemberCart() {
+  if (!auth.accessToken || !auth.user || !auth.config?.authEnabled || cartSyncUserId === auth.user.id) return;
+  try {
+    const response = await fetch("/api/cart", { headers: { Authorization: `Bearer ${auth.accessToken}` } });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "會員購物車載入失敗");
+    const remoteItems = Array.isArray(result.items) ? result.items : [];
+    const remoteHashItems = remoteItems.map((remote) => {
+      const product = products.find((entry) => String(entry.id).toLowerCase() === String(remote?.variant_id).toLowerCase());
+      return { variant_id: product?.id ?? remote?.variant_id, quantity: remote?.quantity };
+    });
+    const remoteCartHash = stableCartHash(remoteHashItems);
+    const localItems = cart.slice();
+    const merged = new Map();
+    for (const item of localItems) {
+      const product = products.find((entry) => String(entry.id).toLowerCase() === String(item.id).toLowerCase());
+      const quantity = Number(item.quantity);
+      if (product && Number.isInteger(quantity) && quantity > 0 && Number(product.stock || 0) > 0) merged.set(item.id, { ...product, quantity: Math.min(quantity, Number(product.stock || 0), 100) });
+    }
+    for (const remote of remoteItems) {
+      const product = products.find((entry) => String(entry.id).toLowerCase() === String(remote.variant_id).toLowerCase());
+      const quantity = Number(remote.quantity);
+      if (!product || !Number.isInteger(quantity) || quantity < 1 || Number(product.stock || 0) <= 0) continue;
+      const existing = merged.get(product.id);
+      merged.set(product.id, { ...product, quantity: Math.min((existing?.quantity || 0) + quantity, Number(product.stock || 0), 100) });
+    }
+    cart.splice(0, cart.length, ...[...merged.values()].slice(0, 50));
+    cartSyncUserId = auth.user.id;
+    lastSyncedCartHash = remoteCartHash;
+    saveCart({ sync: false });
+    if (stableCartHash(cart) !== remoteCartHash) await syncMemberCartNow({ silent: true });
+    renderCart();
+  } catch (error) {
+    showToast(error.message || "會員購物車同步失敗，仍保留本機購物車", "warning");
+  }
+}
 function addToCart(id) { const product = products.find((item) => item.id === id); const existing = cart.find((item) => item.id === id); if (existing) { if (existing.quantity >= product.stock) return showToast("已達可選購庫存上限"); existing.quantity += 1; } else cart.push({ ...product, quantity: 1 }); saveCart(); renderCart(); showToast(`${product.name} 已加入購物車`); }
-function toggleCart() { const drawer = document.querySelector("#cart-drawer"); const open = drawer.classList.toggle("open"); document.querySelector(".overlay").classList.toggle("visible", open); drawer.setAttribute("aria-hidden", String(!open)); }
-function selectedCartDeliveryMethod() { return cartDeliveryMethod; }
+function toggleCart() { const drawer = document.querySelector("#cart-drawer"); const open = drawer.classList.toggle("open"); document.querySelector(".overlay").classList.toggle("visible", open); drawer.setAttribute("aria-hidden", String(!open)); syncPageScrollLock(); }
+function cartGroups() {
+  return {
+    in_stock: cart.filter((item) => !isPreorderItem(item)),
+    preorder: cart.filter((item) => isPreorderItem(item))
+  };
+}
+function cartItemsForScope(scope) {
+  if (scope === "in_stock") return cart.filter((item) => !isPreorderItem(item));
+  if (scope === "preorder") return cart.filter((item) => isPreorderItem(item));
+  return cart;
+}
+function checkoutCartItems() { return activeCheckoutItems || cartItemsForScope(activeCheckoutScope); }
+function selectedCartDeliveryMethod(scope = null) {
+  if (!scope || !cartGroups().in_stock.length || !cartGroups().preorder.length) return cartDeliveryMethod;
+  return cartGroupDeliveryMethods[scope] || cartDeliveryMethod;
+}
+function flashAddedButton(button) {
+  if (!(button instanceof HTMLButtonElement)) return;
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.classList.add("is-added");
+  button.textContent = "已加入 ✓";
+  window.setTimeout(() => {
+    if (!button.isConnected) return;
+    button.disabled = false;
+    button.classList.remove("is-added");
+    button.textContent = originalLabel;
+  }, 1100);
+}
+function addToCartWithFeedback(id, button) {
+  const beforeCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  addToCart(id);
+  const afterCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  if (afterCount > beforeCount) flashAddedButton(button);
+}
 function setCartDeliveryMethod(method) {
   if (!["store_pickup", "seller_delivery", "home_delivery"].includes(method)) return;
   cartDeliveryMethod = method;
+  const groups = cartGroups();
+  const scope = groups.in_stock.length && !groups.preorder.length ? "in_stock" : groups.preorder.length && !groups.in_stock.length ? "preorder" : null;
+  if (scope) cartGroupDeliveryMethods[scope] = method;
   try { sessionStorage.setItem("cj-cart-delivery-method", method); } catch { /* ignore restricted storage */ }
+  if (scope) try { sessionStorage.setItem(`cj-cart-delivery-method-${scope}`, method); } catch { /* ignore restricted storage */ }
   document.querySelectorAll("input[name='cart_delivery_method']").forEach((input) => { input.checked = input.value === cartDeliveryMethod; });
   updateCartCheckoutAction();
 }
+function setCartGroupDeliveryMethod(scope, method) {
+  if (!Object.prototype.hasOwnProperty.call(cartGroupDeliveryMethods, scope) || !["store_pickup", "seller_delivery", "home_delivery"].includes(method)) return;
+  cartGroupDeliveryMethods[scope] = method;
+  try { sessionStorage.setItem(`cj-cart-delivery-method-${scope}`, method); } catch { /* ignore restricted storage */ }
+  updateCartCheckoutAction();
+}
+function cartSellerDeliveryState(scope = null) {
+  const method = selectedCartDeliveryMethod(scope);
+  const groupItems = cartItemsForScope(scope);
+  if (method !== "seller_delivery" || !groupItems.length) return { invalid: false, message: "" };
+  if (scope === "preorder" || groupItems.every(isPreorderItem)) return { invalid: false, message: "預購會先建立本站訂單並收取訂金；商品到貨後由客服通知，再開立賣貨便供尾款取貨。" };
+  const links = [...new Set(groupItems.map((item) => item.link || item.seller_link).filter(Boolean))];
+  if (groupItems.some(isPreorderItem)) return { invalid: true, message: "現貨與預購已分組，請分開選擇取貨方式。" };
+  if (!links.length) return { invalid: true, message: "這組現貨商品尚未設定賣貨便連結，請改選到店取貨或宅配。" };
+  if (links.length > 1) return { invalid: true, message: "這組商品有不同賣場連結，請拆成不同批次結帳。" };
+  return { invalid: false, message: "下一步會先建立本站「待確認」訂單，再開啟賣貨便；完成賣貨便結帳後，請等待管理員人工核對。" };
+}
+function syncCartDeliveryFeedback(scope = null) {
+  const feedback = scope ? document.querySelector(`[data-group-feedback='${scope}']`) : document.querySelector("#cart-delivery-feedback");
+  const state = cartSellerDeliveryState(scope);
+  if (!feedback) return state;
+  feedback.textContent = state.message;
+  feedback.classList.toggle("hidden", !state.message);
+  feedback.classList.toggle("is-error", state.invalid);
+  feedback.classList.toggle("is-ready", Boolean(state.message) && !state.invalid);
+  feedback.setAttribute("role", state.invalid ? "alert" : "status");
+  return state;
+}
 function updateCartCheckoutAction() {
   const button = document.querySelector("#cart-drawer [data-checkout]");
-  if (!button) return;
-  const sellerCheckout = selectedCartDeliveryMethod() === "seller_delivery";
-  button.textContent = sellerCheckout ? "前往賣貨便結帳" : "前往 結帳";
-  button.setAttribute("aria-label", sellerCheckout ? "前往賣貨便結帳" : "前往本站結帳");
-  button.classList.toggle("seller-checkout-button", sellerCheckout);
+  const groups = cartGroups();
+  const mixed = groups.in_stock.length > 0 && groups.preorder.length > 0;
+  if (button) {
+    button.classList.toggle("hidden", mixed);
+    if (!mixed) {
+      const scope = groups.preorder.length ? "preorder" : "in_stock";
+      const method = selectedCartDeliveryMethod(scope);
+      const sellerCheckout = method === "seller_delivery" && scope === "in_stock";
+      const sellerState = syncCartDeliveryFeedback();
+      button.textContent = sellerCheckout ? "前往賣貨便結帳" : "前往 結帳";
+      button.setAttribute("aria-label", sellerCheckout ? "前往賣貨便結帳" : "前往本站結帳");
+      button.classList.toggle("seller-checkout-button", sellerCheckout);
+      button.disabled = sellerCheckout && sellerState.invalid;
+      button.setAttribute("aria-disabled", String(button.disabled));
+      if (sellerState.message) button.setAttribute("aria-describedby", "cart-delivery-feedback");
+      else button.removeAttribute("aria-describedby");
+    }
+  }
+  ["in_stock", "preorder"].forEach((scope) => {
+    const groupButton = document.querySelector(`[data-checkout-scope='${scope}']`);
+    if (!groupButton || !groups[scope].length) return;
+    const method = selectedCartDeliveryMethod(scope);
+    const sellerCheckout = method === "seller_delivery" && scope === "in_stock";
+    const state = syncCartDeliveryFeedback(scope);
+    groupButton.textContent = sellerCheckout ? "前往賣貨便結帳" : `結帳${scope === "in_stock" ? "現貨" : "預購"}商品`;
+    groupButton.classList.toggle("seller-checkout-button", sellerCheckout);
+    groupButton.disabled = sellerCheckout && state.invalid;
+    groupButton.setAttribute("aria-disabled", String(groupButton.disabled));
+  });
+  if (!mixed) syncCartDeliveryFeedback();
 }
-async function openSellerDeliveryCheckout() {
-  if (!cart.length) return showToast("請先加入商品");
-  const links = [...new Set(cart.map((item) => item.link || item.seller_link).filter(Boolean))];
-  if (!links.length) return showToast("購物車商品尚未設定賣貨便連結，請改選其他取貨方式");
-  if (links.length > 1) return showToast("購物車內商品屬於不同賣場，請分開前往賣貨便結帳");
-  if (cart.some((item) => item.type === "預購")) return showToast("賣貨便核對流程目前僅適用現貨商品，預購請改選本站結帳");
+async function openSellerDeliveryCheckout(scope = "in_stock") {
+  const groupItems = cartItemsForScope(scope);
+  if (!groupItems.length) return showToast("請先加入商品", "warning");
+  const links = [...new Set(groupItems.map((item) => item.link || item.seller_link).filter(Boolean))];
+  if (!links.length) return showToast("購物車商品尚未設定賣貨便連結，請改選其他取貨方式", "warning");
+  if (links.length > 1) return showToast("購物車內商品屬於不同賣場，請分開前往賣貨便結帳", "warning");
+  if (groupItems.some(isPreorderItem)) return showToast("預購賣貨便請使用本站結帳，商品到貨後再由客服開立賣貨便", "warning");
   if (!auth.accessToken || !auth.user) return beginLineLogin();
   if (!profileIsComplete()) return showProfileDialog(true);
   if (!await requireLineFriendshipForCheckout()) return;
-  const button = document.querySelector("#cart-drawer [data-checkout]");
-  if (button instanceof HTMLButtonElement) {
-    button.disabled = true;
-    button.textContent = "建立待確認紀錄…";
-  }
+  const button = document.querySelector(`[data-checkout-scope='${scope}']`) || document.querySelector("#cart-drawer [data-checkout]");
+  if (button instanceof HTMLButtonElement) { button.disabled = true; button.textContent = "建立待確認紀錄…"; }
   try {
     const response = await fetch("/api/orders", {
       method: "POST",
       headers: { Authorization: `Bearer ${auth.accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        items: cart.map((item) => ({ variant_id: item.id, quantity: item.quantity })),
-        pickup_plan: "together",
-        delivery_method: "seller_delivery",
-        payment_method: "store_payment"
-      })
+      body: JSON.stringify({ items: groupItems.map((item) => ({ variant_id: item.id, quantity: item.quantity })), pickup_plan: "together", delivery_method: "seller_delivery", payment_method: "store_payment" })
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || result.message || "賣貨便待確認訂單建立失敗");
-    cart.splice(0);
+    cart.splice(0, cart.length, ...cart.filter((item) => !groupItems.includes(item)));
     saveCart();
+    await syncMemberCartNow({ silent: true });
     renderCart();
     window.location.assign(links[0]);
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   } finally {
-    if (button instanceof HTMLButtonElement) {
-      button.disabled = false;
-      updateCartCheckoutAction();
-    }
+    if (button instanceof HTMLButtonElement) { button.disabled = false; updateCartCheckoutAction(); }
   }
 }
-function handleCartCheckout() {
-  if (selectedCartDeliveryMethod() === "seller_delivery") return openSellerDeliveryCheckout();
-  openCheckout();
+function handleCartCheckout(scope = null) {
+  const groups = cartGroups();
+  if (!scope && groups.in_stock.length && groups.preorder.length) return showToast("購物車含現貨與預購，請分別點選各組的結帳按鈕", "warning");
+  const checkoutScope = scope || (groups.preorder.length ? "preorder" : "in_stock");
+  const method = selectedCartDeliveryMethod(checkoutScope);
+  if (method === "seller_delivery" && checkoutScope === "in_stock") return openSellerDeliveryCheckout(checkoutScope);
+  openCheckout(checkoutScope);
 }
 function removeLegacySellerCheckoutOption() {
   const sellerInput = document.querySelector("input[name='delivery_method'][value='seller_delivery']");
-  sellerInput?.closest("label")?.remove();
+  sellerInput?.closest("label")?.classList.add("hidden");
 }
 
 function detailVariants(product) {
@@ -207,7 +684,7 @@ function renderProductDetail() {
   const maxQuantity = purchaseLimit ? Math.min(product.stock, purchaseLimit) : product.stock;
   const variantOptions = variants.length > 1 ? `<label class="product-detail-field">選擇規格<select id="product-detail-variant">${variants.map((variant) => `<option value="${escapeHtml(variant.id)}" ${variant.id === product.id ? "selected" : ""}>${escapeHtml(variant.variant_name || variant.name)} · ${money(variant.price)} · ${variant.type === "現貨" ? `庫存 ${variant.stock}` : "預購"}</option>`).join("")}</select></label>` : `<p class="product-detail-variant"><strong>規格</strong>${escapeHtml(product.variant_name || "單一規格")}</p>`;
   const stockText = product.type === "現貨" ? `現貨庫存 ${product.stock} 件` : `預購${product.preorder_arrival ? `，預計 ${escapeHtml(product.preorder_arrival)} 到貨` : "，訂金 50%"}`;
-  container.innerHTML = `<div class="product-detail-layout"><div class="product-detail-image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" />` : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`}</div><div class="product-detail-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h2>${escapeHtml(product.product_name || product.name)}</h2><p class="product-detail-description">${escapeHtml(product.description || "尚未填寫商品說明")}</p>${variantOptions}<div class="product-detail-meta"><span>${escapeHtml(stockText)}</span><strong>${money(product.price)}</strong></div>${purchaseLimit ? `<small class="product-detail-limit">每位會員限購 ${purchaseLimit} 件</small>` : ""}<label class="product-detail-field">數量<input id="product-detail-quantity" type="number" min="1" max="${Math.max(maxQuantity, 1)}" step="1" value="${maxQuantity > 0 ? 1 : 0}" ${maxQuantity > 0 ? "" : "disabled"} /></label><button class="primary-button product-detail-add" type="button" data-detail-add ${maxQuantity > 0 ? "" : "disabled"}>${maxQuantity > 0 ? "加入購物車" : "目前無可售庫存"}</button></div></div>`;
+  container.innerHTML = `<div class="product-detail-layout"><div class="product-detail-image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" />` : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`}</div><div class="product-detail-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h2>${escapeHtml(product.product_name || product.name)}</h2><p class="product-detail-description">${escapeHtml(product.description || "尚未填寫商品說明")}</p>${variantOptions}<div class="product-detail-meta"><span>${escapeHtml(stockText)}</span><div class="product-detail-price${hasProductDiscount(product) ? " price-discounted" : ""}">${productPriceMarkup(product)}</div></div>${purchaseLimit ? `<small class="product-detail-limit">每位會員限購 ${purchaseLimit} 件</small>` : ""}<label class="product-detail-field">數量<input id="product-detail-quantity" type="number" min="1" max="${Math.max(maxQuantity, 1)}" step="1" value="${maxQuantity > 0 ? 1 : 0}" ${maxQuantity > 0 ? "" : "disabled"} /></label><button class="primary-button product-detail-add" type="button" data-detail-add ${maxQuantity > 0 ? "" : "disabled"}>${maxQuantity > 0 ? "加入購物車" : "目前無可售庫存"}</button></div></div>`;
 }
 
 function openProductDetail(id) {
@@ -216,7 +693,7 @@ function openProductDetail(id) {
   activeDetailProductId = product.id;
   renderProductDetail();
   const dialog = document.querySelector("#product-detail-dialog");
-  if (dialog && !dialog.open) dialog.showModal();
+  showDialog(dialog);
 }
 
 function addDetailToCart() {
@@ -234,13 +711,129 @@ function addDetailToCart() {
   else cart.push({ ...variant, quantity });
   saveCart();
   renderCart();
-  document.querySelector("#product-detail-dialog")?.close();
+  closeDialog(document.querySelector("#product-detail-dialog"));
   showToast(`${variant.name} 已加入購物車`);
+}
+
+function readAuthReturnState() {
+  try {
+    const raw = sessionStorage.getItem(AUTH_RETURN_STATE_KEY);
+    sessionStorage.removeItem(AUTH_RETURN_STATE_KEY);
+    if (!raw) return null;
+    const state = JSON.parse(raw);
+    if (!state || state.version !== 1 || !Number.isFinite(state.createdAt) || Date.now() - state.createdAt > AUTH_RETURN_MAX_AGE_MS) return null;
+    if (state.returnPath && state.returnPath !== location.pathname) return null;
+    return state;
+  } catch {
+    try { sessionStorage.removeItem(AUTH_RETURN_STATE_KEY); } catch { /* restricted storage */ }
+    return null;
+  }
+}
+
+function saveAuthReturnState() {
+  const drawer = document.querySelector("#cart-drawer");
+  const checkoutDialog = document.querySelector("#checkout-dialog");
+  const checkoutIntent = Boolean(activeCheckoutScope && activeCheckoutItems?.length);
+  const checkoutOpen = Boolean(checkoutDialog?.open || checkoutIntent);
+  const value = (selector) => document.querySelector(selector)?.value || "";
+  const state = {
+    version: 1,
+    createdAt: Date.now(),
+    returnPath: location.pathname,
+    scrollX: Number.isFinite(window.scrollX) ? window.scrollX : 0,
+    scrollY: Number.isFinite(window.scrollY) ? window.scrollY : 0,
+    cartOpen: Boolean(drawer?.classList.contains("open")),
+    detailProductId: activeDetailProductId || null,
+    checkout: checkoutOpen ? {
+      scope: activeCheckoutScope || null,
+      stage: document.querySelector("#checkout-form")?.dataset.checkoutStage || "details",
+      deliveryMethod: selectedDeliveryMethod(),
+      bankAccountId: document.querySelector("input[name='bank_account']:checked")?.value || "",
+      fields: {
+        name: value("#checkout-name"),
+        phone: value("#checkout-phone"),
+        address: value("#checkout-address"),
+        recipientName: value("#checkout-recipient-name"),
+        recipientPhone: value("#checkout-recipient-phone"),
+        couponCode: value("#checkout-coupon-code"),
+        points: value("#checkout-points")
+      }
+    } : null
+  };
+  try { sessionStorage.setItem(AUTH_RETURN_STATE_KEY, JSON.stringify(state)); }
+  catch { /* sessionStorage may be unavailable in restricted previews. */ }
+}
+
+function restoreCheckoutReturnState(checkout) {
+  if (!checkout) return;
+  const fields = checkout.fields || {};
+  const assign = (selector, value) => {
+    const node = document.querySelector(selector);
+    if (node && typeof value === "string") node.value = value;
+  };
+  const deliveryInput = document.querySelector(`input[name='delivery_method'][value='${checkout.deliveryMethod}']`);
+  if (deliveryInput) deliveryInput.checked = true;
+  assign("#checkout-name", fields.name);
+  assign("#checkout-phone", fields.phone);
+  assign("#checkout-address", fields.address);
+  assign("#checkout-recipient-name", fields.recipientName);
+  assign("#checkout-recipient-phone", fields.recipientPhone);
+  assign("#checkout-coupon-code", fields.couponCode);
+  assign("#checkout-points", fields.points);
+  const bankInput = checkout.bankAccountId && document.querySelector(`input[name='bank_account'][value='${checkout.bankAccountId}']`);
+  if (bankInput) bankInput.checked = true;
+  syncDeliveryFields();
+  renderCheckoutBenefits();
+  renderCheckoutSummary();
+  setCheckoutStage(checkout.stage === "review" ? "review" : "details", { focus: false });
+}
+
+async function restoreAuthReturnState() {
+  if (!shouldRestoreAuthReturnState) return;
+  shouldRestoreAuthReturnState = false;
+  const state = authReturnState;
+  authReturnState = null;
+  if (!state) {
+    if (authReturnError) { showToast(authReturnError, "error"); authReturnError = null; }
+    return;
+  }
+  await new Promise((resolve) => window.requestAnimationFrame(resolve));
+  window.scrollTo(Number(state.scrollX) || 0, Number(state.scrollY) || 0);
+  if (state.checkout && auth.user) {
+    if (!profileIsComplete()) pendingReturnCheckout = state.checkout;
+    else {
+      await openCheckout(state.checkout.scope || undefined);
+      if (document.querySelector("#checkout-dialog")?.open) restoreCheckoutReturnState(state.checkout);
+    }
+  } else if (state.checkout) {
+    activeCheckoutScope = state.checkout.scope || activeCheckoutScope;
+    activeCheckoutItems = cartItemsForScope(activeCheckoutScope);
+    if (!document.querySelector("#cart-drawer")?.classList.contains("open")) toggleCart();
+  } else if (state.detailProductId && products.some((product) => product.id === state.detailProductId)) {
+    openProductDetail(state.detailProductId);
+  } else if (state.cartOpen && !document.querySelector("#cart-drawer")?.classList.contains("open")) {
+    toggleCart();
+  }
+  if (authReturnError) { showToast(authReturnError, "error"); authReturnError = null; }
 }
 
 function captureAuthSession() {
   const fragment = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const hasAuthResponse = fragment.has("access_token") || fragment.has("error") || fragment.has("error_description");
+  if (hasAuthResponse) {
+    authReturnState = readAuthReturnState();
+    shouldRestoreAuthReturnState = Boolean(authReturnState);
+  }
+  if (fragment.get("error")) {
+    authReturnError = fragment.get("error") === "access_denied" ? "你已取消 LINE 登入" : "LINE 登入未完成，請稍後再試";
+    history.replaceState(null, "", location.pathname + location.search);
+    return;
+  }
   if (fragment.get("access_token")) {
+    // A new LINE Login callback is a new member session boundary. Do not
+    // carry points/coupons or friendship state across it, even on the same
+    // page lifecycle.
+    clearMemberStateCache();
     auth.accessToken = fragment.get("access_token");
     auth.refreshToken = fragment.get("refresh_token");
     auth.lineProviderToken = fragment.get("provider_token");
@@ -253,7 +846,10 @@ function captureAuthSession() {
     auth.accessToken = saved?.accessToken ?? null;
     auth.refreshToken = saved?.refreshToken ?? null;
     auth.lineProviderToken = saved?.lineProviderToken ?? null;
-  } catch { sessionStorage.removeItem("cj-auth"); }
+  } catch {
+    clearMemberStateCache();
+    sessionStorage.removeItem("cj-auth");
+  }
 }
 
 
@@ -275,18 +871,53 @@ async function loadRuntimeConfig() {
   } catch { auth.config = null; }
 }
 
+async function syncMemberIdentityOnce() {
+  const userId = auth.user?.id;
+  if (!auth.accessToken || !userId || !auth.config?.authEnabled) return;
+  const storageKey = `cj-identity-sync:${userId}`;
+  try {
+    if (sessionStorage.getItem(storageKey) === "attempted") return;
+  } catch {
+    // The in-memory guard below still prevents duplicate calls in restricted previews.
+  }
+  if (identitySyncUserId === userId && identitySyncInFlight) return identitySyncInFlight;
+  identitySyncUserId = userId;
+  identitySyncInFlight = fetch("/api/member/identity-sync", { method: "POST", headers: { Authorization: `Bearer ${auth.accessToken}` } })
+    .then((response) => {
+      try {
+        if (response.ok) sessionStorage.setItem(storageKey, "attempted");
+        else sessionStorage.removeItem(storageKey);
+      } catch { /* sessionStorage may be unavailable in restricted previews. */ }
+      return response;
+    })
+    .catch(() => {
+      try { sessionStorage.removeItem(storageKey); } catch { /* ignore restricted storage */ }
+      return null;
+    })
+    .finally(() => { identitySyncInFlight = null; });
+  return identitySyncInFlight;
+}
+
 async function loadMember() {
   if (!auth.accessToken || !auth.config?.authEnabled) return;
   try {
     const response = await fetch(`${auth.config.supabaseUrl}/auth/v1/user`, { headers: { apikey: auth.config.supabaseAnonKey, Authorization: `Bearer ${auth.accessToken}` } });
     if (!response.ok) throw new Error("expired");
-    auth.user = await response.json();
+    const user = await response.json();
+    if ((auth.user?.id && auth.user.id !== user.id) || (cartSyncUserId && cartSyncUserId !== user.id)) resetMemberCartSyncState();
+    if ((memberPointsCache.userId && memberPointsCache.userId !== user.id) || (lineFriendshipCache.userId && lineFriendshipCache.userId !== user.id)) clearMemberStateCache();
+    auth.user = user;
+    // Identity binding is an explicit, best-effort operation. A temporary
+    // service-role/database failure must not log the member out or block catalog.
+    await syncMemberIdentityOnce();
     await loadProfile();
     try { await loadPoints(); } catch { auth.points = null; }
+    await loadMemberCart();
     updateMemberButton();
     if (!profileIsComplete()) showProfileDialog(true);
   } catch {
-    auth.accessToken = null; auth.refreshToken = null; auth.lineProviderToken = null; auth.user = null; auth.profile = null; auth.points = null; auth.lineFriendFlag = null; sessionStorage.removeItem("cj-auth");
+    clearMemberStateCache();
+    auth.accessToken = null; auth.refreshToken = null; auth.lineProviderToken = null; auth.user = null; auth.profile = null; cartSyncUserId = null; sessionStorage.removeItem("cj-auth");
   }
 }
 
@@ -300,12 +931,35 @@ async function loadProfile() {
   auth.profile = rows[0] ?? { full_name: null, phone: null, birthday: null, address: null };
 }
 
-async function loadPoints() {
-  const response = await fetch("/api/member/points", { headers: { Authorization: `Bearer ${auth.accessToken}` } });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "點數資料讀取失敗");
-  auth.points = result;
-  renderMemberPoints();
+async function loadPoints({ force = false } = {}) {
+  const userId = auth.user?.id;
+  const accessToken = auth.accessToken;
+  if (!userId || !accessToken) return null;
+  if (!force && memberPointsCache.userId === userId && memberPointsCache.expiresAt > Date.now() && memberPointsCache.value) {
+    auth.points = memberPointsCache.value;
+    renderMemberPoints();
+    return auth.points;
+  }
+  if (memberPointsInFlight?.userId === userId && memberPointsInFlight?.accessToken === accessToken) return memberPointsInFlight.promise;
+  const promise = (async () => {
+    const response = await fetch("/api/member/points", { headers: { Authorization: `Bearer ${accessToken}` } });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "點數資料讀取失敗");
+    // A response from a previous session must not populate the current
+    // member's cache after logout or a subsequent LINE Login callback.
+    if (auth.user?.id === userId && auth.accessToken === accessToken) {
+      memberPointsCache = { userId, value: result, expiresAt: Date.now() + MEMBER_POINTS_TTL_MS };
+      auth.points = result;
+      renderMemberPoints();
+    }
+    return result;
+  })();
+  memberPointsInFlight = { userId, accessToken, promise };
+  try {
+    return await promise;
+  } finally {
+    if (memberPointsInFlight?.promise === promise) memberPointsInFlight = null;
+  }
 }
 
 function renderMemberPoints() {
@@ -363,11 +1017,12 @@ function showProfileDialog(required = false) {
     : "可在這裡更新聯絡資料；生日與地址為選填。";
   renderMemberPoints();
   dialog.dataset.required = String(required);
-  if (!dialog.open) dialog.showModal();
+  showDialog(dialog);
 }
 
 function beginLineLogin() {
   if (!auth.config?.authEnabled) return showToast("LINE Login 尚未在 Supabase 啟用");
+  saveAuthReturnState();
   saveCart();
   const redirectTo = location.origin + location.pathname;
   const url = new URL(`${auth.config.supabaseUrl}/auth/v1/authorize`);
@@ -407,8 +1062,15 @@ async function submitProfile(event) {
     await saveProfile({ full_name: fullName, phone, birthday, address });
     document.querySelector("#checkout-name").value = fullName;
     document.querySelector("#checkout-phone").value = phone;
-    document.querySelector("#profile-dialog").close();
-    showToast("會員資料已儲存");
+    closeDialog(document.querySelector("#profile-dialog"));
+    showToast("會員資料已儲存", "success");
+    const pendingCheckout = pendingReturnCheckout;
+    pendingReturnCheckout = null;
+    if (pendingCheckout) {
+      await openCheckout(pendingCheckout.scope || undefined);
+      if (document.querySelector("#checkout-dialog")?.open) restoreCheckoutReturnState(pendingCheckout);
+      else pendingReturnCheckout = pendingCheckout;
+    }
   } catch (error) {
     showProfileError(error.message);
   } finally {
@@ -424,30 +1086,191 @@ function showProfileError(message) {
 }
 
 function renderCheckoutSummary() {
-  const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const checkoutItems = checkoutCartItems();
+  const total = checkoutItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const preorderCheckout = checkoutItems.length > 0 && (activeCheckoutScope === "preorder" || checkoutItems.every(isPreorderItem));
+  const depositTotal = preorderCheckout
+    ? checkoutItems.reduce((sum, item) => {
+      const configuredRate = Number(item.deposit_rate);
+      const depositRate = Number.isFinite(configuredRate) && configuredRate > 0 ? Math.min(configuredRate, 1) : 0.5;
+      return sum + Math.round(item.price * item.quantity * depositRate);
+    }, 0)
+    : total;
   const deliveryMethod = selectedDeliveryMethod();
   const points = Math.max(0, Number(document.querySelector("#checkout-points")?.value || 0));
+  const couponCode = document.querySelector("#checkout-coupon-code")?.value.trim() || "";
   const settings = auth.points?.settings;
-  const pointDiscount = settings ? Math.min(points * settings.point_value, total) : 0;
-  const estimatedTotal = Math.max(total - pointDiscount, 0);
-  document.querySelector("#checkout-order-summary").innerHTML = cart.map((item) => `<div><span>${escapeHtml(item.name)} × ${item.quantity}</span><span>${money(item.price * item.quantity)}</span></div>`).join("") + `<div><span>商品總額</span><span>${money(total)}</span></div>${pointDiscount ? `<div><span>點數折抵（最終以系統計算為準）</span><span>-${money(pointDiscount)}</span></div>` : ""}<div><span>預估應付總額</span><span>${money(estimatedTotal)}</span></div><p class="checkout-summary-note"><strong>${escapeHtml(deliveryMethodLabels[deliveryMethod])}</strong>：${escapeHtml(deliveryMethodNotes[deliveryMethod])}</p>`;
+  const pointDiscount = settings ? Math.min(points * settings.point_value, preorderCheckout ? depositTotal : total) : 0;
+  const estimatedTotal = Math.max(depositTotal - pointDiscount, 0);
+  const couponRow = `<div class="checkout-summary-row"><span>優惠券</span><strong>${couponCode ? "待系統確認" : "未使用"}</strong></div>`;
+  const couponNote = couponCode ? `<p class="checkout-summary-note checkout-coupon-note"><strong>優惠碼已輸入</strong>：${escapeHtml(couponCode)} 的折抵會依商品、會員資格、有效期限與併用規則於建立訂單時驗證；預估總額尚未先扣除。</p>` : "";
+  const deliveryNote = deliveryMethod === "seller_delivery" && checkoutItems.every(isPreorderItem)
+    ? "預購先建立本站訂單並支付訂金；到貨後客服通知，再開立賣貨便供尾款取貨。運費由 7-11 於取貨時收取。"
+    : deliveryMethodNotes[deliveryMethod];
+  const itemRows = checkoutItems.map((item) => `<div class="checkout-summary-row checkout-summary-item"><span>${escapeHtml(item.name)} × ${item.quantity}</span><strong>${money(item.price * item.quantity)}</strong></div>`).join("");
+  const depositRow = preorderCheckout ? `<div class="checkout-summary-row"><span>預購訂金 50%</span><strong>${money(depositTotal)}</strong></div>` : "";
+  const pointRow = `<div class="checkout-summary-row checkout-summary-discount"><span>點數預估折抵</span><strong>${pointDiscount ? `-${money(pointDiscount)}` : money(0)}</strong></div>`;
+  document.querySelector("#checkout-order-summary").innerHTML = `<div class="checkout-summary-head"><span aria-hidden="true">金額</span><div><h4>結算金額</h4><p>建立訂單後，系統回傳最終優惠與付款金額。</p></div></div><div class="checkout-summary-lines">${itemRows}<div class="checkout-summary-row"><span>商品總額</span><strong>${money(total)}</strong></div>${depositRow}${couponRow}${pointRow}<div class="checkout-summary-row checkout-summary-payable"><span>本次預估應付</span><strong>${money(estimatedTotal)}</strong></div></div>${couponNote}<p class="checkout-summary-note"><strong>${escapeHtml(deliveryMethodLabels[deliveryMethod])}</strong>：${escapeHtml(deliveryNote)}</p>`;
+  const payable = document.querySelector("#checkout-review-payable");
+  if (payable) payable.textContent = money(estimatedTotal);
+  const totalNote = document.querySelector("#checkout-review-total-note");
+  if (totalNote) totalNote.textContent = couponCode ? "預估應付・優惠券待確認" : "本次預估應付";
 }
 
 function ensureShippingRecipientFields() {
   const addressLabel = document.querySelector("#checkout-address-label");
   if (!addressLabel || document.querySelector("#checkout-recipient-name-label")) return;
-  addressLabel.insertAdjacentHTML("beforebegin", '<label id="checkout-recipient-name-label" class="hidden">宅配收件人姓名 <input id="checkout-recipient-name" maxlength="60" autocomplete="name" placeholder="請填寫收件人姓名" /></label><label id="checkout-recipient-phone-label" class="hidden">宅配收件人電話 <input id="checkout-recipient-phone" type="tel" inputmode="numeric" maxlength="14" autocomplete="tel" placeholder="09xx-xxx-xxx" /></label>');
+  addressLabel.insertAdjacentHTML("beforebegin", '<label id="checkout-recipient-name-label" class="hidden" data-checkout-detail>宅配收件人姓名 <input id="checkout-recipient-name" maxlength="60" autocomplete="name" placeholder="請填寫收件人姓名" /></label><label id="checkout-recipient-phone-label" class="hidden" data-checkout-detail>宅配收件人電話 <input id="checkout-recipient-phone" type="tel" inputmode="numeric" maxlength="14" autocomplete="tel" placeholder="09xx-xxx-xxx" /></label>');
   if (auth.profile?.full_name) document.querySelector("#checkout-recipient-name").value = auth.profile.full_name;
   if (auth.profile?.phone) document.querySelector("#checkout-recipient-phone").value = auth.profile.phone;
+}
+
+function ensureCheckoutFieldErrors() {
+  const fields = [
+    ["#checkout-name", "checkout-name-error"],
+    ["#checkout-phone", "checkout-phone-error"],
+    ["#checkout-recipient-name", "checkout-recipient-name-error"],
+    ["#checkout-recipient-phone", "checkout-recipient-phone-error"],
+    ["#checkout-address", "checkout-address-error"]
+  ];
+  fields.forEach(([selector, errorId]) => {
+    const input = document.querySelector(selector);
+    if (!input) return;
+    if (!document.querySelector(`#${errorId}`)) input.insertAdjacentHTML("afterend", `<small id="${errorId}" class="field-error hidden" role="alert"></small>`);
+    const describedBy = new Set((input.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
+    describedBy.add(errorId);
+    input.setAttribute("aria-describedby", [...describedBy].join(" "));
+  });
+  const bankFieldset = document.querySelector("#checkout-bank-fieldset");
+  if (bankFieldset) {
+    if (!document.querySelector("#checkout-bank-error")) bankFieldset.insertAdjacentHTML("afterend", '<p id="checkout-bank-error" class="field-error hidden" role="alert"></p>');
+    bankFieldset.setAttribute("aria-describedby", "checkout-bank-error");
+  }
+  const paymentFieldset = document.querySelector("#payment-method-fieldset");
+  if (paymentFieldset) {
+    if (!document.querySelector("#checkout-payment-method-error")) paymentFieldset.insertAdjacentHTML("afterend", '<p id="checkout-payment-method-error" class="field-error hidden" role="alert"></p>');
+    paymentFieldset.setAttribute("aria-describedby", "checkout-payment-method-error");
+  }
+}
+
+function clearCheckoutFieldErrors() {
+  document.querySelectorAll("#checkout-form .field-error").forEach((node) => { node.textContent = ""; node.classList.add("hidden"); });
+  document.querySelectorAll("#checkout-form [aria-invalid='true']").forEach((field) => field.removeAttribute("aria-invalid"));
+}
+
+function clearCheckoutFieldErrorFor(target) {
+  const localError = target.parentElement?.querySelector(".field-error");
+  if (localError) { localError.textContent = ""; localError.classList.add("hidden"); target.removeAttribute("aria-invalid"); }
+  const group = target.closest("fieldset");
+  const groupErrorId = group?.id === "checkout-bank-fieldset" ? "checkout-bank-error" : group?.id === "payment-method-fieldset" ? "checkout-payment-method-error" : null;
+  if (groupErrorId) { document.querySelector(`#${groupErrorId}`)?.classList.add("hidden"); document.querySelector(`#${groupErrorId}`)?.replaceChildren(); group.removeAttribute("aria-invalid"); }
+}
+
+function checkoutValidationError(selector, message) {
+  const field = document.querySelector(selector);
+  const errorId = field?.id === "checkout-bank-fieldset" ? "checkout-bank-error" : field?.id === "payment-method-fieldset" ? "checkout-payment-method-error" : null;
+  const error = errorId ? document.querySelector(`#${errorId}`) : field?.nextElementSibling;
+  if (field) field.setAttribute("aria-invalid", "true");
+  if (error?.classList.contains("field-error")) { error.textContent = message; error.classList.remove("hidden"); }
+  const focusTarget = field?.matches("input,select,textarea") ? field : field?.querySelector("input,select,textarea");
+  focusTarget?.focus({ preventScroll: true });
+  throw new Error(message);
+}
+
+function checkoutDetails() {
+  const fullName = document.querySelector("#checkout-name").value.trim();
+  const phone = document.querySelector("#checkout-phone").value.trim();
+  const deliveryMethod = selectedDeliveryMethod();
+  const paymentMethod = selectedPaymentMethod();
+  const shippingAddress = document.querySelector("#checkout-address").value.trim();
+  const shippingRecipientName = document.querySelector("#checkout-recipient-name")?.value.trim() || "";
+  const shippingPhone = document.querySelector("#checkout-recipient-phone")?.value.trim() || "";
+  const bankAccountId = paymentMethod === "bank_transfer" ? document.querySelector("input[name='bank_account']:checked")?.value : null;
+  return {
+    fullName,
+    phone,
+    normalizedPhone: phone.replace(/[\s-]/g, ""),
+    deliveryMethod,
+    paymentMethod,
+    shippingAddress,
+    shippingRecipientName,
+    shippingPhone,
+    normalizedShippingPhone: shippingPhone.replace(/[\s-]/g, ""),
+    bankAccountId
+  };
+}
+
+function validateCheckoutDetails() {
+  ensureShippingRecipientFields();
+  ensureCheckoutFieldErrors();
+  clearCheckoutFieldErrors();
+  const details = checkoutDetails();
+  if (!details.fullName) checkoutValidationError("#checkout-name", "請填寫姓名");
+  if (!/^09\d{8}$/.test(details.normalizedPhone)) checkoutValidationError("#checkout-phone", "請輸入有效的台灣手機號碼（09 開頭，共 10 碼）");
+  if (details.paymentMethod === "store_payment") checkoutValidationError("#payment-method-fieldset", "本站到店取貨與宅配訂單僅接受匯款／轉帳");
+  if (details.paymentMethod === "bank_transfer" && !details.bankAccountId) checkoutValidationError("#checkout-bank-fieldset", "請選擇收款帳戶");
+  if (details.deliveryMethod === "home_delivery" && !details.shippingAddress) checkoutValidationError("#checkout-address", "宅配請填寫收件地址");
+  if (details.deliveryMethod === "home_delivery" && !details.shippingRecipientName) checkoutValidationError("#checkout-recipient-name", "宅配請填寫收件人姓名");
+  if (details.deliveryMethod === "home_delivery" && !/^09\d{8}$/.test(details.normalizedShippingPhone)) checkoutValidationError("#checkout-recipient-phone", "宅配請填寫有效的收件人手機號碼");
+  return details;
+}
+
+function setCheckoutStage(stage, { focus = true } = {}) {
+  const form = document.querySelector("#checkout-form");
+  if (!form) return;
+  const review = stage === "review";
+  form.dataset.checkoutStage = review ? "review" : "details";
+  form.querySelectorAll("[data-checkout-detail]").forEach((node) => {
+    node.classList.toggle("hidden", review);
+    node.setAttribute("aria-hidden", String(review));
+  });
+  form.querySelectorAll("[data-checkout-review]").forEach((node) => {
+    node.classList.toggle("hidden", !review);
+    node.setAttribute("aria-hidden", String(!review));
+  });
+  const reviewStep = document.querySelector("#checkout-review-step");
+  if (reviewStep) {
+    reviewStep.classList.toggle("hidden", !review);
+    reviewStep.setAttribute("aria-hidden", String(!review));
+  }
+  form.querySelectorAll("[data-checkout-step-indicator]").forEach((node) => {
+    const current = node.dataset.checkoutStepIndicator === (review ? "review" : "details");
+    const complete = node.dataset.checkoutStepIndicator === "cart" || (review && node.dataset.checkoutStepIndicator === "details");
+    node.classList.toggle("is-complete", complete);
+    node.classList.toggle("is-current", current);
+    if (current) node.setAttribute("aria-current", "step");
+    else node.removeAttribute("aria-current");
+  });
+  if (review) {
+    renderCheckoutBenefits();
+    renderCheckoutSummary();
+  } else {
+    syncDeliveryFields();
+  }
+  if (focus) window.requestAnimationFrame(() => (review ? document.querySelector("#checkout-review-title") : document.querySelector("#checkout-name"))?.focus({ preventScroll: false }));
+}
+
+function openCheckoutReview() {
+  document.querySelector("#checkout-error")?.classList.add("hidden");
+  try {
+    validateCheckoutDetails();
+    setCheckoutStage("review");
+  } catch (error) {
+    showCheckoutError(error.message);
+  }
 }
 
 function ensurePaymentMethodUI() {
   const bankAccounts = document.querySelector("#checkout-bank-accounts");
   const bankFieldset = bankAccounts?.closest("fieldset");
-  if (bankFieldset) bankFieldset.id = "checkout-bank-fieldset";
-  if (bankFieldset && !document.querySelector("#payment-method-fieldset")) {
-    bankFieldset.insertAdjacentHTML("beforebegin", '<fieldset id="payment-method-fieldset"><legend>付款方式</legend><label class="radio"><input checked type="radio" name="payment_method" value="bank_transfer" /> <span><strong>匯款／轉帳</strong><small>匯款後回報帳號末五碼，管理員確認後保留庫存。</small></span></label><label id="store-payment-option" class="radio"><input type="radio" name="payment_method" value="store_payment" /> <span><strong>到店支付</strong><small>僅限到店取貨的現貨商品，取貨時現金或轉帳付款。</small></span></label></fieldset>');
+  if (bankFieldset) {
+    bankFieldset.id = "checkout-bank-fieldset";
   }
+  if (bankFieldset && !document.querySelector("#payment-method-fieldset")) {
+    bankFieldset.insertAdjacentHTML("beforebegin", '<fieldset id="payment-method-fieldset" data-checkout-detail><legend>付款方式</legend><label class="radio"><input checked type="radio" name="payment_method" value="bank_transfer" /> <span><strong>匯款／轉帳</strong><small>建單後取得專用匯款資訊；匯款完成再回報帳號末五碼。</small></span></label></fieldset>');
+  }
+  const paymentFieldset = document.querySelector("#payment-method-fieldset");
+  document.querySelector("#checkout-payment-note")?.remove();
   const lastFive = document.querySelector("#payment-last-five");
   const lastFiveLabel = lastFive?.closest("label");
   if (lastFiveLabel) lastFiveLabel.id = "payment-last-five-label";
@@ -455,10 +1278,32 @@ function ensurePaymentMethodUI() {
   if (paymentForm && !document.querySelector("#payment-store-note")) paymentForm.insertAdjacentHTML("beforeend", '<p id="payment-store-note" class="dialog-copy hidden">此訂單選擇到店支付，不需要回報匯款末五碼；請依通知時間到店付款取貨。</p>');
 }
 
+function syncCheckoutSellerOption() {
+  const fieldset = document.querySelector("#checkout-form .delivery-methods");
+  if (!fieldset) return;
+  let option = document.querySelector("#checkout-seller-delivery-option");
+  if (!option) {
+    fieldset.insertAdjacentHTML("beforeend", '<label id="checkout-seller-delivery-option" class="radio delivery-option hidden"><input type="radio" name="delivery_method" value="seller_delivery" /> <span><strong>賣貨便</strong><small>預購商品先建立本站訂單；到貨後由客服通知並開立賣貨便，運費由 7-11 取貨時收取。</small></span></label>');
+    option = document.querySelector("#checkout-seller-delivery-option");
+  }
+  option?.classList.toggle("hidden", activeCheckoutScope !== "preorder");
+}
+
 function syncDeliveryFields() {
   ensureShippingRecipientFields();
+  ensureCheckoutFieldErrors();
+  syncCheckoutSellerOption();
   const method = selectedDeliveryMethod();
-  const planFieldset = document.querySelector("#pickup-plan-fieldset");
+  const deliveryName = document.querySelector("#checkout-delivery-name");
+  const deliveryNote = document.querySelector("#checkout-delivery-note");
+  if (deliveryName) deliveryName.textContent = deliveryMethodLabels[method] || deliveryMethodLabels.store_pickup;
+  if (deliveryNote) {
+    if (method === "home_delivery") {
+      deliveryNote.innerHTML = `現貨宅配匯款時<a class="helper-contact-link checkout-home-fee-link" href="${customerServiceLineUrl}" target="_blank" rel="noopener noreferrer">先私訊小幫手確認運費再連同商品一併匯款</a>即可；預購商品到貨後通知，尾款與運費確認入帳後安排寄出。`;
+    } else {
+      deliveryNote.textContent = deliveryMethodNotes[method] || deliveryMethodNotes.store_pickup;
+    }
+  }
   const addressLabel = document.querySelector("#checkout-address-label");
   const addressInput = document.querySelector("#checkout-address");
   const recipientLabel = document.querySelector("#checkout-recipient-name-label");
@@ -466,12 +1311,20 @@ function syncDeliveryFields() {
   const recipientPhoneLabel = document.querySelector("#checkout-recipient-phone-label");
   const recipientPhoneInput = document.querySelector("#checkout-recipient-phone");
   const isHome = method === "home_delivery";
-  if (planFieldset) planFieldset.classList.toggle("hidden", method !== "store_pickup");
-  if (addressLabel) addressLabel.classList.toggle("hidden", !isHome);
+  if (addressLabel) {
+    addressLabel.classList.toggle("hidden", !isHome);
+    addressLabel.setAttribute("aria-hidden", String(!isHome));
+  }
   if (addressInput) addressInput.required = isHome;
-  if (recipientLabel) recipientLabel.classList.toggle("hidden", !isHome);
+  if (recipientLabel) {
+    recipientLabel.classList.toggle("hidden", !isHome);
+    recipientLabel.setAttribute("aria-hidden", String(!isHome));
+  }
   if (recipientInput) recipientInput.required = isHome;
-  if (recipientPhoneLabel) recipientPhoneLabel.classList.toggle("hidden", !isHome);
+  if (recipientPhoneLabel) {
+    recipientPhoneLabel.classList.toggle("hidden", !isHome);
+    recipientPhoneLabel.setAttribute("aria-hidden", String(!isHome));
+  }
   if (recipientPhoneInput) recipientPhoneInput.required = isHome;
   syncPaymentFields();
   renderCheckoutSummary();
@@ -479,28 +1332,22 @@ function syncDeliveryFields() {
 
 function syncPaymentFields() {
   const method = selectedDeliveryMethod();
-  const hasPreorder = cart.some((item) => item.type === "預購");
-  const storeOption = document.querySelector("#store-payment-option");
-  const storeInput = document.querySelector("input[name='payment_method'][value='store_payment']");
+  const paymentMethodError = document.querySelector("#checkout-payment-method-error");
+  if (paymentMethodError) { paymentMethodError.textContent = ""; paymentMethodError.classList.add("hidden"); document.querySelector("#payment-method-fieldset")?.removeAttribute("aria-invalid"); }
   const bankFieldset = document.querySelector("#checkout-bank-fieldset");
-  const canPayAtStore = method === "store_pickup" && !hasPreorder;
-  if (storeOption) storeOption.classList.toggle("hidden", !canPayAtStore);
-  if (storeInput) {
-    storeInput.disabled = !canPayAtStore;
-    if (!canPayAtStore && storeInput.checked) {
-      const bankInput = document.querySelector("input[name='payment_method'][value='bank_transfer']");
-      if (bankInput) bankInput.checked = true;
-    }
+  if (bankFieldset) {
+    // 收款帳戶在訂單建立後的付款資訊視窗顯示；第二步只保留隱藏的預設帳戶供建單使用。
+    bankFieldset.classList.add("hidden");
+    bankFieldset.setAttribute("aria-hidden", "true");
   }
-  if (bankFieldset) bankFieldset.classList.toggle("hidden", selectedPaymentMethod() !== "bank_transfer");
+  document.querySelector("#checkout-payment-note")?.remove();
   const submitButton = document.querySelector(".checkout-submit");
-  if (submitButton && selectedPaymentMethod() === "store_payment") submitButton.textContent = "建立到店支付訂單";
-  else if (submitButton) submitButton.textContent = "建立訂單";
+  if (submitButton) submitButton.textContent = "建立訂單並取得匯款資訊";
 }
 
 function ensureCheckoutBenefits() {
   if (document.querySelector("#checkout-coupon-code")) return;
-  document.querySelector("#checkout-order-summary").insertAdjacentHTML("afterend", '<section class="checkout-benefits"><h3>優惠折抵</h3><label>優惠碼<input id="checkout-coupon-code" maxlength="32" placeholder="輸入優惠碼（選填）" list="member-coupon-options" /><datalist id="member-coupon-options"></datalist></label><label>使用點數<input id="checkout-points" type="number" min="0" step="1" value="0" /><small id="checkout-point-help">未使用點數</small></label><p>優惠券適用商品、使用次數與併用規則會在建立訂單時由系統驗證。</p></section>');
+  document.querySelector("#checkout-order-summary").insertAdjacentHTML("beforebegin", '<section class="checkout-benefits" data-checkout-review aria-hidden="true" aria-labelledby="checkout-benefits-title"><div class="checkout-benefits-head"><div><h4 id="checkout-benefits-title">優惠折抵</h4><p>可選擇使用，不影響商品保留流程。</p></div><span>OPTIONAL</span></div><div class="checkout-benefits-grid"><label>優惠碼<input id="checkout-coupon-code" maxlength="32" autocomplete="off" placeholder="輸入優惠碼（選填）" list="member-coupon-options" /><datalist id="member-coupon-options"></datalist></label><label>使用點數<input id="checkout-points" type="number" min="0" step="1" value="0" inputmode="numeric" aria-describedby="checkout-point-help" /><small id="checkout-point-help">未使用點數</small></label></div><p class="checkout-benefits-note">優惠資格、有效期限、使用次數及併用規則，會在建立訂單時由系統確認。</p></section>');
 }
 
 function renderCheckoutBenefits() {
@@ -516,9 +1363,11 @@ function renderCheckoutBenefits() {
 async function loadBankAccounts(force = false) {
   const container = document.querySelector("#checkout-bank-accounts");
   const submitButton = document.querySelector(".checkout-submit");
+  const nextButton = document.querySelector("[data-checkout-review-next]");
   if (bankAccounts.length && !force) return renderBankAccounts();
   container.innerHTML = '<p class="dialog-copy">載入收款帳戶中…</p>';
   submitButton.disabled = true;
+  if (nextButton) nextButton.disabled = true;
   try {
     const response = await fetch("/api/bank-accounts", { headers: { Authorization: `Bearer ${auth.accessToken}` } });
     const result = await response.json();
@@ -528,19 +1377,23 @@ async function loadBankAccounts(force = false) {
   } catch (error) {
     container.innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`;
     submitButton.disabled = true;
+    if (nextButton) nextButton.disabled = true;
   }
 }
 
 function renderBankAccounts() {
   const container = document.querySelector("#checkout-bank-accounts");
   const submitButton = document.querySelector(".checkout-submit");
+  const nextButton = document.querySelector("[data-checkout-review-next]");
   if (!bankAccounts.length) {
     container.innerHTML = '<p class="form-error">商店尚未設定收款帳戶，目前無法建立訂單，請聯繫 LINE 客服。</p>';
-    submitButton.disabled = selectedPaymentMethod() !== "store_payment";
+    submitButton.disabled = true;
+    if (nextButton) nextButton.disabled = true;
     return;
   }
   container.innerHTML = bankAccounts.map((account, index) => `<label class="bank-option"><input type="radio" name="bank_account" value="${escapeHtml(account.id)}" ${index === 0 ? "checked" : ""} /><span><strong>${escapeHtml(account.label || account.bank_name)}</strong><small>${escapeHtml(account.bank_name)} ${escapeHtml(account.account_number)}<br />戶名：${escapeHtml(account.account_name)}</small></span></label>`).join("");
   submitButton.disabled = false;
+  if (nextButton) nextButton.disabled = false;
   syncPaymentFields();
 }
 
@@ -551,16 +1404,35 @@ function showLineFriendDialog(message = "請先加入潮吉好頑官方 LINE，�
     error.textContent = message;
     error.classList.remove("hidden");
   }
-  if (dialog && !dialog.open) dialog.showModal();
+  showDialog(dialog);
 }
 
-async function checkLineFriendship() {
-  if (!auth.accessToken || !auth.user) return false;
-  const response = await fetch("/api/member/line-friendship", { headers: { Authorization: `Bearer ${auth.accessToken}`, ...(auth.lineProviderToken ? { "X-LINE-Login-Access-Token": auth.lineProviderToken } : {}) } });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "LINE 好友狀態暫時無法確認");
-  auth.lineFriendFlag = result.friendFlag === true;
-  return auth.lineFriendFlag;
+async function checkLineFriendship({ force = false } = {}) {
+  const userId = auth.user?.id;
+  const accessToken = auth.accessToken;
+  if (!userId || !accessToken) return false;
+  if (!force && lineFriendshipCache.userId === userId && lineFriendshipCache.expiresAt > Date.now() && typeof lineFriendshipCache.value === "boolean") {
+    auth.lineFriendFlag = lineFriendshipCache.value;
+    return auth.lineFriendFlag;
+  }
+  if (lineFriendshipInFlight?.userId === userId && lineFriendshipInFlight?.accessToken === accessToken) return lineFriendshipInFlight.promise;
+  const promise = (async () => {
+    const response = await fetch("/api/member/line-friendship", { headers: { Authorization: `Bearer ${accessToken}`, ...(auth.lineProviderToken ? { "X-LINE-Login-Access-Token": auth.lineProviderToken } : {}) } });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "LINE 好友狀態暫時無法確認");
+    const friendFlag = result.friendFlag === true;
+    if (auth.user?.id === userId && auth.accessToken === accessToken) {
+      lineFriendshipCache = { userId, value: friendFlag, expiresAt: Date.now() + LINE_FRIENDSHIP_TTL_MS };
+      auth.lineFriendFlag = friendFlag;
+    }
+    return friendFlag;
+  })();
+  lineFriendshipInFlight = { userId, accessToken, promise };
+  try {
+    return await promise;
+  } finally {
+    if (lineFriendshipInFlight?.promise === promise) lineFriendshipInFlight = null;
+  }
 }
 
 async function requireLineFriendshipForCheckout() {
@@ -575,25 +1447,34 @@ async function requireLineFriendshipForCheckout() {
   }
 }
 
-async function openCheckout() {
-  if (!cart.length) return showToast("請先加入商品");
+async function openCheckout(scope = null) {
+  const groups = cartGroups();
+  const resolvedScope = scope || activeCheckoutScope || (groups.preorder.length ? "preorder" : "in_stock");
+  const scopedItems = cartItemsForScope(resolvedScope);
+  if (!scopedItems.length) return showToast("請先加入商品");
+  activeCheckoutScope = resolvedScope;
+  activeCheckoutItems = scopedItems.slice();
   if (!auth.accessToken || !auth.user) return beginLineLogin();
   if (!profileIsComplete()) return showProfileDialog(true);
   if (!await requireLineFriendshipForCheckout()) return;
-  removeLegacySellerCheckoutOption();
-  const cartMethod = selectedCartDeliveryMethod();
-  if (cartMethod !== "seller_delivery") {
-    const deliveryInput = document.querySelector(`input[name='delivery_method'][value='${cartMethod}']`);
-    if (deliveryInput) deliveryInput.checked = true;
-  }
+  const cartMethod = selectedCartDeliveryMethod(resolvedScope);
+  syncCheckoutSellerOption();
+  const deliveryInput = document.querySelector(`input[name='delivery_method'][value='${cartMethod}']`);
+  if (deliveryInput) deliveryInput.checked = true;
   try { await loadPoints(); } catch { /* 結帳仍可不使用優惠 */ }
   if (document.querySelector("#cart-drawer").classList.contains("open")) toggleCart();
   ensurePaymentMethodUI();
   renderCheckoutBenefits();
+  const couponInput = document.querySelector("#checkout-coupon-code");
+  const pointsInput = document.querySelector("#checkout-points");
+  if (couponInput) couponInput.value = "";
+  if (pointsInput) pointsInput.value = "0";
   syncDeliveryFields();
   renderCheckoutSummary();
+  setCheckoutStage("details", { focus: false });
+  clearCheckoutFieldErrors();
   document.querySelector("#checkout-error").classList.add("hidden");
-  document.querySelector("#checkout-dialog").showModal();
+  showDialog(document.querySelector("#checkout-dialog"));
   await loadBankAccounts();
 }
 
@@ -608,10 +1489,25 @@ function renderPaymentOrder(order) {
   const deliveryMethod = order.delivery_method || "store_pickup";
   const storePayment = !order.bank_account_id;
   const sellerDelivery = deliveryMethod === "seller_delivery";
-  const deliveryNotice = deliveryMethod === "store_pickup" ? "到店取貨免運。" : sellerDelivery ? "賣貨便運費由 7-11 於取貨時向客戶收取，不計入訂單；如有尾款，請依客服通知完成付款。" : order.shipping_fee ? `實際運費 ${money(order.shipping_fee)}；請將尾款與運費一併匯款，確認入帳後安排寄出。` : "到貨後由客服通知實際運費，請將尾款與運費一併匯款，確認入帳後安排寄出。";
-  const paymentText = sellerDelivery ? "賣貨便付款（外部）" : storePayment ? "到店支付" : "匯款／轉帳";
-  const bankDetail = sellerDelivery ? "此訂單需在 7-ELEVEN 賣貨便完成付款，本站不收取賣貨便款項。" : storePayment ? "到店取貨時支付，不需回報匯款末五碼。" : `<strong>${escapeHtml(account?.label || account?.bank_name || "收款帳戶")}</strong><br />銀行：${escapeHtml(account?.bank_name || "-")}<br />帳號：${escapeHtml(account?.account_number || "-")}<br />戶名：${escapeHtml(account?.account_name || "-")}`;
-  document.querySelector("#payment-order-detail").innerHTML = `<div class="payment-order-card"><h3>${escapeHtml(order.order_number)}</h3><div class="payment-row"><span>取貨方式</span><strong>${escapeHtml(deliveryMethodLabels[deliveryMethod] || "到店取貨")}</strong></div><div class="payment-row"><span>付款方式</span><strong>${paymentText}</strong></div><div class="payment-row"><span>商品原價</span><strong>${money(order.subtotal)}</strong></div>${order.coupon_discount ? `<div class="payment-row"><span>優惠券</span><strong>-${money(order.coupon_discount)}</strong></div>` : ""}${order.point_discount ? `<div class="payment-row"><span>點數折抵</span><strong>-${money(order.point_discount)}</strong></div>` : ""}${deliveryMethod !== "store_pickup" ? `<div class="payment-row"><span>${sellerDelivery ? "賣貨便運費" : "實際運費"}</span><strong>${sellerDelivery ? "由 7-11 向客戶收取" : order.shipping_fee ? money(order.shipping_fee) : "待客服通知"}</strong></div>` : ""}<div class="payment-row"><span>訂單總額</span><strong>${money(order.amount_due)}</strong></div><div class="payment-row amount"><span>本次應付</span><strong>${money(order.deposit_due)}</strong></div>${balance ? `<div class="payment-row"><span>尾款／運費</span><strong>${money(balance)}</strong></div>` : ""}<p class="dialog-copy">${escapeHtml(deliveryNotice)}</p>${order.shipping_address ? `<p class="dialog-copy">宅配地址：${escapeHtml(order.shipping_address)}</p>` : ""}<div class="bank-detail">${bankDetail}</div><p class="deadline">付款／保留期限：${formatDateTime(order.payment_deadline)}</p></div>`;
+  const preorderSeller = sellerDelivery && !storePayment;
+  const hasPreorder = (order.order_items || []).some(isPreorderItem);
+  const awaitingInStockHomeDeliveryFee = deliveryMethod === "home_delivery" && !hasPreorder && !Number(order.shipping_fee || 0);
+  const deliveryNotice = deliveryMethod === "store_pickup" ? "到店取貨免運。" : preorderSeller ? "預購到貨後客服會通知並開立賣貨便；運費由 7-11 於取貨時向客戶收取。" : sellerDelivery ? "賣貨便運費由 7-11 於取貨時向客戶收取，不計入訂單；如有尾款，請依客服通知完成付款。" : awaitingInStockHomeDeliveryFee ? "私訊小幫手確認運費後，與商品金額一併轉帳／匯款，確認入帳後安排寄出。" : order.shipping_fee ? `實際運費 ${money(order.shipping_fee)}；請將尾款與運費一併匯款，確認入帳後安排寄出。` : "到貨後由客服通知實際運費，請將尾款與運費一併匯款，確認入帳後安排寄出。";
+  const paymentText = sellerDelivery ? (storePayment ? "賣貨便取貨付款（外部）" : "匯款／轉帳（預購訂金）") : storePayment ? "到店支付" : "匯款／轉帳";
+  const accountNumber = String(account?.account_number || "");
+  const bankDetail = sellerDelivery && storePayment
+    ? "此訂單需在 7-ELEVEN 賣貨便完成付款，本站不收取賣貨便款項。"
+    : storePayment
+      ? "到店取貨時支付，不需回報匯款末五碼。"
+      : `<div class="transfer-account-card"><div class="transfer-card-head"><div class="transfer-card-title"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="3" y1="21" x2="21" y2="21"></line><line x1="3" y1="10" x2="21" y2="10"></line><polyline points="5 6 12 3 19 6"></polyline><line x1="4" y1="10" x2="4" y2="21"></line><line x1="20" y1="10" x2="20" y2="21"></line><line x1="8" y1="14" x2="8" y2="17"></line><line x1="12" y1="14" x2="12" y2="17"></line><line x1="16" y1="14" x2="16" y2="17"></line></svg><span>轉帳專用匯款帳號</span></div></div><div class="transfer-card-total"><span>本次應匯總額</span><strong>${money(order.deposit_due)}</strong></div><div class="transfer-account-inner"><div class="transfer-account-row"><span>收款銀行</span><strong>${escapeHtml(account?.bank_name || account?.label || "收款帳戶")}</strong></div><div class="transfer-account-row"><span>戶名</span><strong>${escapeHtml(account?.account_name || "-")}</strong></div><hr /><div class="transfer-account-number-label">匯款帳號</div><div class="transfer-account-number-line"><strong>${escapeHtml(accountNumber || "-")}</strong><button type="button" class="copy-account-button" data-copy-bank-account="${escapeHtml(accountNumber)}" aria-label="複製匯款帳號">複製<br />帳號</button></div></div><div class="transfer-card-note"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg><span>轉帳手續費自理；完成後請於下方立即填寫「帳號末五碼」。</span></div></div>`;
+  const shippingFeeRow = deliveryMethod !== "store_pickup" ? `<div class="payment-row"><span>${sellerDelivery ? "賣貨便運費" : "實際運費"}</span><strong>${sellerDelivery ? "由 7-11 向客戶收取" : order.shipping_fee ? money(order.shipping_fee) : awaitingInStockHomeDeliveryFee ? linkCustomerServiceText("請先私訊小幫手確認") : "待客服通知"}</strong></div>` : "";
+  const balanceLabel = deliveryMethod === "store_pickup" || deliveryMethod === "home_delivery" ? "尾款" : "尾款／運費";
+  const balanceRow = balance ? `<div class="payment-row"><span>${balanceLabel}</span><strong>${money(balance)}</strong></div>` : "";
+  const amountDueRow = `<div class="payment-row amount${deliveryMethod === "store_pickup" ? " payment-store-pickup-due" : ""}"><span>本次應付</span><strong>${money(order.deposit_due)}</strong></div>`;
+  const paymentRows = deliveryMethod === "store_pickup" ? `${amountDueRow}${balanceRow}` : `${amountDueRow}${balanceRow}${shippingFeeRow}`;
+  const deliveryNoticeClass = awaitingInStockHomeDeliveryFee ? "dialog-copy payment-delivery-notice" : "dialog-copy";
+  const bankDetailClass = !storePayment && !sellerDelivery ? " transfer-bank-detail" : "";
+  document.querySelector("#payment-order-detail").innerHTML = `<div class="payment-order-card"><h3>${escapeHtml(order.order_number)}</h3><div class="payment-row"><span>取貨方式</span><strong>${escapeHtml(deliveryMethodLabels[deliveryMethod] || "到店取貨")}</strong></div><div class="payment-row"><span>付款方式</span><strong>${paymentText}</strong></div><div class="payment-row"><span>商品原價</span><strong>${money(order.subtotal)}</strong></div>${order.coupon_discount ? `<div class="payment-row"><span>優惠券</span><strong>-${money(order.coupon_discount)}</strong></div>` : ""}${order.point_discount ? `<div class="payment-row"><span>點數折抵</span><strong>-${money(order.point_discount)}</strong></div>` : ""}<div class="payment-row"><span>訂單總額</span><strong>${money(order.amount_due)}</strong></div>${paymentRows}<p class="${deliveryNoticeClass}">${linkCustomerServiceText(deliveryNotice)}</p><div class="bank-detail${bankDetailClass}">${bankDetail}</div><p class="deadline">付款／保留期限：${formatDateTime(order.payment_deadline)}</p></div>`;
   document.querySelector("#payment-last-five-label")?.classList.toggle("hidden", storePayment);
   const lastFiveInput = document.querySelector("#payment-last-five");
   if (lastFiveInput) lastFiveInput.required = !storePayment;
@@ -625,7 +1521,7 @@ function showPaymentDialog(order) {
   document.querySelector("#payment-last-five").value = "";
   document.querySelector("#payment-error").classList.add("hidden");
   const dialog = document.querySelector("#payment-dialog");
-  if (!dialog.open) dialog.showModal();
+  showDialog(dialog);
 }
 
 function showCheckoutError(message) {
@@ -637,33 +1533,20 @@ function showCheckoutError(message) {
 async function submitOrder() {
   if (!auth.config?.authEnabled) return showToast("目前為靜態預覽，尚未連接訂單資料庫");
   if (!auth.accessToken || !auth.user) return beginLineLogin();
-  const fullName = document.querySelector("#checkout-name").value.trim();
-  const phone = document.querySelector("#checkout-phone").value.trim();
-  const deliveryMethod = selectedDeliveryMethod();
-  const paymentMethod = selectedPaymentMethod();
-  const pickupPlan = document.querySelector("input[name='pickup']:checked")?.value || "together";
-  const shippingAddress = document.querySelector("#checkout-address").value.trim();
-  const shippingRecipientName = document.querySelector("#checkout-recipient-name")?.value.trim() || "";
-  const shippingPhone = document.querySelector("#checkout-recipient-phone")?.value.trim() || "";
-  const bankAccountId = paymentMethod === "bank_transfer" ? document.querySelector("input[name='bank_account']:checked")?.value : null;
-  const normalizedPhone = phone.replace(/[\s-]/g, "");
-  const normalizedShippingPhone = shippingPhone.replace(/[\s-]/g, "");
-  if (!/^09\d{8}$/.test(normalizedPhone)) throw new Error("請輸入有效的台灣手機號碼（09 開頭，共 10 碼）");
-  if (paymentMethod === "store_payment" && (deliveryMethod !== "store_pickup" || cart.some((item) => item.type === "預購"))) throw new Error("到店支付僅適用到店取貨的現貨商品");
-  if (paymentMethod === "bank_transfer" && !bankAccountId) throw new Error("請選擇收款帳戶");
-  if (deliveryMethod === "home_delivery" && !shippingAddress) throw new Error("宅配請填寫收件地址");
-  if (deliveryMethod === "home_delivery" && !shippingRecipientName) throw new Error("宅配請填寫收件人姓名");
-  if (deliveryMethod === "home_delivery" && !/^09\d{8}$/.test(normalizedShippingPhone)) throw new Error("宅配請填寫有效的收件人手機號碼");
-  await saveProfile({ full_name: fullName, phone: normalizedPhone, birthday: auth.profile?.birthday || null, address: deliveryMethod === "home_delivery" ? shippingAddress : (auth.profile?.address || null) });
+  const details = validateCheckoutDetails();
+  const itemsForOrder = checkoutCartItems().slice();
+  const pickupPlan = "together";
+  await saveProfile({ full_name: details.fullName, phone: details.normalizedPhone, birthday: auth.profile?.birthday || null, address: details.deliveryMethod === "home_delivery" ? details.shippingAddress : (auth.profile?.address || null) });
   const response = await fetch("/api/orders", {
     method: "POST",
     headers: { Authorization: `Bearer ${auth.accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ items: cart.map((item) => ({ variant_id: item.id, quantity: item.quantity })), pickup_plan: pickupPlan, delivery_method: deliveryMethod, payment_method: paymentMethod, shipping_address: deliveryMethod === "home_delivery" ? shippingAddress : null, shipping_recipient_name: deliveryMethod === "home_delivery" ? shippingRecipientName : null, shipping_phone: deliveryMethod === "home_delivery" ? normalizedShippingPhone : null, bank_account_id: bankAccountId, coupon_code: document.querySelector("#checkout-coupon-code")?.value.trim() || null, points_to_redeem: Number(document.querySelector("#checkout-points")?.value || 0) })
+    body: JSON.stringify({ items: itemsForOrder.map((item) => ({ variant_id: item.id, quantity: item.quantity })), pickup_plan: pickupPlan, delivery_method: details.deliveryMethod, payment_method: details.paymentMethod, shipping_address: details.deliveryMethod === "home_delivery" ? details.shippingAddress : null, shipping_recipient_name: details.deliveryMethod === "home_delivery" ? details.shippingRecipientName : null, shipping_phone: details.deliveryMethod === "home_delivery" ? details.normalizedShippingPhone : null, bank_account_id: details.bankAccountId, coupon_code: document.querySelector("#checkout-coupon-code")?.value.trim() || null, points_to_redeem: Number(document.querySelector("#checkout-points")?.value || 0) })
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || result.message || "訂單建立失敗");
-  await loadPoints().catch(() => {});
-  cart.splice(0); saveCart(); renderCart(); document.querySelector("#checkout-dialog").close();
+  await loadPoints({ force: true }).catch(() => {});
+  cart.splice(0, cart.length, ...cart.filter((item) => !itemsForOrder.includes(item)));
+  saveCart(); await syncMemberCartNow(); renderCart(); activeCheckoutItems = null; activeCheckoutScope = null; closeDialog(document.querySelector("#checkout-dialog"));
   showPaymentDialog(result.order);
 }
 
@@ -689,9 +1572,9 @@ async function submitPayment(event) {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "付款回報失敗");
-    document.querySelector("#payment-dialog").close();
+    closeDialog(document.querySelector("#payment-dialog"));
     activePaymentOrder = result.order;
-    showToast("末五碼已送出，請等待管理員確認");
+    showToast("末五碼已送出，請等待管理員確認", "success");
     await openOrders();
   } catch (error) {
     errorNode.textContent = error.message;
@@ -705,16 +1588,27 @@ async function submitPayment(event) {
 function renderOrders() {
   const container = document.querySelector("#orders-list");
   if (!currentOrders.length) {
-    container.innerHTML = '<p class="dialog-copy">目前還沒有訂單。</p>';
+    container.innerHTML = '<div class="orders-empty"><strong>目前還沒有訂單</strong><p>先挑一件喜歡的玩具，加入選物盒後就能在這裡追蹤付款與到貨進度。</p><button class="secondary-button" type="button" data-orders-shop>前往商品區</button></div>';
     return;
   }
   container.innerHTML = currentOrders.map((order) => {
     const items = (order.order_items || []).map((item) => `${escapeHtml(item.product_name)}${item.variant_name === "單一規格" ? "" : ` · ${escapeHtml(item.variant_name)}`} × ${item.quantity}`).join("<br />");
-    const expired = order.status === "pending_payment" && new Date(order.payment_deadline) <= new Date();
     const deliveryMethod = order.delivery_method || "store_pickup";
+    const sellerPending = deliveryMethod === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id;
+    const preorderSellerPending = deliveryMethod === "seller_delivery" && order.status === "pending_payment" && Boolean(order.bank_account_id);
+    const expired = !sellerPending && order.status === "pending_payment" && new Date(order.payment_deadline) <= new Date();
     const deliveryNotice = deliveryMethod === "store_pickup" ? "到店取貨免運" : deliveryMethod === "seller_delivery" ? "賣貨便運費由 7-11 於取貨時收取，不計入訂單" : order.shipping_fee ? `實際運費 ${money(order.shipping_fee)}` : "運費到貨後由客服通知";
-    const paymentNotice = deliveryMethod === "seller_delivery" ? "賣貨便付款（外部）" : order.bank_account_id ? "匯款／轉帳" : "到店支付";
-    return `<article class="order-card"><div class="order-card-head"><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(deliveryMethodLabels[deliveryMethod] || "到店取貨")}</small></div><span class="status-chip">${expired ? "付款逾期" : escapeHtml(orderStatusLabels[order.status] || order.status)}</span></div><div class="order-items">${items}</div><div class="payment-row"><span>付款方式</span><strong>${paymentNotice}</strong></div><div class="payment-row"><span>配送費用</span><strong>${deliveryNotice}</strong></div><div class="payment-row"><span>訂單總額</span><strong>${money(order.amount_due)}</strong></div><div class="payment-row"><span>本次應付</span><strong>${money(order.deposit_due)}</strong></div>${deliveryMethod !== "store_pickup" ? `<div class="payment-row"><span>尾款／運費</span><strong>${order.final_payment_confirmed_at ? "已確認" : "待客服通知或確認"}</strong></div>` : ""}${order.bank_account_id && order.status === "pending_payment" && !expired ? `<button type="button" data-order-payment="${order.id}">回報匯款末五碼</button>` : ""}</article>`;
+    const paymentNotice = order.bank_account_id ? "匯款／轉帳" : deliveryMethod === "seller_delivery" ? "賣貨便取貨付款（外部）" : "到店支付";
+    const statusLabel = sellerPending ? "賣貨便待確認" : preorderSellerPending ? "預購待付訂" : expired ? "付款逾期" : escapeHtml(orderStatusLabel(order));
+    const deliveryLabel = `${orderInventoryTypeLabel(order)}．${deliveryMethodLabels[deliveryMethod] || "到店取貨"}`;
+    const homeBalanceNotice = order.final_payment_confirmed_at
+      ? "已確認"
+      : orderIncludesPreorder(order)
+        ? linkCustomerServiceText("待小幫手通知確認")
+        : linkCustomerServiceText("私訊小幫手確認");
+    const deliveryFeeRow = deliveryMethod === "home_delivery" ? "" : `<div class="payment-row"><span>配送費用</span><strong>${deliveryNotice}</strong></div>`;
+    const balanceNotice = deliveryMethod === "home_delivery" ? homeBalanceNotice : order.final_payment_confirmed_at ? "已確認" : "待客服通知或確認";
+    return `<article class="order-card${sellerPending ? " seller-pending" : ""}${preorderSellerPending ? " preorder-seller-pending" : ""}"><div class="order-card-head"><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(deliveryLabel)}</small></div><span class="status-chip${sellerPending ? " status-seller-pending" : ""}">${statusLabel}</span></div>${sellerPending ? '<p class="seller-pending-notice"><strong>本站待管理員核對</strong>：請先完成賣貨便結帳；核對後會更新本站訂單狀態並通知你。</p>' : preorderSellerPending ? '<p class="seller-pending-notice"><strong>預購訂金待確認</strong>：請於訂單成立後 2 小時內完成匯款並回報末五碼；到貨後客服會通知開立賣貨便。</p>' : ""}<div class="order-items">${items}</div><div class="payment-row"><span>付款方式</span><strong>${paymentNotice}</strong></div>${deliveryFeeRow}<div class="payment-row"><span>訂單總額</span><strong>${money(order.amount_due)}</strong></div><div class="payment-row"><span>本次應付</span><strong>${money(order.deposit_due)}</strong></div>${deliveryMethod !== "store_pickup" ? `<div class="payment-row"><span>尾款／運費</span><strong>${balanceNotice}</strong></div>` : ""}${order.bank_account_id && order.status === "pending_payment" && !expired ? `<button type="button" data-order-payment="${order.id}">回報匯款末五碼</button>` : ""}</article>`;
   }).join("");
 }
 
@@ -722,8 +1616,9 @@ async function openOrders() {
   if (!auth.accessToken || !auth.user) return beginLineLogin();
   const dialog = document.querySelector("#orders-dialog");
   const container = document.querySelector("#orders-list");
-  container.innerHTML = '<p class="dialog-copy">載入訂單中…</p>';
-  if (!dialog.open) dialog.showModal();
+  container.setAttribute("aria-busy", "true");
+  container.innerHTML = '<div class="skeleton-stack" role="status" aria-label="載入訂單中"><div class="skeleton-card"><span></span><i></i><i></i></div><div class="skeleton-card"><span></span><i></i><i></i></div></div>';
+  showDialog(dialog);
   try {
     const response = await fetch("/api/orders", { headers: { Authorization: `Bearer ${auth.accessToken}` } });
     const result = await response.json();
@@ -732,6 +1627,8 @@ async function openOrders() {
     renderOrders();
   } catch (error) {
     container.innerHTML = `<p class="form-error">${escapeHtml(error.message)}</p>`;
+  } finally {
+    container.removeAttribute("aria-busy");
   }
 }
 
@@ -751,19 +1648,19 @@ async function adminFetch(path, options = {}) {
   return result;
 }
 
-async function testLineNotification() {
-  const button = document.querySelector("[data-line-test]");
+async function testTelegramNotification() {
+  const button = document.querySelector("[data-telegram-test]");
   if (button) {
     button.disabled = true;
     button.textContent = "測試中…";
   }
   try {
-    const result = await adminFetch("/api/admin/line-test", { method: "POST", body: JSON.stringify({}) });
-    showToast(result.message || "LINE 測試通知已送出");
+    const result = await adminFetch("/api/admin/telegram-test", { method: "POST", body: JSON.stringify({}) });
+    showToast(result.message || "Telegram 測試通知已送出", "success");
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = "測試 LINE 通知";
+      button.textContent = "測試 Telegram 通知";
     }
   }
 }
@@ -774,32 +1671,128 @@ function relationOne(value) {
 
 async function openAdmin() {
   if (!auth.user || auth.profile?.is_admin !== true) return showToast("僅限管理員使用");
+  if (window.matchMedia("(max-width: 900px)").matches) {
+    document.querySelectorAll("#admin-dialog details[data-admin-mobile-collapse][open]").forEach((details) => details.removeAttribute("open"));
+  }
   const dialog = document.querySelector("#admin-dialog");
-  if (!dialog.open) dialog.showModal();
-  await loadAdminData();
+  showDialog(dialog);
+  const tab = document.querySelector("[data-admin-tab].active")?.dataset.adminTab || "overview";
+  await loadAdminSection(tab, { force: true });
+  switchAdminTab(tab);
 }
 
-async function loadAdminData() {
+function adminSectionForTab(tab) {
+  return tab === "accounts" ? "settings" : adminSections.includes(tab) ? tab : "overview";
+}
+
+function mergeAdminData(partial) {
+  adminData = {
+    ...(adminData || {}),
+    ...partial,
+    stats: { ...(adminData?.stats || {}), ...(partial.stats || {}) }
+  };
+  return adminData;
+}
+
+function renderAdminSection(section) {
+  if (!adminData) return;
+  if (section === "overview") {
+    const readyStat = document.querySelector('[data-stat="readyForPickup"]');
+    if (readyStat?.previousElementSibling) readyStat.previousElementSibling.textContent = "待取貨／待尾款";
+    Object.entries(adminData.stats || {}).forEach(([key, value]) => {
+      const node = document.querySelector(`[data-stat="${key}"]`);
+      if (node) node.textContent = value;
+    });
+    return;
+  }
+  if (section === "orders") {
+    renderAdminOrderStatusFilter();
+    renderAdminOrders();
+    return;
+  }
+  if (section === "members") {
+    renderAdminMembers();
+    return;
+  }
+  if (section === "products") {
+    renderAdminCategories();
+    renderAdminProducts();
+    renderAdminSelects();
+    removeLegacyShippingUI();
+    return;
+  }
+  if (section === "inventory") {
+    renderAdminSelects();
+    renderAdminMovements();
+    renderAdminLowStock();
+    return;
+  }
+  if (section === "discounts") {
+    ensureDiscountAdminUI();
+    renderAdminDiscounts();
+    return;
+  }
+  renderAdminAccounts();
+}
+
+async function loadAdminSection(tabOrSection, { force = false } = {}) {
+  const section = adminSectionForTab(tabOrSection);
+  if (!force && adminSectionLoaded.has(section)) {
+    renderAdminSection(section);
+    return adminData;
+  }
+  const existing = adminSectionInFlight.get(section);
+  if (existing) return existing;
   const loading = document.querySelector("#admin-loading");
   const errorNode = document.querySelector("#admin-error");
   loading.classList.remove("hidden");
   errorNode.classList.add("hidden");
-  document.querySelectorAll(".admin-panel").forEach((panel) => panel.classList.add("hidden"));
-  try {
-    adminData = await adminFetch("/api/admin/dashboard");
-    renderAdminData();
-    switchAdminTab(document.querySelector("[data-admin-tab].active")?.dataset.adminTab || "overview");
-  } catch (error) {
-    errorNode.textContent = error.message;
-    errorNode.classList.remove("hidden");
-  } finally {
-    loading.classList.add("hidden");
-  }
+  const request = (async () => {
+    try {
+      const partial = await adminFetch(`/api/admin/dashboard?section=${encodeURIComponent(section)}`);
+      mergeAdminData(partial);
+      adminSectionLoaded.add(section);
+      renderAdminSection(section);
+      return adminData;
+    } catch (error) {
+      errorNode.textContent = error.message;
+      errorNode.classList.remove("hidden");
+      throw error;
+    } finally {
+      loading.classList.add("hidden");
+      adminSectionInFlight.delete(section);
+    }
+  })();
+  adminSectionInFlight.set(section, request);
+  return request;
 }
 
 function switchAdminTab(tab) {
   document.querySelectorAll("[data-admin-tab]").forEach((button) => button.classList.toggle("active", button.dataset.adminTab === tab));
   document.querySelectorAll("[data-admin-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.adminPanel !== tab));
+  loadAdminSection(tab).catch(() => {});
+}
+
+async function refreshAdminSections(sections) {
+  await Promise.all([...new Set(sections)].map((section) => loadAdminSection(section, { force: true })));
+}
+
+async function loadAdminData(section) {
+  return loadAdminSection(section || document.querySelector("[data-admin-tab].active")?.dataset.adminTab || "overview", { force: true });
+}
+
+function applyAdminQuickFilter(filter) {
+  if (filter === "low_stock") {
+    switchAdminTab("inventory");
+  } else if (filter === "members") {
+    switchAdminTab("members");
+  } else {
+    const statusFilter = document.querySelector("#admin-order-status-filter");
+    if (statusFilter) statusFilter.value = ["pending_review", "seller_pending", "ready_for_pickup"].includes(filter) ? filter : "all";
+    switchAdminTab("orders");
+    renderAdminOrders();
+  }
+  document.querySelector(".admin-content")?.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function localDateTime(value) {
@@ -808,9 +1801,7 @@ function localDateTime(value) {
 }
 
 function ensureDiscountAdminUI() {
-  if (document.querySelector("[data-admin-tab='discounts']")) return;
-  document.querySelector(".admin-nav").insertAdjacentHTML("beforeend", '<button type="button" data-admin-tab="discounts">優惠券</button>');
-  document.querySelector(".admin-content").insertAdjacentHTML("beforeend", '<section class="admin-panel hidden" data-admin-panel="discounts"><p class="eyebrow">COUPONS</p><h2>優惠券與生日券</h2><p class="dialog-copy">固定金額折扣；可限定商品、會員、期限、使用次數及是否可與點數併用。</p><details class="admin-create" open><summary>新增／編輯優惠券</summary><form id="admin-coupon-form" class="admin-form"><input id="coupon-id" type="hidden" /><div class="form-grid"><label>優惠碼<input id="coupon-code" required maxlength="32" pattern="[A-Za-z0-9_-]{3,32}" /></label><label>名稱<input id="coupon-name" required maxlength="80" /></label><label>固定折抵金額<input id="coupon-amount" required type="number" min="1" step="1" /></label><label>每位會員可用次數<input id="coupon-member-limit" required type="number" min="1" step="1" value="1" /></label><label>開始時間<input id="coupon-valid-from" required type="datetime-local" /></label><label>結束時間<input id="coupon-valid-until" required type="datetime-local" /></label><label>總使用次數<input id="coupon-total-limit" type="number" min="1" step="1" placeholder="留空代表不限" /></label><label class="check-field"><input id="coupon-combinable" type="checkbox" /> 可與點數併用</label><label class="check-field"><input id="coupon-active" type="checkbox" checked /> 啟用優惠券</label><fieldset class="wide coupon-scope"><legend>限定商品（未勾選代表全部）</legend><div id="coupon-product-options"></div></fieldset><fieldset class="wide coupon-scope"><legend>限定會員（未勾選代表全部）</legend><div id="coupon-member-options"></div></fieldset></div><div class="form-actions"><button class="primary-button" type="submit">儲存優惠券</button><button class="secondary-button" type="button" data-coupon-reset>清除／新增</button></div></form></details><details class="admin-create"><summary>生日券自動發送規則</summary><form id="birthday-coupon-form" class="admin-form"><div class="form-grid"><label>折抵金額<input id="birthday-amount" required type="number" min="1" step="1" value="100" /></label><label>生日前幾天發送<input id="birthday-before" required type="number" min="0" max="60" value="7" /></label><label>發送後有效天數<input id="birthday-valid-days" required type="number" min="1" max="365" value="30" /></label><label class="check-field"><input id="birthday-combinable" type="checkbox" /> 可與點數併用</label><label class="check-field"><input id="birthday-enabled" type="checkbox" /> 啟用自動生日券</label></div><div class="form-actions"><button class="primary-button" type="submit">儲存生日券規則</button><button class="secondary-button" type="button" data-birthday-issue>立即執行生日券發送</button></div></form></details><h3>優惠券列表</h3><div id="admin-coupon-list" class="admin-card-list"></div></section>');
+  if (!document.querySelector("[data-admin-tab='discounts']") || !document.querySelector("[data-admin-panel='discounts']")) return;
   resetCouponForm();
 }
 
@@ -826,8 +1817,10 @@ function resetCouponForm() {
 function renderAdminDiscounts() {
   const productBox = document.querySelector("#coupon-product-options");
   const memberBox = document.querySelector("#coupon-member-options");
-  productBox.innerHTML = (adminData.products || []).map((product) => `<label><input type="checkbox" name="coupon_product" value="${product.id}" /> ${escapeHtml(product.name)}</label>`).join("") || "<small>尚無商品</small>";
-  memberBox.innerHTML = (adminData.members || []).map((member) => `<label><input type="checkbox" name="coupon_member" value="${member.id}" /> ${escapeHtml(member.full_name || member.phone || "未命名會員")}</label>`).join("") || "<small>尚無會員</small>";
+  const products = adminData.discountProducts || adminData.products || [];
+  const members = adminData.discountMembers || adminData.members || [];
+  productBox.innerHTML = products.map((product) => `<label><input type="checkbox" name="coupon_product" value="${product.id}" /> ${escapeHtml(product.name)}</label>`).join("") || "<small>尚無商品</small>";
+  memberBox.innerHTML = members.map((member) => `<label><input type="checkbox" name="coupon_member" value="${member.id}" /> ${escapeHtml(member.full_name || member.phone || "未命名會員")}</label>`).join("") || "<small>尚無會員</small>";
   const birthday = adminData.birthdaySettings;
   if (birthday) {
     document.querySelector("#birthday-amount").value = birthday.discount_amount;
@@ -840,17 +1833,44 @@ function renderAdminDiscounts() {
   list.innerHTML = (adminData.coupons || []).map((coupon) => `<div class="admin-card coupon-card"><div><strong>${escapeHtml(coupon.code)} · ${escapeHtml(coupon.name)}</strong><small>折 ${money(coupon.discount_amount)} · ${coupon.combinable_with_points ? "可" : "不可"}與點數併用 · 已用 ${(coupon.coupon_redemptions || []).length}${coupon.total_usage_limit ? `/${coupon.total_usage_limit}` : ""} · ${coupon.is_active ? "啟用" : "停用"}<br />${new Date(coupon.valid_from).toLocaleString("zh-TW")} 至 ${new Date(coupon.valid_until).toLocaleString("zh-TW")}${coupon.is_birthday ? " · 生日券" : ""}</small></div>${coupon.is_birthday ? "" : `<button type="button" data-coupon-edit="${coupon.id}">編輯</button>`}</div>`).join("") || '<div class="empty-state">尚未建立優惠券。</div>';
 }
 
+const adminOrderStatusFilterGroups = [
+  { label: "待處理", options: [["seller_pending", "賣貨便待核對"], ["pending_payment", "待付款"], ["pending_review", "待確認款項"]] },
+  { label: "處理中", options: [["confirmed", "已確認款項（依配送狀態）"], ["ready_for_pickup", "配送處理中（到貨／出貨／待尾款）"]] },
+  { label: "結案／退款", options: [["completed", "已完成訂單"], ["cancelled", "已取消"], ["refund_pending", "退款處理中"], ["refunded", "已退款"]] }
+];
+
+function renderAdminOrderStatusFilter() {
+  const select = document.querySelector("#admin-order-status-filter");
+  if (!select) return;
+  const orders = Array.isArray(adminData?.orders) ? adminData.orders : [];
+  const counts = Object.fromEntries(adminOrderStatusFilterGroups.flatMap((group) => group.options).map(([value]) => [value, 0]));
+  orders.forEach((order) => {
+    if (Object.prototype.hasOwnProperty.call(counts, order.status)) counts[order.status] += 1;
+    if (order.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id) counts.seller_pending += 1;
+  });
+  const previous = select.value;
+  const countLabel = (value) => counts[value] ? `（${counts[value]}）` : "";
+  select.innerHTML = `<option value="all">全部訂單${orders.length ? `（${orders.length}）` : ""}</option>` + adminOrderStatusFilterGroups.map((group) => `<optgroup label="${group.label}">${group.options.map(([value, label]) => `<option value="${value}">${label}${countLabel(value)}</option>`).join("")}</optgroup>`).join("");
+  const available = new Set(["all", ...adminOrderStatusFilterGroups.flatMap((group) => group.options.map(([value]) => value))]);
+  select.value = available.has(previous) ? previous : "all";
+}
+
 function renderAdminData() {
   ensureDiscountAdminUI();
+  const readyStat = document.querySelector('[data-stat="readyForPickup"]');
+  if (readyStat?.previousElementSibling) readyStat.previousElementSibling.textContent = "待取貨／待尾款";
   Object.entries(adminData.stats || {}).forEach(([key, value]) => {
     const node = document.querySelector(`[data-stat="${key}"]`);
     if (node) node.textContent = value;
   });
   renderAdminAccounts();
+  renderAdminOrderStatusFilter();
   renderAdminOrders();
   renderAdminMembers();
+  renderAdminCategories();
   renderAdminProducts();
   renderAdminMovements();
+  renderAdminLowStock();
   renderAdminSelects();
   renderAdminDiscounts();
   removeLegacyShippingUI();
@@ -860,15 +1880,15 @@ function removeLegacyShippingUI() {
   document.querySelector("[data-admin-tab='shipping']")?.remove();
   document.querySelector("[data-admin-panel='shipping']")?.remove();
   const checkoutCopy = document.querySelector("#checkout-form > .dialog-copy");
-  if (checkoutCopy) checkoutCopy.textContent = "確認後會保留商品；匯款訂單請在 24 小時內完成匯款並回報帳號末五碼，到店支付的現貨訂單最長保留 3 個月。賣貨便運費由 7-11 於取貨時向客戶收取，不計入本站訂單；宅配實際運費於商品到貨後由客服通知，請將尾款與運費一併匯款，確認後才安排寄出。";
+  if (checkoutCopy) checkoutCopy.textContent = "確認後會立即保留商品；購物車若含現貨與預購，會分開建立訂單與付款期限。本站匯款訂單請於預購 2 小時內、現貨 24 小時內回報末五碼；預購賣貨便到貨後由客服通知並開立賣貨便，運費由 7-11 取貨時收取；宅配現貨付款確認後即可由客服確認尾款與運費，預購商品則於到貨後通知。";
   const checkoutTerms = document.querySelector("#checkout-form > .terms");
-  if (checkoutTerms) checkoutTerms.textContent = "送出後將立即保留庫存；逾期未回報付款，系統會自動取消並釋放庫存。付款完成視同同意代購規則；賣貨便運費由 7-11 於取貨時收取，不計入本站訂單，宅配運費則於到貨後由客服通知，尾款與應付運費確認後才安排寄出，任何原因不接受退換貨。";
+  if (checkoutTerms) checkoutTerms.textContent = "送出後將立即保留本組商品庫存；預購須於 2 小時內、現貨須於 24 小時內完成匯款，逾期未回報付款將自動取消並釋放庫存。付款完成視同同意代購規則；賣貨便運費由 7-11 於取貨時收取，宅配現貨付款確認後由客服確認尾款與運費，預購商品到貨後通知，確認入帳後才安排寄出，任何原因不接受退換貨。";
   const productCopy = document.querySelector("[data-admin-panel='products'] > .dialog-copy");
-  if (productCopy) productCopy.textContent = "每件商品可上傳 1 張主圖，支援 JPG、PNG、WebP，上限 5MB。商品到貨後由客服通知取貨或寄送安排。";
+  if (productCopy) productCopy.textContent = "每件商品可上傳 1 張主圖；JPG、PNG、WebP 會優先保留比例、縮放並轉成 WebP，若瀏覽器不支援轉換則保留原始格式；單張上限 5MB。";
   const orderCopy = document.querySelector("[data-admin-panel='orders'] > .dialog-copy");
-  if (orderCopy) orderCopy.textContent = "確認訂金／付款後才會扣除庫存；賣貨便運費由 7-11 向客戶收取，不計入訂單；宅配到貨後再填寫實際運費，確認尾款與運費入帳後才安排寄出。";
+  if (orderCopy) orderCopy.textContent = "確認訂金／付款後才會扣除庫存；賣貨便運費由 7-11 向客戶收取，不計入訂單；現貨宅配付款確認後即可填寫實際運費，預購宅配則於到貨後更新狀態，再確認尾款與運費入帳後安排寄出。";
   const ordersCopy = document.querySelector("#orders-dialog .dialog-copy");
-  if (ordersCopy) ordersCopy.textContent = "可查看訂單狀態，匯款訂單可補填匯款帳號末五碼；到店支付訂單請依通知到店付款。";
+  if (ordersCopy) ordersCopy.textContent = "可查看訂單狀態，匯款訂單可補填匯款帳號末五碼；賣貨便訂單會先顯示為待確認，待管理員人工核對。";
 }
 
 function renderPointSettings() {
@@ -900,7 +1920,7 @@ function renderAdminMembers() {
     const entries = memberPointEntries(member.id).slice(0, 8);
     const history = entries.map((entry) => { const order = relationOne(entry.orders); const actor = relationOne(entry.actor); return `<li><span>${escapeHtml(kindLabels[entry.kind] || entry.kind)}${order?.order_number ? ` · ${escapeHtml(order.order_number)}` : ""}</span><strong class="${entry.points > 0 ? "movement-positive" : "movement-negative"}">${entry.points > 0 ? "+" : ""}${entry.points}</strong><small>${formatDateTime(entry.created_at)} · ${escapeHtml(entry.reason)}${actor?.full_name ? ` · 操作：${escapeHtml(actor.full_name)}` : ""}</small></li>`; }).join("");
     const memberOrders = (adminData.orders || []).filter((order) => order.member_id === member.id).slice(0, 8);
-    const orderHistory = memberOrders.map((order) => `<li><span>${escapeHtml(order.order_number)} · ${escapeHtml(orderStatusLabels[order.status] || order.status)}</span><strong>${money(order.amount_due)}</strong><small>${formatDateTime(order.created_at)} · ${order.delivery_method === "store_pickup" ? "到店取貨" : order.delivery_method === "seller_delivery" ? "賣貨便" : "宅配"}</small></li>`).join("");
+    const orderHistory = memberOrders.map((order) => `<li><span>${escapeHtml(order.order_number)} · ${escapeHtml(orderStatusLabel(order))}</span><strong>${money(order.amount_due)}</strong><small>${formatDateTime(order.created_at)} · ${order.delivery_method === "store_pickup" ? "到店取貨" : order.delivery_method === "seller_delivery" ? "賣貨便" : "宅配"}</small></li>`).join("");
     return `<article class="admin-member-card"><header><div><h3>${escapeHtml(member.full_name || "尚未填寫姓名")}${member.is_admin ? " · 管理員" : ""}</h3><small>${escapeHtml(member.phone || "尚未填寫手機")} · 加入於 ${formatDateTime(member.created_at)}</small></div><div class="member-metrics"><span>點數<b>${member.point_balance}</b></span><span>累積消費<b>${money(member.lifetime_spend)}</b></span><span>訂單<b>${member.order_count}</b></span></div></header><div class="member-extra"><span>生日：${escapeHtml(member.birthday || "未填")}</span><span>地址：${escapeHtml(member.address || "未填")}</span></div><form class="admin-point-adjust" data-admin-points-form="${member.id}"><label>異動點數<input name="points" required type="number" step="1" placeholder="增加填正數、扣除填負數" /></label><label>原因<input name="reason" required maxlength="200" placeholder="例如：活動贈點、人工更正" /></label><button class="secondary-button" type="submit">調整點數</button></form><details class="admin-order-history"><summary>消費紀錄（${member.order_count || 0}）</summary>${orderHistory ? `<ol class="member-ledger">${orderHistory}</ol>` : '<p>尚無消費紀錄。</p>'}</details><details class="admin-order-history"><summary>點數紀錄（${memberPointEntries(member.id).length}）</summary>${history ? `<ol class="member-ledger">${history}</ol>` : '<p>尚無點數紀錄。</p>'}</details></article>`;
   }).join("");
 }
@@ -921,9 +1941,9 @@ async function submitPointSettings(event) {
     max_redeem_mode: document.querySelector("#point-max-mode").value,
     max_redeem_value: Number(document.querySelector("#point-max-value").value)
   }) });
-  await loadAdminData();
+  await refreshAdminSections(["members"]);
   switchAdminTab("members");
-  showToast("點數規則已儲存");
+  showToast("點數規則已儲存", "success");
 }
 
 function editCoupon(couponId) {
@@ -960,21 +1980,21 @@ async function submitCoupon(event) {
     member_ids: [...document.querySelectorAll("[name='coupon_member']:checked")].map((input) => input.value)
   };
   await adminFetch(id ? `/api/admin/coupons/${id}` : "/api/admin/coupons", { method: id ? "PUT" : "POST", body: JSON.stringify(body) });
-  await loadAdminData(); resetCouponForm(); switchAdminTab("discounts"); showToast("優惠券已儲存");
+  await refreshAdminSections(["discounts"]); resetCouponForm(); switchAdminTab("discounts"); showToast("優惠券已儲存", "success");
 }
 
 async function submitBirthdaySettings(event) {
   event.preventDefault();
   await adminFetch("/api/admin/birthday-coupon-settings", { method: "PUT", body: JSON.stringify({ enabled: document.querySelector("#birthday-enabled").checked, discount_amount: Number(document.querySelector("#birthday-amount").value), issue_days_before: Number(document.querySelector("#birthday-before").value), valid_days: Number(document.querySelector("#birthday-valid-days").value), combinable_with_points: document.querySelector("#birthday-combinable").checked }) });
-  await loadAdminData(); switchAdminTab("discounts"); showToast("生日券規則已儲存");
+  await refreshAdminSections(["discounts"]); switchAdminTab("discounts"); showToast("生日券規則已儲存", "success");
 }
 
 async function issueBirthdayCouponsNow() {
   if (!window.confirm("確定要立即執行生日券發送嗎？已發送過的會員不會重複取得。")) return;
   const result = await adminFetch("/api/admin/birthday-coupons/issue", { method: "POST" });
-  await loadAdminData();
+  await refreshAdminSections(["discounts"]);
   switchAdminTab("discounts");
-  showToast(`生日券發送完成（新增 ${result.issued || 0} 張）`);
+  showToast(`生日券發送完成（新增 ${result.issued || 0} 張）`, "success");
 }
 
 async function submitMemberPointAdjustment(event) {
@@ -989,13 +2009,18 @@ async function submitMemberPointAdjustment(event) {
   if (!Number.isInteger(points) || points === 0 || !reason) throw new Error("請填寫非 0 點數與異動原因");
   if (!window.confirm(`確定要${points > 0 ? "增加" : "扣除"} ${Math.abs(points)} 點？`)) return;
   await adminFetch(`/api/admin/members/${form.dataset.adminPointsForm}/points`, { method: "POST", body: JSON.stringify({ points, reason }) });
-  await loadAdminData();
+  await refreshAdminSections(["members"]);
   switchAdminTab("members");
-  showToast("會員點數已調整");
+  showToast("會員點數已調整", "success");
 }
 
 function adminOrderHistory(orderId) {
   return (adminData.orderHistory || []).filter((entry) => entry.order_id === orderId);
+}
+
+function adminDiscountLabel(value) {
+  const amount = Math.max(0, Number(value || 0));
+  return amount > 0 ? `-${money(amount)}` : "未使用";
 }
 
 function renderAdminOrders() {
@@ -1005,7 +2030,13 @@ function renderAdminOrders() {
   const orders = (adminData.orders || []).filter((order) => {
     const member = relationOne(order.profiles);
     const searchable = `${order.order_number} ${member?.full_name || ""} ${member?.phone || ""} ${order.payment_last_five || ""}`.toLowerCase();
-    return (status === "all" || order.status === status) && searchable.includes(keyword);
+    const isSellerPending = order.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id;
+    const matchesStatus = status === "all" || (status === "seller_pending" ? isSellerPending : order.status === status);
+    return matchesStatus && searchable.includes(keyword);
+  }).sort((left, right) => {
+    const priority = (order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id ? 0 : order.status === "pending_review" ? 1 : order.status === "pending_payment" ? 2 : order.status === "ready_for_pickup" ? 3 : order.status === "partially_ready" ? 4 : 5;
+    const byPriority = priority(left) - priority(right);
+    return byPriority || new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
   });
   if (!orders.length) {
     container.innerHTML = '<div class="empty-state">目前沒有符合條件的訂單。</div>';
@@ -1015,43 +2046,115 @@ function renderAdminOrders() {
     const member = relationOne(order.profiles);
     const account = relationOne(order.bank_accounts);
     const items = (order.order_items || []).map((item) => `<div><span>${escapeHtml(item.product_name)}${item.variant_name === "單一規格" ? "" : ` · ${escapeHtml(item.variant_name)}`} × ${item.quantity}</span><strong>${money(item.unit_price * item.quantity)}</strong></div>`).join("");
-    const transitions = (adminOrderTransitions[order.status] || []).filter((item) => (!item.splitOnly || order.pickup_plan === "split") && (!item.storePaymentOnly || !order.bank_account_id));
+    const hasPreorder = orderIncludesPreorder(order);
+    const preorderStorePickup = order.delivery_method === "store_pickup" && hasPreorder;
+    const transitions = (adminOrderTransitions[order.status] || []).filter((item) =>
+      (!item.splitOnly || order.pickup_plan === "split")
+      && (!item.storePaymentOnly || !order.bank_account_id)
+      && (item.value !== "partially_ready" || preorderStorePickup)
+      && (item.value !== "ready_for_pickup" || preorderStorePickup || order.delivery_method === "seller_delivery" || (order.delivery_method === "home_delivery" && hasPreorder))
+      && (item.value !== "completed" || order.delivery_method !== "home_delivery" || Boolean(order.final_payment_confirmed_at))
+    );
     const options = transitions.map((item) => {
-      const label = item.value === "confirmed" && order.delivery_method === "seller_delivery"
+      const label = item.value === "confirmed" && order.delivery_method === "seller_delivery" && !order.bank_account_id
         ? "確認賣貨便訂單並扣除庫存"
+        : item.value === "confirmed" && order.delivery_method === "seller_delivery"
+          ? "確認預購訂金並扣除庫存"
+        : item.value === "ready_for_pickup" && order.delivery_method === "seller_delivery" && !hasPreorder
+          ? "確認已出貨並通知會員"
+        : item.value === "ready_for_pickup" && order.delivery_method === "seller_delivery" && hasPreorder
+          ? "商品已到貨，通知會員開賣貨便"
+        : item.value === "ready_for_pickup" && order.delivery_method === "home_delivery" && hasPreorder
+          ? "預購商品已到貨，通知會員確認尾款／運費"
+        : item.value === "ready_for_pickup" && preorderStorePickup
+          ? "通知會員可到店取貨"
         : item.value === "completed" && order.delivery_method === "seller_delivery"
           ? "確認賣貨便已取貨並完成訂單"
-          : item.label;
+        : item.value === "completed" && order.delivery_method === "home_delivery"
+          ? "確認寄送完成並結束訂單"
+        : item.label;
       return `<option value="${item.value}">${escapeHtml(label)}</option>`;
     }).join("");
-    const history = adminOrderHistory(order.id).slice(0, 5).map((entry) => { const actor = relationOne(entry.profiles); return `<li><span>${escapeHtml(orderStatusLabels[entry.from_status] || entry.from_status)} → ${escapeHtml(orderStatusLabels[entry.to_status] || entry.to_status)}</span><small>${formatDateTime(entry.created_at)}${actor?.full_name ? ` · ${escapeHtml(actor.full_name)}` : ""}${entry.note ? ` · ${escapeHtml(entry.note)}` : ""}</small></li>`; }).join("");
+    const history = adminOrderHistory(order.id).slice(0, 5).map((entry) => { const actor = relationOne(entry.profiles); return `<li><span>${escapeHtml(adminOrderStatusLabel(order, entry.from_status))} → ${escapeHtml(adminOrderStatusLabel(order, entry.to_status))}</span><small>${formatDateTime(entry.created_at)}${actor?.full_name ? ` · ${escapeHtml(actor.full_name)}` : ""}${entry.note ? ` · ${escapeHtml(entry.note)}` : ""}</small></li>`; }).join("");
     const balance = Math.max(order.amount_due - order.paid_amount, 0);
+    const couponDiscount = Number(order.coupon_discount || 0);
+    const pointDiscount = Number(order.point_discount || 0);
     const deliveryLabel = deliveryMethodLabels[order.delivery_method || "store_pickup"] || "到店取貨";
+    const orderDeliveryLabel = `${orderInventoryTypeLabel(order)}．${deliveryLabel}`;
     const shippingInfo = order.delivery_method === "home_delivery" ? `<p class="admin-order-note">收件人：${escapeHtml(order.shipping_recipient_name || "未填寫")}<br />電話：${escapeHtml(order.shipping_phone || "未填寫")}<br />地址：${escapeHtml(order.shipping_address || "未填寫")}</p>` : "";
-    return `<article class="admin-order-card"><header><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(deliveryLabel)} · ${order.pickup_plan === "split" ? "分批取貨" : "等候到齊"}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(orderStatusLabels[order.status] || order.status)}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div><div class="admin-order-payment"><span>總額 <b>${money(order.amount_due)}</b></span><span>運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span>訂金應付 <b>${money(order.deposit_due)}</b></span><span>已確認 <b>${money(order.paid_amount || 0)}</b></span><span>待收尾款 <b>${money(balance)}</b></span></div>${shippingInfo}<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span>匯款末五碼：<b>${escapeHtml(order.payment_last_five || "尚未回報")}</b></span></div>${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status">${options}</select></label><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消與退款相關操作必填；其他操作可選填"></textarea></label><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>'}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
+    return `<article class="admin-order-card"><header><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(orderDeliveryLabel)}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(adminOrderStatusLabel(order))}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div><div class="admin-order-payment"><span class="admin-order-total">總額 <b>${money(order.amount_due)}</b></span><span class="admin-order-payment-method">運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span class="admin-order-deposit">訂金應付 <b>${money(order.deposit_due)}</b></span><span class="admin-order-paid">已確認 <b>${money(order.paid_amount || 0)}</b></span><span class="admin-order-balance">待收尾款 <b>${money(balance)}</b></span><span class="admin-order-discount admin-order-coupon">優惠券折抵 <b>${adminDiscountLabel(couponDiscount)}</b></span><span class="admin-order-discount admin-order-points">點數折抵 <b>${adminDiscountLabel(pointDiscount)}</b></span></div>${shippingInfo}<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span>匯款末五碼：<b>${escapeHtml(order.payment_last_five || "尚未回報")}</b></span></div>${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status">${options}</select></label><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消與退款相關操作必填；其他操作可選填"></textarea></label><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>'}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
   }).join("");
   container.querySelectorAll(".admin-order-card").forEach((card, index) => {
-    const paymentNode = card.querySelector(".admin-order-payment > span:nth-child(2)");
+    const paymentNode = card.querySelector(".admin-order-payment-method");
     const order = orders[index];
     if (!paymentNode || !order) return;
-    paymentNode.innerHTML = `付款方式 <b>${order.delivery_method === "seller_delivery" ? "賣貨便付款（外部）" : order.bank_account_id ? "匯款／轉帳" : "到店支付"}</b>`;
+    const hasPreorder = orderIncludesPreorder(order);
+    paymentNode.innerHTML = `付款方式 <b>${order.bank_account_id ? "匯款／轉帳" : order.delivery_method === "seller_delivery" ? "賣貨便取貨付款（外部）" : "到店支付"}</b>`;
     const paymentGrid = card.querySelector(".admin-order-payment");
     const shippingFeeLabel = order.delivery_method === "store_pickup" ? "免運" : order.delivery_method === "seller_delivery" ? "由 7-11 收取" : order.shipping_fee ? money(order.shipping_fee) : "待客服通知";
     const balanceLabel = order.delivery_method === "store_pickup" ? "到店確認" : order.delivery_method === "seller_delivery" ? "依賣貨便訂單" : order.final_payment_confirmed_at ? "已確認" : "尚未確認";
     if (paymentGrid) paymentGrid.insertAdjacentHTML("beforeend", `<span>${order.delivery_method === "seller_delivery" ? "賣貨便運費" : "實際運費"} <b>${shippingFeeLabel}</b></span><span>尾款／運費 <b>${balanceLabel}</b></span>`);
     if (order.delivery_method === "home_delivery") {
-      const form = document.createElement("form");
-      form.className = "admin-fulfillment-form";
-      form.dataset.adminFulfillmentForm = order.id;
-      const shippingFeeField = order.delivery_method === "seller_delivery"
-        ? '<input type="hidden" name="shipping_fee" value="0" /><p class="admin-order-terminal">賣貨便運費由 7-11 向客戶收取，不計入訂單金額。</p>'
-        : `<label>實際運費<input name="shipping_fee" type="number" min="0" step="1" value="${Number(order.shipping_fee || 0)}" required /><small>到貨／包裝完成後填寫，會加入待收金額。</small></label>`;
-      const finalPaymentLabel = order.delivery_method === "seller_delivery" ? "已確認尾款入帳" : "已確認尾款與運費入帳";
-      const submitLabel = order.delivery_method === "seller_delivery" ? "儲存尾款／出貨資料" : "儲存尾款／運費";
-      const notePlaceholder = order.delivery_method === "seller_delivery" ? "例如：7-11 取貨連結或客服通知日期" : "例如：宅配大箱運費、客服通知日期";
-      form.innerHTML = `<div class="form-grid"><div>${shippingFeeField}</div><label>尾款匯款末五碼<input name="final_payment_last_five" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" value="${escapeHtml(order.final_payment_last_five || "")}" placeholder="付款後填寫" /></label><label class="check-field"><input name="final_payment_confirmed" type="checkbox" ${order.final_payment_confirmed_at ? "checked" : ""} /> ${finalPaymentLabel}</label><label class="wide">收款備註<textarea name="note" rows="2" maxlength="1000" placeholder="${notePlaceholder}">${escapeHtml(order.admin_note || "")}</textarea></label></div><button class="secondary-button" type="submit">${submitLabel}</button>`;
-      card.insertBefore(form, card.querySelector(".admin-order-action") || card.querySelector(".admin-order-history"));
+      const currentStockHomePending = order.delivery_method === "home_delivery" && !hasPreorder && order.status === "pending_review";
+      const canUpdateFulfillment = currentStockHomePending || ["partially_ready", "ready_for_pickup"].includes(order.status);
+      const terminalStatuses = ["completed", "cancelled", "refund_pending", "refunded"];
+      const insertBefore = card.querySelector(".admin-order-action") || card.querySelector(".admin-order-history");
+      if (canUpdateFulfillment) {
+        const form = document.createElement("form");
+        form.className = "admin-fulfillment-form";
+        form.dataset.adminFulfillmentForm = order.id;
+        const fulfillmentTiming = currentStockHomePending ? "待確認款項階段填寫" : hasPreorder ? "預購商品到貨後" : "現貨備貨完成後";
+        const shippingFeeField = `<label>實際運費<input name="shipping_fee" type="number" min="0" step="1" value="${Number(order.shipping_fee || 0)}" required /><small>${fulfillmentTiming}填寫，會加入待收金額。</small></label>`;
+        const finalPaymentLabel = currentStockHomePending ? "已確認全額與運費入帳" : "已確認尾款與運費入帳";
+        const lastFiveLabel = currentStockHomePending ? "匯款末五碼" : "尾款匯款末五碼";
+        const submitLabel = currentStockHomePending ? "儲存運費／匯款末五碼" : "儲存尾款／運費";
+        const notePlaceholder = currentStockHomePending ? "例如：客服確認運費金額、匯款確認日期" : "例如：宅配箱型、客服通知日期";
+        form.innerHTML = `<div class="form-grid"><div>${shippingFeeField}</div><label>${lastFiveLabel}<input name="final_payment_last_five" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" value="${escapeHtml(order.final_payment_last_five || "")}" placeholder="付款後填寫" /></label><label class="check-field"><input name="final_payment_confirmed" type="checkbox" ${order.final_payment_confirmed_at ? "checked" : ""} /> ${finalPaymentLabel}</label><label class="wide">收款備註<textarea name="note" rows="2" maxlength="1000" placeholder="${notePlaceholder}">${escapeHtml(order.admin_note || "")}</textarea></label></div><button class="secondary-button" type="submit">${submitLabel}</button>`;
+        card.insertBefore(form, insertBefore);
+      } else if (!terminalStatuses.includes(order.status)) {
+        const prompt = document.createElement("p");
+        prompt.className = "admin-order-terminal";
+        prompt.textContent = order.status === "confirmed"
+          ? hasPreorder
+            ? "預購宅配：請等商品實際到貨後，更新為「預購商品已到貨」；之後即可填寫尾款與運費。"
+            : "現貨宅配：請在待確認款項階段填寫實際運費與匯款末五碼，再確認款項並扣除庫存。"
+          : "請先完成訂金／付款確認；宅配進入備貨或到貨狀態後，才能填寫尾款與運費。";
+        card.insertBefore(prompt, insertBefore);
+      }
     }
+  });
+  container.querySelectorAll(".admin-order-card").forEach((card, index) => {
+    const order = orders[index];
+    const sellerPending = order?.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id;
+    const preorderSellerPending = order?.delivery_method === "seller_delivery" && order.status === "pending_payment" && Boolean(order.bank_account_id);
+    if (!sellerPending && !preorderSellerPending) return;
+    if (preorderSellerPending) {
+      card.classList.add("preorder-seller-pending");
+      const statusChip = card.querySelector(".status-chip");
+      if (statusChip) statusChip.textContent = "預購待付訂";
+      if (!card.querySelector(".seller-pending-notice")) card.querySelector("header")?.insertAdjacentHTML("afterend", '<p class="seller-pending-notice"><strong>預購訂金待確認</strong>：會員須於 2 小時內回報末五碼；確認後保留庫存，商品到貨再由客服開立賣貨便。</p>');
+      return;
+    }
+    card.classList.add("seller-pending");
+    const statusChip = card.querySelector(".status-chip");
+    if (statusChip) {
+      statusChip.textContent = "賣貨便待確認";
+      statusChip.classList.add("status-seller-pending");
+    }
+    if (!card.querySelector(".seller-pending-notice")) card.querySelector("header")?.insertAdjacentHTML("afterend", '<p class="seller-pending-notice"><strong>請先核對賣貨便訂單</strong>：確認外部訂單內容後，再更新狀態並扣除庫存。</p>');
+  });
+  container.querySelectorAll("[data-admin-order-form]").forEach((form) => {
+    const target = form.querySelector("select[name='target_status']");
+    const button = form.querySelector("button[type='submit']");
+    if (!(target instanceof HTMLSelectElement) || !(button instanceof HTMLButtonElement)) return;
+    const syncRiskState = () => {
+      const dangerous = ["cancelled", "refund_pending", "refunded"].includes(target.value);
+      button.classList.toggle("danger-button", dangerous);
+      button.textContent = dangerous ? "確認高風險操作" : "更新訂單";
+      button.setAttribute("aria-label", dangerous ? "確認取消或退款等高風險操作" : "更新訂單");
+    };
+    target.addEventListener("change", syncRiskState);
+    syncRiskState();
   });
 }
 
@@ -1077,9 +2180,9 @@ async function submitAdminOrderTransition(event) {
   button.disabled = true;
   try {
     await adminFetch(`/api/admin/orders/${form.dataset.adminOrderForm}/transition`, { method: "POST", body: JSON.stringify({ target_status: targetStatus, note }) });
-    await loadAdminData();
+    await refreshAdminSections(["orders", "overview", "inventory", "products"]);
     switchAdminTab("orders");
-    showToast("訂單狀態已更新");
+    showToast("訂單狀態已更新", "success");
     await loadProducts();
     renderProducts();
   } finally {
@@ -1106,9 +2209,9 @@ async function submitAdminOrderFulfillment(event) {
   if (button instanceof HTMLButtonElement) button.disabled = true;
   try {
     await adminFetch(`/api/admin/orders/${form.dataset.adminFulfillmentForm}/fulfillment`, { method: "PATCH", body: JSON.stringify({ shipping_fee: shippingFee, final_payment_confirmed: confirmed, final_payment_last_five: finalFive || null, note: noteField.value.trim() }) });
-    await loadAdminData();
+    await refreshAdminSections(["orders"]);
     switchAdminTab("orders");
-    showToast("尾款與實際運費已更新");
+    showToast("尾款與實際運費已更新", "success");
   } finally {
     if (button instanceof HTMLButtonElement) button.disabled = false;
   }
@@ -1120,6 +2223,98 @@ function renderAdminAccounts() {
   container.innerHTML = accounts.length ? accounts.map((account) => `<div class="admin-card"><div><strong>${escapeHtml(account.label)} ${account.is_active ? "" : "（已停用）"}</strong><small>${escapeHtml(account.bank_name)} · ${escapeHtml(account.account_number)}<br />戶名：${escapeHtml(account.account_name)}</small></div><button type="button" data-account-edit="${account.id}">編輯</button></div>`).join("") : '<div class="empty-state">尚未設定收款帳戶；新增後前台才可建立訂單。</div>';
 }
 
+function sortedAdminCategories() {
+  return (adminData?.categories || []).slice().sort((left, right) => Number(left.display_order || 0) - Number(right.display_order || 0) || String(left.name || "").localeCompare(String(right.name || ""), "zh-Hant"));
+}
+
+function adminCategoryOptions(selectedId = "", { required = false, includeInactiveSelected = false } = {}) {
+  const selected = String(selectedId || "");
+  const categories = sortedAdminCategories().filter((category) => category.is_active !== false || (includeInactiveSelected && String(category.id) === selected));
+  const placeholder = required ? "請選擇分類" : "未分類";
+  return `<option value="">${placeholder}</option>${categories.map((category) => `<option value="${escapeHtml(category.id)}" data-category-name="${escapeHtml(category.name)}" ${String(category.id) === selected ? "selected" : ""}>${escapeHtml(category.name)}${category.is_active === false ? "（已停用）" : ""}</option>`).join("")}`;
+}
+
+function resetAdminCategoryForm() {
+  const form = document.querySelector("#admin-category-form");
+  if (form instanceof HTMLFormElement) form.reset();
+  const id = document.querySelector("#admin-category-edit-id");
+  const order = document.querySelector("#admin-category-order");
+  const active = document.querySelector("#admin-category-active");
+  const title = document.querySelector("[data-category-form-title]");
+  const submit = form?.querySelector("button[type='submit']");
+  const cancel = document.querySelector("[data-admin-category-cancel]");
+  if (id) id.value = "";
+  if (order) order.value = "0";
+  if (active) active.checked = true;
+  if (title) title.textContent = "新增分類";
+  if (submit) submit.textContent = "新增分類";
+  cancel?.classList.add("hidden");
+}
+
+function focusAdminCategoryForm() {
+  const details = document.querySelector("#admin-category-management");
+  if (details instanceof HTMLDetailsElement) details.open = true;
+  window.setTimeout(() => document.querySelector("#admin-category-name")?.focus(), 0);
+}
+
+function editAdminCategory(categoryId) {
+  const category = sortedAdminCategories().find((item) => item.id === categoryId);
+  if (!category) return;
+  document.querySelector("#admin-category-edit-id").value = category.id;
+  document.querySelector("#admin-category-name").value = category.name;
+  document.querySelector("#admin-category-order").value = String(category.display_order || 0);
+  document.querySelector("#admin-category-active").checked = category.is_active !== false;
+  document.querySelector("[data-category-form-title]").textContent = "編輯分類";
+  document.querySelector("#admin-category-form button[type='submit']").textContent = "儲存分類";
+  document.querySelector("[data-admin-category-cancel]").classList.remove("hidden");
+  const details = document.querySelector("#admin-category-management");
+  if (details instanceof HTMLDetailsElement) details.open = true;
+  document.querySelector("#admin-category-name")?.focus();
+}
+
+function renderAdminCategories() {
+  const picker = document.querySelector("#admin-category-id");
+  if (picker instanceof HTMLSelectElement) {
+    const selected = picker.value;
+    picker.innerHTML = adminCategoryOptions(selected, { required: true });
+    if ([...picker.options].some((option) => option.value === selected)) picker.value = selected;
+  }
+  const list = document.querySelector("#admin-category-list");
+  if (!(list instanceof HTMLElement)) return;
+  const categories = sortedAdminCategories();
+  if (!categories.length) {
+    list.innerHTML = '<div class="empty-state">尚未建立分類，請先新增一個分類。</div>';
+    return;
+  }
+  const productCounts = new Map(categories.map((category) => [category.id, 0]));
+  (adminData.products || []).forEach((product) => {
+    if (product.category_id && productCounts.has(product.category_id)) productCounts.set(product.category_id, productCounts.get(product.category_id) + 1);
+  });
+  list.innerHTML = categories.map((category) => `<article class="admin-card admin-category-card"><div><strong>${escapeHtml(category.name)}</strong><small>排序 ${Number(category.display_order || 0)} · ${category.is_active === false ? "已停用（不供新商品選擇）" : "啟用"} · 使用商品 ${productCounts.get(category.id) || 0} 件</small></div><button type="button" data-admin-category-edit="${escapeHtml(category.id)}">編輯</button></article>`).join("");
+}
+
+async function submitAdminCategory(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const id = document.querySelector("#admin-category-edit-id").value.trim();
+  const name = document.querySelector("#admin-category-name").value.trim();
+  const displayOrder = Number(document.querySelector("#admin-category-order").value || 0);
+  const isActive = document.querySelector("#admin-category-active").checked;
+  if (!name) throw new Error("請填寫分類名稱");
+  if (!Number.isInteger(displayOrder) || displayOrder < 0) throw new Error("分類排序須為 0 或正整數");
+  const submit = form.querySelector("button[type='submit']");
+  if (submit instanceof HTMLButtonElement) { submit.disabled = true; submit.textContent = "儲存中…"; }
+  try {
+    await adminFetch(id ? `/api/admin/categories/${id}` : "/api/admin/categories", { method: id ? "PATCH" : "POST", body: JSON.stringify({ name, display_order: displayOrder, is_active: isActive }) });
+    resetAdminCategoryForm();
+    await refreshAdminSections(["products"]);
+    switchAdminTab("products");
+    showToast(id ? "商品分類已更新" : "商品分類已新增", "success");
+  } finally {
+    if (submit instanceof HTMLButtonElement) { submit.disabled = false; submit.textContent = id ? "儲存分類" : "新增分類"; }
+  }
+}
+
 function renderAdminSelects() {
   const products = adminData.products || [];
   const productOptions = products.map((product) => `<option value="${product.id}">${escapeHtml(product.name)}</option>`).join("");
@@ -1128,7 +2323,46 @@ function renderAdminSelects() {
   document.querySelector("#admin-inventory-variant").innerHTML = variantOptions || '<option value="">目前沒有商品規格</option>';
 }
 
+function adminPriceMarkup(variant) {
+  const price = Number(variant?.price || 0);
+  const compareAtPrice = Number(variant?.compare_at_price || 0);
+  return compareAtPrice > price
+    ? `<span class="admin-price-discount"><s>${money(compareAtPrice)}</s><b>${money(price)}</b></span>`
+    : `<strong>${money(price)}</strong>`;
+}
+
+/** 建立後台商品主圖缺失或載入失敗時的可存取替代內容。 */
+function adminProductImageFallbackMarkup() {
+  return '<span class="admin-product-placeholder" role="img" aria-label="尚無商品圖片"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6.5h16v11H4zM7 6.5l1.8-2h6.4l1.8 2M8 13l2.2-2.2 2.3 2.3 1.5-1.5 2 2"/></svg><small>NO IMAGE</small></span>';
+}
+
+/** 將後台商品縮圖的 404／解碼失敗畫面替換為一致的 fallback。 */
+function handleAdminProductImageError(event) {
+  const image = event.target;
+  if (!(image instanceof HTMLImageElement)) return;
+  const thumbnail = image.closest(".admin-product-thumbnail");
+  if (!thumbnail || thumbnail.dataset.imageFallbackApplied === "true") return;
+  thumbnail.dataset.imageFallbackApplied = "true";
+  thumbnail.innerHTML = adminProductImageFallbackMarkup();
+}
+
+function ensureAdminPointsEligibilityUI() {
+  if (document.querySelector("#admin-points-excluded")) return;
+  const limitLabel = document.querySelector("#admin-purchase-limit")?.closest("label");
+  if (!limitLabel) return;
+  limitLabel.insertAdjacentHTML("afterend", '<label class="check-field admin-points-excluded-field"><input id="admin-points-excluded" type="checkbox" /> 不可累積會員點數<small>啟用後，完成訂單時此商品金額不列入新點數累積。</small></label>');
+}
+
+function ensureAdminPricingUI() {
+  const productPrice = document.querySelector("#admin-price")?.closest("label");
+  if (productPrice && !document.querySelector("#admin-compare-at-price")) productPrice.insertAdjacentHTML("afterend", '<label>原價（選填）<input id="admin-compare-at-price" type="number" min="0" step="1" placeholder="例如 1680" /><small>高於售價時顯示刪除線與限時優惠。</small></label>');
+  const variantPrice = document.querySelector("#admin-new-price")?.closest("label");
+  if (variantPrice && !document.querySelector("#admin-new-compare-at-price")) variantPrice.insertAdjacentHTML("afterend", '<label>原價（選填）<input id="admin-new-compare-at-price" type="number" min="0" step="1" placeholder="例如 1680" /><small>高於售價時顯示刪除線與限時優惠。</small></label>');
+}
+
 function renderAdminProducts() {
+  ensureAdminPointsEligibilityUI();
+  ensureAdminPricingUI();
   const container = document.querySelector("#admin-product-list");
   if (!document.querySelector("#admin-product-search")) {
     container.insertAdjacentHTML("beforebegin", '<div class="admin-order-toolbar admin-product-toolbar"><label>搜尋商品<input id="admin-product-search" type="search" placeholder="商品名稱、分類、規格或 SKU" /></label><label>上架狀態<select id="admin-product-status"><option value="all">全部商品</option><option value="published">已上架</option><option value="unpublished">未上架</option></select></label></div>');
@@ -1155,11 +2389,26 @@ function renderAdminProducts() {
     const priceRange = prices.length ? `${money(Math.min(...prices))}${Math.min(...prices) === Math.max(...prices) ? "" : `–${money(Math.max(...prices))}`}` : "尚無價格";
     const imageUrl = product.image_path ? `/api/product-images/${product.id}?v=${encodeURIComponent(product.image_updated_at || "1")}` : "";
     const variants = productVariants.map((variant) => {
+      const arrival = splitPreorderArrival(variant.preorder_arrival);
       const lowStock = variant.stock_on_hand <= variant.safety_stock;
-      return `<details class="admin-variant-card"><summary><span class="variant-identity"><b>${escapeHtml(variant.name)}</b><small>SKU ${escapeHtml(variant.sku)}</small></span><span class="variant-summary"><em class="admin-chip ${variant.kind === "preorder" ? "chip-preorder" : ""}">${variant.kind === "preorder" ? "預購" : "現貨"}</em><em class="admin-chip ${lowStock ? "chip-warning" : ""}">庫存 ${variant.stock_on_hand}</em><strong>${money(variant.price)}</strong>${variant.is_published ? "" : '<em class="admin-chip chip-muted">未上架</em>'}</span></summary><form class="admin-form" data-edit-variant-form="${variant.id}"><div class="form-grid"><label>規格名稱<input name="name" required value="${escapeHtml(variant.name)}" /></label><label>SKU<input name="sku" required value="${escapeHtml(variant.sku)}" /></label><label>類型<select name="kind"><option value="in_stock" ${variant.kind === "in_stock" ? "selected" : ""}>現貨</option><option value="preorder" ${variant.kind === "preorder" ? "selected" : ""}>預購</option></select></label><label>售價<input name="price" type="number" min="0" step="1" required value="${variant.price}" /></label><label>安全庫存<input name="safety_stock" type="number" min="0" step="1" value="${variant.safety_stock}" /></label><label>訂金比例（%）<input name="deposit_rate" type="number" min="0" max="100" value="${Math.round(Number(variant.deposit_rate) * 100)}" /></label><label>預計到貨區間<input name="preorder_arrival" value="${escapeHtml(variant.preorder_arrival || "")}" /></label><label>排序<input name="display_order" type="number" value="${variant.display_order}" /></label><label class="wide">賣貨便連結<input name="seller_link" type="url" value="${escapeHtml(variant.seller_link || "")}" /></label><label class="check-field"><input name="is_published" type="checkbox" ${variant.is_published ? "checked" : ""} /> 上架此規格</label></div><button class="primary-button" type="submit">儲存規格</button></form></details>`;
+      return `<details class="admin-variant-card"><summary><span class="variant-identity"><b>${escapeHtml(variant.name)}</b><small>SKU ${escapeHtml(variant.sku)}</small></span><span class="variant-summary"><em class="admin-chip ${variant.kind === "preorder" ? "chip-preorder" : ""}">${variant.kind === "preorder" ? "預購" : "現貨"}</em><em class="admin-chip ${lowStock ? "chip-warning" : ""}">庫存 ${variant.stock_on_hand}</em>${adminPriceMarkup(variant)}${variant.is_published ? "" : '<em class="admin-chip chip-muted">未上架</em>'}</span></summary><form class="admin-form" data-edit-variant-form="${variant.id}"><div class="form-grid"><label>規格名稱<input name="name" required value="${escapeHtml(variant.name)}" /></label><label>SKU<input name="sku" required value="${escapeHtml(variant.sku)}" /></label><label>類型<select name="kind"><option value="in_stock" ${variant.kind === "in_stock" ? "selected" : ""}>現貨</option><option value="preorder" ${variant.kind === "preorder" ? "selected" : ""}>預購</option></select></label><label>售價<input name="price" type="number" min="0" step="1" required value="${variant.price}" /></label><label>安全庫存<input name="safety_stock" type="number" min="0" step="1" value="${variant.safety_stock}" /></label><label>訂金比例（%）<input name="deposit_rate" type="number" min="0" max="100" value="${Math.round(Number(variant.deposit_rate) * 100)}" /></label><fieldset class="wide date-range-field"><legend>預計到貨區間（選填）</legend><div class="date-range-grid"><label>開始日期<input name="preorder_arrival_from" type="date" value="${arrival.from}" /></label><label>結束日期<input name="preorder_arrival_until" type="date" value="${arrival.until}" /></label></div>${arrival.raw ? `<small class="date-range-legacy">目前文字：${escapeHtml(arrival.raw)}；若選日期後儲存，會改為日期區間。</small>` : "<small>可只選一天；預購實際到貨時間仍以海外物流進度為準。</small>"}<input type="hidden" name="preorder_arrival_raw" value="${escapeHtml(arrival.raw)}" /></fieldset><label>排序<input name="display_order" type="number" value="${variant.display_order}" /></label><label class="wide">賣貨便連結<input name="seller_link" type="url" value="${escapeHtml(variant.seller_link || "")}" /></label><label class="check-field"><input name="is_published" type="checkbox" ${variant.is_published ? "checked" : ""} /> 上架此規格</label></div><button class="primary-button" type="submit">儲存規格</button></form></details>`;
     }).join("");
-    return `<article class="admin-product-card" data-tone="${index % 4}"><header class="admin-product-head"><div class="admin-product-thumbnail">${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(product.name)}" loading="lazy" />` : '<span aria-hidden="true">📦</span>'}</div><div class="admin-product-title"><div class="admin-product-labels"><span class="admin-product-number">#${String(index + 1).padStart(2, "0")}</span><span class="admin-chip">${escapeHtml(category)}</span><span class="admin-chip ${product.is_published ? "chip-live" : "chip-muted"}">${product.is_published ? "已上架" : "未上架"}</span></div><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(product.description || "尚未填寫商品說明")}</p></div><div class="admin-product-metrics"><span>規格<b>${publishedVariants}/${productVariants.length}</b></span><span>總庫存<b>${totalStock}</b></span><span>售價<b>${priceRange}</b></span></div></header><details class="admin-product-edit"><summary>編輯商品資料與照片</summary><form class="admin-form" data-edit-product-form="${product.id}" data-category-id="${escapeHtml(product.category_id || "")}"><div class="form-grid"><label>商品名稱<input name="name" required value="${escapeHtml(product.name)}" /></label><label>排序<input name="display_order" type="number" value="${product.display_order}" /></label><label class="wide">商品說明<textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea></label><label>每位會員限購數量<input name="purchase_limit" type="number" min="1" step="1" value="${product.purchase_limit ?? ""}" placeholder="留空代表不限購" /></label><label class="wide image-upload-field">更換商品主圖<input name="image" type="file" accept="image/jpeg,image/png,image/webp" /><small>${imageUrl ? "已有主圖；選擇新檔案後會取代現有照片。" : "目前尚無主圖。"} 上限 5MB。</small></label><label class="check-field"><input name="is_published" type="checkbox" ${product.is_published ? "checked" : ""} /> 上架商品</label></div><button class="primary-button" type="submit">儲存商品</button></form></details><section class="admin-variant-group"><h4>商品規格 <span>${productVariants.length}</span></h4>${variants || '<div class="empty-state">此商品尚無規格。</div>'}</section></article>`;
+    return `<article class="admin-product-card" data-tone="${index % 4}"><header class="admin-product-head"><div class="admin-product-thumbnail">${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(product.name)}" loading="lazy" />` : adminProductImageFallbackMarkup()}</div><div class="admin-product-title"><div class="admin-product-labels"><span class="admin-product-number">#${String(index + 1).padStart(2, "0")}</span><span class="admin-chip">${escapeHtml(category)}</span><span class="admin-chip ${product.is_published ? "chip-live" : "chip-muted"}">${product.is_published ? "已上架" : "未上架"}</span></div><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(product.description || "尚未填寫商品說明")}</p></div><div class="admin-product-metrics"><span>規格<b>${publishedVariants}/${productVariants.length}</b></span><span>總庫存<b>${totalStock}</b></span><span>售價<b>${priceRange}</b></span></div></header><details class="admin-product-edit"><summary>編輯商品資料與照片</summary><form class="admin-form" data-edit-product-form="${product.id}" data-category-id="${escapeHtml(product.category_id || "")}"><div class="form-grid"><label>商品名稱<input name="name" required value="${escapeHtml(product.name)}" /></label><label>商品分類<select name="category_id">${adminCategoryOptions(product.category_id || relationOne(product.categories)?.id || "", { includeInactiveSelected: true })}</select><small>分類位於商品層級，所有規格共用。</small></label><label>排序<input name="display_order" type="number" value="${product.display_order}" /></label><label class="wide">商品說明<textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea></label><label>每位會員限購數量<input name="purchase_limit" type="number" min="1" step="1" value="${product.purchase_limit ?? ""}" placeholder="留空代表不限購" /></label><label class="wide image-upload-field">更換商品主圖<input name="image" type="file" accept="image/jpeg,image/png,image/webp" /><small>${imageUrl ? "已有主圖；選擇新檔案後會取代現有照片。" : "目前尚無主圖。"} 上限 5MB。</small></label><label class="check-field"><input name="is_published" type="checkbox" ${product.is_published ? "checked" : ""} /> 上架商品</label></div><button class="primary-button" type="submit">儲存商品</button></form></details><section class="admin-variant-group"><h4>商品規格 <span>${productVariants.length}</span></h4>${variants || '<div class="empty-state">此商品尚無規格。</div>'}</section></article>`;
   }).join("");
+  container.querySelectorAll("[data-edit-product-form]").forEach((form) => {
+    const product = (adminData.products || []).find((item) => item.id === form.dataset.editProductForm);
+    const limitLabel = form.querySelector("input[name='purchase_limit']")?.closest("label");
+    if (!product || !limitLabel || form.querySelector("[name='points_excluded']")) return;
+    limitLabel.insertAdjacentHTML("afterend", `<label class="check-field admin-points-excluded-field"><input name="points_excluded" type="checkbox" ${product.points_eligible === false ? "checked" : ""} /> 不可累積會員點數<small>啟用後，完成訂單時此商品金額不列入新點數累積。</small></label>`);
+  });
+  container.querySelectorAll("[data-edit-variant-form]").forEach((form) => {
+    const variant = (adminData.products || []).flatMap((product) => product.product_variants || []).find((item) => item.id === form.dataset.editVariantForm);
+    const priceLabel = form.querySelector("input[name='price']")?.closest("label");
+    if (variant && priceLabel && !form.querySelector("[name='compare_at_price']")) priceLabel.insertAdjacentHTML("afterend", `<label>原價（選填）<input name="compare_at_price" type="number" min="0" step="1" value="${variant.compare_at_price ?? ""}" placeholder="例如 1680" /><small>高於售價時顯示刪除線與限時優惠。</small></label>`);
+  });
+  container.querySelectorAll(".admin-product-card").forEach((card, index) => {
+    if (products[index]?.points_eligible === false) card.querySelector(".admin-product-labels")?.insertAdjacentHTML("beforeend", '<span class="admin-chip chip-warning">不積點</span>');
+  });
   removeLegacyShippingUI();
 }
 
@@ -1172,6 +2421,22 @@ function renderAdminMovements() {
     const positive = movement.quantity_delta > 0;
     return `<div class="admin-card"><div><strong>${escapeHtml(product?.name || "商品")} · ${escapeHtml(variant?.name || variant?.sku || "規格")}</strong><small>${escapeHtml(movement.reason)} · ${formatDateTime(movement.created_at)}</small></div><strong class="${positive ? "movement-positive" : "movement-negative"}">${positive ? "+" : ""}${movement.quantity_delta}</strong></div>`;
   }).join("") : '<div class="empty-state">目前沒有庫存異動紀錄。</div>';
+}
+
+function ensureAdminLowStockUI() {
+  const panel = document.querySelector("[data-admin-panel='inventory']");
+  const heading = panel?.querySelector("h3");
+  if (heading && !document.querySelector("#admin-low-stock-list")) heading.insertAdjacentHTML("beforebegin", '<section class="admin-low-stock" aria-labelledby="admin-low-stock-title"><div class="admin-low-stock-head"><h3 id="admin-low-stock-title">低庫存規格</h3><span id="admin-low-stock-count">0</span></div><div id="admin-low-stock-list"></div></section>');
+}
+
+function renderAdminLowStock() {
+  ensureAdminLowStockUI();
+  const list = document.querySelector("#admin-low-stock-list");
+  const count = document.querySelector("#admin-low-stock-count");
+  if (!list) return;
+  const lowStock = (adminData.products || []).flatMap((product) => (product.product_variants || []).filter((variant) => Number(variant.stock_on_hand) <= Number(variant.safety_stock)).map((variant) => ({ product, variant })));
+  if (count) count.textContent = `${lowStock.length} 項`;
+  list.innerHTML = lowStock.length ? lowStock.map(({ product, variant }) => `<div class="admin-low-stock-row"><div><strong>${escapeHtml(product.name)} · ${escapeHtml(variant.name)}</strong><small>SKU ${escapeHtml(variant.sku)} · 安全庫存 ${variant.safety_stock}</small></div><span>${variant.stock_on_hand}</span><button class="secondary-button" type="button" data-admin-low-stock-variant="${escapeHtml(variant.id)}">調整庫存</button></div>`).join("") : '<p class="admin-low-stock-empty">目前沒有低於安全庫存的規格。</p>';
 }
 
 function resetAccountForm() {
@@ -1212,25 +2477,62 @@ async function submitAdminAccount(event) {
   await adminFetch(id ? `/api/admin/bank-accounts/${id}` : "/api/admin/bank-accounts", { method: id ? "PATCH" : "POST", body: JSON.stringify(body) });
   resetAccountForm();
   bankAccounts = [];
-  await loadAdminData();
+  await refreshAdminSections(["settings"]);
   switchAdminTab("accounts");
-  showToast("收款帳戶已儲存");
+  showToast("收款帳戶已儲存", "success");
+}
+
+function normalizePreorderDate(value) {
+  const candidate = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(candidate) ? candidate : "";
+}
+
+function splitPreorderArrival(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return { from: "", until: "", raw: "" };
+  const matches = [...raw.matchAll(/(\d{3,4})[\/.-](\d{1,2})[\/.-](\d{1,2})/g)].map((match) => {
+    const year = Number(match[1]) < 1000 ? Number(match[1]) + 1911 : Number(match[1]);
+    const month = String(Number(match[2])).padStart(2, "0");
+    const day = String(Number(match[3])).padStart(2, "0");
+    const iso = `${String(year).padStart(4, "0")}-${month}-${day}`;
+    const date = new Date(`${iso}T00:00:00`);
+    return date.getFullYear() === year && date.getMonth() + 1 === Number(month) && date.getDate() === Number(day) ? iso : "";
+  }).filter(Boolean).slice(0, 2);
+  const remainder = raw.replace(/\d{3,4}[\/.-]\d{1,2}[\/.-]\d{1,2}/g, "").replace(/[至到~～—–\-\s]/g, "");
+  if (!matches.length || remainder) return { from: "", until: "", raw };
+  return { from: matches[0], until: matches[1] || "", raw: "" };
+}
+
+function preorderArrivalValue(from, until, rawFallback = "") {
+  const start = normalizePreorderDate(from);
+  const end = normalizePreorderDate(until);
+  if (!start && !end) return String(rawFallback || "").trim() || null;
+  if (start && end && end < start) throw new Error("預計到貨區間的結束日期不可早於開始日期");
+  return start && end && start !== end ? `${start} 至 ${end}` : start || end;
 }
 
 function productFormBody() {
   const kind = document.querySelector("#admin-kind").value;
+  const categorySelect = document.querySelector("#admin-category-id");
+  const categoryOption = categorySelect?.selectedOptions?.[0];
+  const categoryId = categorySelect?.value || "";
+  const categoryName = categoryOption?.dataset.categoryName || "";
+  if (!categoryId || !categoryName) throw new Error("請選擇啟用中的商品分類；若需新增請先建立分類");
   return {
-    category_name: document.querySelector("#admin-category-name").value,
+    category_id: categoryId,
+    category_name: categoryName,
     product_name: document.querySelector("#admin-product-name").value,
     description: document.querySelector("#admin-product-description").value,
     variant_name: document.querySelector("#admin-variant-name").value,
     sku: document.querySelector("#admin-sku").value,
     kind,
     price: Number(document.querySelector("#admin-price").value),
+    compare_at_price: document.querySelector("#admin-compare-at-price")?.value ? Number(document.querySelector("#admin-compare-at-price").value) : null,
     stock: Number(document.querySelector("#admin-stock").value),
     purchase_limit: document.querySelector("#admin-purchase-limit").value ? Number(document.querySelector("#admin-purchase-limit").value) : null,
+    points_eligible: !document.querySelector("#admin-points-excluded")?.checked,
     deposit_rate: kind === "preorder" ? 0.5 : Number(document.querySelector("#admin-deposit-rate").value || 0) / 100,
-    preorder_arrival: document.querySelector("#admin-arrival").value,
+    preorder_arrival: preorderArrivalValue(document.querySelector("#admin-arrival-from").value, document.querySelector("#admin-arrival-until").value),
     seller_link: document.querySelector("#admin-seller-link").value,
     is_published: document.querySelector("#admin-published").checked
   };
@@ -1238,32 +2540,128 @@ function productFormBody() {
 
 function validateProductImage(file) {
   if (!file) return;
+  if (!(file instanceof File)) throw new Error("請選擇商品照片");
   if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) throw new Error("照片僅支援 JPG、PNG 或 WebP");
   if (file.size > 5 * 1024 * 1024) throw new Error("商品照片不可超過 5MB");
+}
+
+const PRODUCT_IMAGE_MAX_DIMENSION = 1600;
+const PRODUCT_IMAGE_MAX_PIXELS = 40_000_000;
+const PRODUCT_IMAGE_WEBP_QUALITY = 0.86;
+
+async function decodeProductImage(file) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+      return { source: bitmap, width: bitmap.width, height: bitmap.height, close: () => bitmap.close() };
+    } catch {
+      try {
+        const bitmap = await createImageBitmap(file);
+        return { source: bitmap, width: bitmap.width, height: bitmap.height, close: () => bitmap.close() };
+      } catch {
+        // Fall through to the Image element for browsers with partial ImageBitmap support.
+      }
+    }
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  const image = new Image();
+  image.decoding = "async";
+  try {
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new Error("圖片無法讀取"));
+      image.src = objectUrl;
+    });
+    return { source: image, width: image.naturalWidth, height: image.naturalHeight, close: () => URL.revokeObjectURL(objectUrl) };
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl);
+    throw error;
+  }
+}
+
+function productImageWebpName(name) {
+  const baseName = String(name || "product-image").replace(/\.[^/.]+$/, "").trim() || "product-image";
+  return `${baseName}.webp`;
+}
+
+async function prepareProductImage(file) {
+  if (!file) return null;
+  validateProductImage(file);
+  let decoded;
+  try {
+    decoded = await decodeProductImage(file);
+  } catch {
+    throw new Error("圖片無法讀取，請改用 JPG、PNG 或 WebP 圖片");
+  }
+  try {
+    if (!decoded.width || !decoded.height || decoded.width * decoded.height > PRODUCT_IMAGE_MAX_PIXELS) throw new Error("照片解析度過高，請先縮小圖片後再試");
+    const scale = Math.min(1, PRODUCT_IMAGE_MAX_DIMENSION / Math.max(decoded.width, decoded.height));
+    const width = Math.max(1, Math.round(decoded.width * scale));
+    const height = Math.max(1, Math.round(decoded.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) return { file, converted: false };
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    try {
+      context.drawImage(decoded.source, 0, 0, width, height);
+    } catch {
+      return { file, converted: false };
+    }
+    let blob;
+    try {
+      blob = await new Promise((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("目前瀏覽器不支援 WebP 轉換")), "image/webp", PRODUCT_IMAGE_WEBP_QUALITY));
+    } catch {
+      return { file, converted: false };
+    }
+    if (!(blob instanceof Blob) || blob.type !== "image/webp" || blob.size > 5 * 1024 * 1024) return { file, converted: false };
+    try {
+      return { file: new File([blob], productImageWebpName(file.name), { type: "image/webp", lastModified: Date.now() }), converted: true };
+    } catch {
+      return { file, converted: false };
+    }
+  } finally {
+    decoded.close();
+  }
 }
 
 async function uploadAdminProductImage(productId, file) {
   if (!file) return;
   validateProductImage(file);
   const formData = new FormData();
-  formData.append("image", file);
+  formData.append("image", file, file.name);
   await adminFetch(`/api/admin/products/${productId}/image`, { method: "POST", body: formData });
 }
 
 async function submitAdminProduct(event) {
   event.preventDefault();
-  const image = document.querySelector("#admin-product-image").files[0];
-  validateProductImage(image);
-  const result = await adminFetch("/api/admin/products", { method: "POST", body: JSON.stringify(productFormBody()) });
-  await uploadAdminProductImage(result.ids.product_id, image);
-  event.currentTarget.reset();
-  document.querySelector("#admin-variant-name").value = "單一規格";
-  document.querySelector("#admin-stock").value = "0";
-  document.querySelector("#admin-purchase-limit").value = "";
-  document.querySelector("#admin-deposit-rate").value = "0";
-  await loadAdminData();
-  switchAdminTab("products");
-  showToast("商品已建立");
+  const form = event.currentTarget;
+  const selectedImage = document.querySelector("#admin-product-image").files[0];
+  validateProductImage(selectedImage);
+  const submitButton = form.querySelector("button[type='submit']");
+  const originalLabel = submitButton?.textContent || "建立商品";
+  if (submitButton) { submitButton.disabled = true; submitButton.textContent = selectedImage ? "處理圖片並建立中…" : "建立商品中…"; }
+  try {
+    const preparedImage = selectedImage ? await prepareProductImage(selectedImage) : null;
+    const result = await adminFetch("/api/admin/products", { method: "POST", body: JSON.stringify(productFormBody()) });
+    await uploadAdminProductImage(result.ids.product_id, preparedImage?.file);
+    form.reset();
+    document.querySelector("#admin-variant-name").value = "單一規格";
+    document.querySelector("#admin-stock").value = "0";
+    document.querySelector("#admin-purchase-limit").value = "";
+    const compareAtPriceInput = document.querySelector("#admin-compare-at-price");
+    if (compareAtPriceInput) compareAtPriceInput.value = "";
+    document.querySelector("#admin-deposit-rate").value = "0";
+    await refreshAdminSections(["products", "inventory", "overview"]);
+    switchAdminTab("products");
+    const imageNotice = preparedImage && !preparedImage.converted ? "；瀏覽器不支援 WebP 轉換，已保留原始格式" : preparedImage ? "，圖片已轉為 WebP" : "";
+    showToast(`商品已建立${imageNotice}`, preparedImage && !preparedImage.converted ? "warning" : "success");
+  } finally {
+    if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; }
+  }
 }
 
 async function submitNewVariant(event) {
@@ -1275,19 +2673,22 @@ async function submitNewVariant(event) {
     sku: document.querySelector("#admin-new-sku").value,
     kind,
     price: Number(document.querySelector("#admin-new-price").value),
+    compare_at_price: document.querySelector("#admin-new-compare-at-price")?.value ? Number(document.querySelector("#admin-new-compare-at-price").value) : null,
     safety_stock: Number(document.querySelector("#admin-new-safety-stock").value || 3),
     deposit_rate: kind === "preorder" ? 0.5 : Number(document.querySelector("#admin-new-deposit-rate").value || 0) / 100,
-    preorder_arrival: document.querySelector("#admin-new-arrival").value,
+    preorder_arrival: preorderArrivalValue(document.querySelector("#admin-new-arrival-from").value, document.querySelector("#admin-new-arrival-until").value),
     seller_link: document.querySelector("#admin-new-seller-link").value,
     is_published: document.querySelector("#admin-new-published").checked
   };
   await adminFetch("/api/admin/variants", { method: "POST", body: JSON.stringify(body) });
   event.currentTarget.reset();
   document.querySelector("#admin-new-safety-stock").value = "3";
+  const newCompareAtPriceInput = document.querySelector("#admin-new-compare-at-price");
+  if (newCompareAtPriceInput) newCompareAtPriceInput.value = "";
   document.querySelector("#admin-new-deposit-rate").value = "0";
-  await loadAdminData();
+  await refreshAdminSections(["products", "inventory", "overview"]);
   switchAdminTab("products");
-  showToast("商品規格已新增");
+  showToast("商品規格已新增", "success");
 }
 
 async function submitInventoryAdjustment(event) {
@@ -1303,7 +2704,7 @@ async function submitInventoryAdjustment(event) {
   try {
     const result = await adminFetch(`/api/admin/variants/${variantId}/inventory`, { method: "POST", body: JSON.stringify({ quantity_delta: Number(document.querySelector("#admin-inventory-delta").value), reason: document.querySelector("#admin-inventory-reason").value }) });
     form.reset();
-    await loadAdminData();
+    await refreshAdminSections(["inventory", "products", "overview"]);
     switchAdminTab("inventory");
     const variantSelect = document.querySelector("#admin-inventory-variant");
     if (variantSelect) variantSelect.value = variantId;
@@ -1313,7 +2714,7 @@ async function submitInventoryAdjustment(event) {
       feedback.textContent = `${variantLabel} 已更新，最新庫存 ${Number(result.stock_on_hand ?? 0)} 件。`;
       feedback.classList.remove("hidden");
     }
-    showToast(`庫存已更新：${variantLabel} ${Number(result.stock_on_hand ?? 0)} 件`);
+    showToast(`庫存已更新：${variantLabel} ${Number(result.stock_on_hand ?? 0)} 件`, "success");
   } finally {
     if (button instanceof HTMLButtonElement) {
       button.disabled = false;
@@ -1327,20 +2728,39 @@ async function submitDynamicAdminForm(event) {
   const variantId = event.target.dataset.editVariantForm;
   if (!productId && !variantId) return;
   event.preventDefault();
-  const formData = new FormData(event.target);
+  const form = event.target;
+  const formData = new FormData(form);
+  const submitButton = form.querySelector("button[type='submit']");
+  const originalLabel = submitButton?.textContent || "儲存";
   if (productId) {
-    const image = formData.get("image");
-    validateProductImage(image instanceof File && image.size ? image : null);
-    const purchaseLimit = String(formData.get("purchase_limit") || "").trim();
-    await adminFetch(`/api/admin/products/${productId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), description: formData.get("description"), category_id: event.target.dataset.categoryId, purchase_limit: purchaseLimit ? Number(purchaseLimit) : null, display_order: Number(formData.get("display_order") || 0), is_published: formData.get("is_published") === "on" }) });
-    if (image instanceof File && image.size) await uploadAdminProductImage(productId, image);
+    const selectedImage = formData.get("image");
+    const hasImage = selectedImage instanceof File && selectedImage.size > 0;
+    validateProductImage(hasImage ? selectedImage : null);
+    if (submitButton) { submitButton.disabled = true; submitButton.textContent = hasImage ? "處理圖片並儲存中…" : "儲存中…"; }
+    let preparedImage = null;
+    try {
+      preparedImage = hasImage ? await prepareProductImage(selectedImage) : null;
+      const purchaseLimit = String(formData.get("purchase_limit") || "").trim();
+      await adminFetch(`/api/admin/products/${productId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), description: formData.get("description"), category_id: String(formData.get("category_id") || "").trim() || null, purchase_limit: purchaseLimit ? Number(purchaseLimit) : null, points_eligible: formData.get("points_excluded") !== "on", display_order: Number(formData.get("display_order") || 0), is_published: formData.get("is_published") === "on" }) });
+      if (preparedImage) await uploadAdminProductImage(productId, preparedImage.file);
+      event.target.dataset.imageFallback = preparedImage && !preparedImage.converted ? "true" : "false";
+    } finally {
+      if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; }
+    }
   } else {
-    const kind = formData.get("kind");
-    await adminFetch(`/api/admin/variants/${variantId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), sku: formData.get("sku"), kind, price: Number(formData.get("price")), safety_stock: Number(formData.get("safety_stock") || 3), deposit_rate: kind === "preorder" ? 0.5 : Number(formData.get("deposit_rate") || 0) / 100, preorder_arrival: formData.get("preorder_arrival"), display_order: Number(formData.get("display_order") || 0), seller_link: formData.get("seller_link"), is_published: formData.get("is_published") === "on" }) });
+    if (submitButton) { submitButton.disabled = true; submitButton.textContent = "儲存中…"; }
+    try {
+      const kind = formData.get("kind");
+      const compareAtPrice = String(formData.get("compare_at_price") || "").trim();
+      await adminFetch(`/api/admin/variants/${variantId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), sku: formData.get("sku"), kind, price: Number(formData.get("price")), compare_at_price: compareAtPrice ? Number(compareAtPrice) : null, safety_stock: Number(formData.get("safety_stock") || 3), deposit_rate: kind === "preorder" ? 0.5 : Number(formData.get("deposit_rate") || 0) / 100, preorder_arrival: preorderArrivalValue(formData.get("preorder_arrival_from"), formData.get("preorder_arrival_until"), formData.get("preorder_arrival_raw")), display_order: Number(formData.get("display_order") || 0), seller_link: formData.get("seller_link"), is_published: formData.get("is_published") === "on" }) });
+    } finally {
+      if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; }
+    }
   }
-  await loadAdminData();
+  await refreshAdminSections(["products", "inventory", "overview"]);
   switchAdminTab("products");
-  showToast(productId ? "商品資料已儲存" : "規格資料已儲存");
+  const imageFallback = productId && event.target.dataset.imageFallback === "true";
+  showToast(productId ? `商品資料已儲存${imageFallback ? "；瀏覽器不支援 WebP 轉換，已保留原始格式" : ""}` : "規格資料已儲存", imageFallback ? "warning" : "success");
 }
 
 function syncDepositField(kindSelector, rateInput) {
@@ -1350,31 +2770,57 @@ function syncDepositField(kindSelector, rateInput) {
 }
 
 document.addEventListener("click", (event) => {
-  const add = event.target.closest("[data-add]"); if (add) addToCart(add.dataset.add);
-  const heroAdd = event.target.closest("[data-hero-add]"); if (heroAdd) addToCart(heroAdd.dataset.heroAdd);
+  const copyAccount = event.target.closest("[data-copy-bank-account]");
+  if (copyAccount) {
+    const value = copyAccount.dataset.copyBankAccount || "";
+    const copyPromise = navigator.clipboard?.writeText(value);
+    if (!copyPromise) return showToast("目前瀏覽器不支援複製帳號", "warning");
+    copyPromise.then(() => {
+      const original = copyAccount.textContent;
+      copyAccount.textContent = "已複製";
+      showToast("匯款帳號已複製", "success");
+      window.setTimeout(() => { copyAccount.textContent = original; }, 1800);
+    }).catch(() => showToast("複製帳號失敗，請手動選取", "warning"));
+    return;
+  }
+  const add = event.target.closest("[data-add]"); if (add) addToCartWithFeedback(add.dataset.add, add);
+  const heroAdd = event.target.closest("[data-hero-add]"); if (heroAdd) addToCartWithFeedback(heroAdd.dataset.heroAdd, heroAdd);
   const change = event.target.closest("[data-quantity]"); if (change) { const item = cart.find((entry) => entry.id === change.dataset.quantity); const delta = Number(change.dataset.delta); const max = products.find((product) => product.id === item.id).stock; item.quantity = Math.min(max, item.quantity + delta); if (item.quantity <= 0) cart.splice(cart.indexOf(item), 1); saveCart(); renderCart(); }
   const remove = event.target.closest("[data-remove]"); if (remove) { const item = cart.find((entry) => entry.id === remove.dataset.remove); cart.splice(cart.indexOf(item), 1); saveCart(); renderCart(); }
   const detail = event.target.closest("[data-detail]"); if (detail) openProductDetail(detail.dataset.detail);
   if (event.target.closest("[data-detail-add]")) addDetailToCart();
   if (event.target.closest("[data-cart-toggle]")) toggleCart();
-  if (event.target.closest("[data-checkout]")) handleCartCheckout();
+  const scopedCheckout = event.target.closest("[data-checkout-scope]");
+  if (scopedCheckout) handleCartCheckout(scopedCheckout.dataset.checkoutScope);
+  else if (event.target.closest("[data-checkout]")) handleCartCheckout();
   if (event.target.closest("[data-admin-open]")) openAdmin();
-  if (event.target.closest("[data-admin-close]")) document.querySelector("#admin-dialog").close();
-  if (event.target.closest("[data-checkout-close]")) document.querySelector("#checkout-dialog").close();
+  if (event.target.closest("[data-admin-close]")) closeDialog(document.querySelector("#admin-dialog"));
+  const adminQuickFilter = event.target.closest("[data-admin-quick-filter]");
+  if (adminQuickFilter) applyAdminQuickFilter(adminQuickFilter.dataset.adminQuickFilter);
+  const lowStockVariant = event.target.closest("[data-admin-low-stock-variant]");
+  if (lowStockVariant) {
+    const variantSelect = document.querySelector("#admin-inventory-variant");
+    if (variantSelect) variantSelect.value = lowStockVariant.dataset.adminLowStockVariant;
+    document.querySelector("#admin-inventory-delta")?.focus();
+  }
+  if (event.target.closest("[data-checkout-close]")) closeDialog(document.querySelector("#checkout-dialog"));
+  if (event.target.closest("[data-checkout-review-next]")) openCheckoutReview();
+  if (event.target.closest("[data-checkout-details-back]")) setCheckoutStage("details");
   if (event.target.closest("[data-demo='login']")) auth.user ? showProfileDialog(false) : beginLineLogin();
-  if (event.target.closest("[data-profile-close]")) document.querySelector("#profile-dialog").close();
+  if (event.target.closest("[data-profile-close]")) closeDialog(document.querySelector("#profile-dialog"));
   if (event.target.closest("[data-orders-open]")) openOrders();
-  if (event.target.closest("[data-orders-close]")) document.querySelector("#orders-dialog").close();
-  if (event.target.closest("[data-payment-close], [data-payment-later]")) document.querySelector("#payment-dialog").close();
+  if (event.target.closest("[data-orders-close]")) closeDialog(document.querySelector("#orders-dialog"));
+  if (event.target.closest("[data-orders-shop]")) { closeDialog(document.querySelector("#orders-dialog")); document.querySelector("#products")?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  if (event.target.closest("[data-payment-close], [data-payment-later]")) closeDialog(document.querySelector("#payment-dialog"));
   const lineFriendCheck = event.target.closest("[data-line-friend-check]");
   if (lineFriendCheck) {
     lineFriendCheck.disabled = true;
     lineFriendCheck.textContent = "檢查中…";
     document.querySelector("#line-friend-error")?.classList.add("hidden");
-    checkLineFriendship().then((isFriend) => {
+    checkLineFriendship({ force: true }).then((isFriend) => {
       if (!isFriend) return showLineFriendDialog();
-      document.querySelector("#line-friend-dialog")?.close();
-      return openCheckout();
+      closeDialog(document.querySelector("#line-friend-dialog"));
+      return openCheckout(activeCheckoutScope);
     }).catch((error) => showLineFriendDialog(error.message)).finally(() => {
       lineFriendCheck.disabled = false;
       lineFriendCheck.textContent = "我已加入，重新檢查";
@@ -1382,9 +2828,13 @@ document.addEventListener("click", (event) => {
   }
   const adminTab = event.target.closest("[data-admin-tab]");
   if (adminTab) switchAdminTab(adminTab.dataset.adminTab);
-  if (event.target.closest("[data-admin-refresh]")) loadAdminData();
-  if (event.target.closest("[data-line-test]")) testLineNotification().catch((error) => showToast(error.message));
-  if (event.target.closest("[data-birthday-issue]")) issueBirthdayCouponsNow().catch((error) => showToast(error.message));
+  if (event.target.closest("[data-admin-refresh]")) loadAdminData().catch((error) => showToast(error.message, "error"));
+  if (event.target.closest("[data-telegram-test]")) testTelegramNotification().catch((error) => showToast(error.message, "error"));
+  if (event.target.closest("[data-birthday-issue]")) issueBirthdayCouponsNow().catch((error) => showToast(error.message, "error"));
+  if (event.target.closest("[data-admin-category-focus]")) focusAdminCategoryForm();
+  if (event.target.closest("[data-admin-category-cancel]")) resetAdminCategoryForm();
+  const categoryEdit = event.target.closest("[data-admin-category-edit]");
+  if (categoryEdit) editAdminCategory(categoryEdit.dataset.adminCategoryEdit);
   const accountEdit = event.target.closest("[data-account-edit]");
   if (accountEdit) editAccount(accountEdit.dataset.accountEdit);
   if (event.target.closest("[data-account-cancel]")) resetAccountForm();
@@ -1394,21 +2844,25 @@ document.addEventListener("click", (event) => {
   const paymentOrderButton = event.target.closest("[data-order-payment]");
   if (paymentOrderButton) {
     const order = currentOrders.find((item) => item.id === paymentOrderButton.dataset.orderPayment);
-    if (order) { document.querySelector("#orders-dialog").close(); showPaymentDialog(order); }
+    if (order) { closeDialog(document.querySelector("#orders-dialog")); showPaymentDialog(order); }
   }
 });
+document.addEventListener("error", handleAdminProductImageError, true);
 document.addEventListener("change", (event) => {
+  if (event.target.closest("#checkout-form")) clearCheckoutFieldErrorFor(event.target);
   if (event.target.matches("#admin-order-status-filter")) renderAdminOrders();
   if (event.target.matches("#admin-product-status")) renderAdminProducts();
   if (event.target.matches("#point-max-mode")) syncPointMaxHint();
   if (event.target.matches("#admin-kind")) syncDepositField(event.target, document.querySelector("#admin-deposit-rate"));
   if (event.target.matches("#admin-new-kind")) syncDepositField(event.target, document.querySelector("#admin-new-deposit-rate"));
   if (event.target.matches("[data-edit-variant-form] select[name='kind']")) syncDepositField(event.target, event.target.form.elements.deposit_rate);
-  if (event.target.matches("input[name='delivery_method']")) syncDeliveryFields();
+  if (event.target.matches("input[name='delivery_method']")) {
+    if (activeCheckoutScope) setCartGroupDeliveryMethod(activeCheckoutScope, event.target.value);
+    syncDeliveryFields();
+  }
   if (event.target.matches("input[name='cart_delivery_method']")) setCartDeliveryMethod(event.target.value);
-  if (event.target.matches("input[name='delivery_method']")) setCartDeliveryMethod(event.target.value);
+  if (event.target.matches("input[data-group-delivery]")) setCartGroupDeliveryMethod(event.target.dataset.groupDelivery, event.target.value);
   if (event.target.matches("input[name='payment_method']")) syncPaymentFields();
-  if (event.target.matches("input[name='pickup']")) renderCheckoutSummary();
   if (event.target.matches("#product-detail-variant")) {
     activeDetailProductId = event.target.value;
     renderProductDetail();
@@ -1419,40 +2873,47 @@ document.addEventListener("input", (event) => {
   if (event.target.matches("#admin-member-search")) renderAdminMembers();
   if (event.target.matches("#admin-product-search")) renderAdminProducts();
   if (event.target.matches("#checkout-points")) renderCheckoutSummary();
+  if (event.target.matches("#checkout-coupon-code")) renderCheckoutSummary();
   if (event.target.matches("#checkout-address")) renderCheckoutSummary();
+  if (event.target.closest("#checkout-form")) clearCheckoutFieldErrorFor(event.target);
 });
 document.addEventListener("submit", async (event) => {
   if (event.target.matches("#admin-coupon-form")) {
-    try { await submitCoupon(event); } catch (error) { showToast(error.message); }
+    try { await submitCoupon(event); } catch (error) { showToast(error.message, "error"); }
     return;
   }
   if (event.target.matches("#birthday-coupon-form")) {
-    try { await submitBirthdaySettings(event); } catch (error) { showToast(error.message); }
+    try { await submitBirthdaySettings(event); } catch (error) { showToast(error.message, "error"); }
     return;
   }
   if (event.target.matches("[data-admin-points-form]")) {
     try { await submitMemberPointAdjustment(event); }
-    catch (error) { showToast(error.message); }
+    catch (error) { showToast(error.message, "error"); }
     return;
   }
   if (event.target.matches("[data-admin-order-form]")) {
     try { await submitAdminOrderTransition(event); }
-    catch (error) { showToast(error.message); }
+    catch (error) { showToast(error.message, "error"); }
     return;
   }
   if (event.target.matches("[data-admin-fulfillment-form]")) {
     try { await submitAdminOrderFulfillment(event); }
-    catch (error) { showToast(error.message); }
+    catch (error) { showToast(error.message, "error"); }
     return;
   }
   if (!event.target.matches("[data-edit-product-form], [data-edit-variant-form]")) return;
   try { await submitDynamicAdminForm(event); }
-  catch (error) { showToast(error.message); }
+  catch (error) { showToast(error.message, "error"); }
 });
 document.querySelectorAll(".filter").forEach((button) => button.addEventListener("click", () => { activeCategory = button.dataset.category; document.querySelectorAll(".filter").forEach((item) => item.classList.toggle("active", item === button)); renderProducts(); }));
 search.addEventListener("input", renderProducts);
 document.querySelector("#checkout-form").addEventListener("submit", async (event) => {
   event.preventDefault();
+  const form = event.currentTarget;
+  if (form.dataset.checkoutStage !== "review") {
+    openCheckoutReview();
+    return;
+  }
   const submitButton = document.querySelector(".checkout-submit");
   document.querySelector("#checkout-error").classList.add("hidden");
   submitButton.disabled = true;
@@ -1461,18 +2922,22 @@ document.querySelector("#checkout-form").addEventListener("submit", async (event
   catch (error) { showCheckoutError(error.message); }
   finally {
     submitButton.disabled = bankAccounts.length === 0;
-    submitButton.textContent = "保留商品並取得匯款資訊";
+    submitButton.textContent = "建立訂單並取得匯款資訊";
   }
 });
 document.querySelector("#payment-form").addEventListener("submit", submitPayment);
 document.querySelector("#profile-form").addEventListener("submit", submitProfile);
-document.querySelector("#admin-account-form").addEventListener("submit", async (event) => { try { await submitAdminAccount(event); } catch (error) { showToast(error.message); } });
-document.querySelector("#admin-product-form").addEventListener("submit", async (event) => { try { await submitAdminProduct(event); } catch (error) { showToast(error.message); } });
-document.querySelector("#admin-variant-form").addEventListener("submit", async (event) => { try { await submitNewVariant(event); } catch (error) { showToast(error.message); } });
-document.querySelector("#admin-inventory-form").addEventListener("submit", async (event) => { try { await submitInventoryAdjustment(event); } catch (error) { showToast(error.message); } });
-document.querySelector("#admin-point-settings-form").addEventListener("submit", async (event) => { try { await submitPointSettings(event); } catch (error) { showToast(error.message); } });
+document.querySelector("#admin-account-form").addEventListener("submit", async (event) => { try { await submitAdminAccount(event); } catch (error) { showToast(error.message, "error"); } });
+document.querySelector("#admin-category-form").addEventListener("submit", async (event) => { try { await submitAdminCategory(event); } catch (error) { showToast(error.message, "error"); } });
+document.querySelector("#admin-product-form").addEventListener("submit", async (event) => { try { await submitAdminProduct(event); } catch (error) { showToast(error.message, "error"); } });
+document.querySelector("#admin-variant-form").addEventListener("submit", async (event) => { try { await submitNewVariant(event); } catch (error) { showToast(error.message, "error"); } });
+document.querySelector("#admin-inventory-form").addEventListener("submit", async (event) => { try { await submitInventoryAdjustment(event); } catch (error) { showToast(error.message, "error"); } });
+document.querySelector("#admin-point-settings-form").addEventListener("submit", async (event) => { try { await submitPointSettings(event); } catch (error) { showToast(error.message, "error"); } });
 document.querySelector("#profile-dialog").addEventListener("cancel", (event) => {
   if (event.currentTarget.dataset.required === "true") event.preventDefault();
+});
+document.querySelectorAll("dialog").forEach((dialog) => {
+  dialog.addEventListener("close", syncPageScrollLock);
 });
 async function loadProducts() {
   try {
@@ -1489,6 +2954,7 @@ removeLegacyShippingUI();
 removeLegacySellerCheckoutOption();
 captureAuthSession();
 await Promise.all([loadRuntimeConfig(), loadProducts()]);
+loadLocalCart();
 await loadMember();
-try { const savedCart = JSON.parse(sessionStorage.getItem("cj-cart") || "[]"); if (Array.isArray(savedCart)) cart.push(...savedCart.filter((item) => products.some((product) => product.id === item.id))); } catch { sessionStorage.removeItem("cj-cart"); }
 renderHeroSpotlight(); renderProducts(); renderCart();
+await restoreAuthReturnState();
