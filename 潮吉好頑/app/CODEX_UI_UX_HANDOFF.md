@@ -1,5 +1,7 @@
 # 潮吉好頑｜Codex UI/UX 改版交接文件
 
+> **已歸檔（2026-09-24）**：本文件的改版已完成並上線，下方基準版本、流程與檢查指令已過時（例如試部署應為 `npx wrangler deploy --dry-run --minify`）。目前狀態請看 `AGENTS.md`、`ADMIN_REDESIGN_PLAN.md`（後台）與 `PRODUCT_SHOWCASE_PLAN.md`（前台商品展示）；本文件只保留產品背景與設計決策脈絡。
+
 > 文件用途：將本文件與 `潮吉好頑/app` 專案一起交給 Codex（建議使用 GPT-6 Astra）工作階段，請它先理解產品與現有流程，再提出新的 UI/UX 方案。
 >
 > 建立基準：Cloudflare Worker 版本 `e2f56dd1-9454-4310-9fb2-0fd98f403f11`，Git commit `d5207de`（`deployed-line-admin-no-mfa-v2`）。

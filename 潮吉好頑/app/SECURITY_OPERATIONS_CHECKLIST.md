@@ -14,12 +14,12 @@
   - `API_MEMBER_RATE_LIMITER`：每會員好友驗證／付款 30 次／60 秒。
   - `API_ADMIN_RATE_LIMITER`：每位管理員 API 20 次／60 秒。
 - Worker 安全標頭：CSP、HSTS、X-Frame-Options、X-Content-Type-Options、Referrer-Policy、Permissions-Policy。
-- 最新 Worker：Version ID `f6ad722f-ec88-4259-8f28-48f6d6ab68fc`（2026-09-23 部署：後台分頁載入與管理選項快取效能修復）。
+- 最新 Worker：Version ID `b62ef7b4-4c50-4959-a55f-80139c6c2a00`（2026-09-24 部署：後台商品與規格頁改版、iOS Safari 後台顯示修正；歷次版本見 `ADMIN_REDESIGN_PLAN.md`、`PRODUCT_SHOWCASE_PLAN.md`）。
 - 商品積點 eligibility migration：`product_points_eligibility` 與 `product_points_admin_acl`；新版管理商品 RPC 僅保留 service_role execute，`search_path` 維持空值。
 
-## 本次本機待核對／待套用 migration
+## 已套用 migration（2026-09-22～09-24）
 
-以下 migration 已在本機工作樹完成審查與程式接線；本輪沒有 production deploy、遠端 SQL 或真實通知測試，因此套用前仍須先核對 Supabase migration history：
+2026-09-24 以 Supabase migration history 核對：以下 migration 皆已套用至正式 DB（遠端版本號與本機檔名不同，以名稱對應），另含 `liff_session_vault`（20260923111528）與 `product_gallery_showcase`（20260923145715）：
 
 - `202609220001_member_point_balance_rpc.sql`：完整 point ledger 餘額 RPC，前台近期 100 筆只作歷程。
 - `202609220002_notification_delivery_state_machine.sql`：LINE／Telegram 原子 claim、lease、claim token fencing 與 transient retry；外部 API 仍只能保證 at-least-once。
@@ -31,6 +31,11 @@
 - `202609230002_notification_display_context.sql`：通知列表補充遮罩收件人 context 與已知訂單編號；非訂單 event 不猜測關聯，仍不回傳 recipient_id、payload 或 token。
 
 套用後需以 `supabase/verify_schema.sql` 唯讀確認函式簽名、notification claim token、退貨驗收表與管理概況 count RPC，再執行 Supabase Security Advisors。不要把本機 dry-run 視為 migration 已套用或 production 已更新。
+
+**Security Advisors 結果（2026-09-24 唯讀執行）**：
+- `authenticated_security_definer_function_executable`（5 項）：`create_delivery_order`（10 參數版）、`submit_order_payment`、`member_point_balance`、`member_available_coupons`、`current_user_is_admin`。皆為會員前台功能刻意開放給 `authenticated`；已核對函式內皆以 `auth.uid()` 判斷呼叫者、`search_path` 為空、未授權 `anon`。舊 8 參數版 `create_delivery_order` 只剩 `service_role`／`postgres`。屬預期，不需處理；日後修改這些函式須維持以 `auth.uid()` 限定本人資料。
+- `auth_leaked_password_protection`：Free 方案無法開啟，見下方 A 節（Email provider 已關閉、只允許 LINE）。
+- `verify_schema.sql` 尚無執行紀錄；下次變更 schema 時一併執行並記錄於此。
 
 Audit 驗證方案：以隔離測試管理員執行商品／規格／分類／收款帳戶／優惠券／生日券／點數設定 mutation，確認每次資料變更與 audit row 同 transaction；一般會員、anon 與偽造 actor 應被 RPC 拒絕。對 `audit_logs` 執行 UPDATE、DELETE、TRUNCATE 應分別被權限或 `AUDIT_LOG_IMMUTABLE` 拒絕。若商品圖片 binary 上傳成功但後續 DB pointer 更新失敗，需依 storage 與 audit 結果人工補償；此跨服務操作不宣稱單一 transaction。
 

@@ -3,6 +3,7 @@
 > 建立：2026-09-24。目標設計：`redesign-preview/admin.html`。
 > 範圍：**只改前端外觀與操作動線，不改 Worker、SQL、權限與交易邏輯**。
 > 部署：2026-09-24 經店主授權上線，Version ID `ded8db43-575b-4b8a-abcd-d7b19af626ad`（前一版 `7f55e55e-e876-42a9-a27c-fabaf3856b3a`）。
+> 現況（2026-09-24）：Stage 0–8 與上線後修正皆完成並經店主確認；最新 Version ID `b62ef7b4-4c50-4959-a55f-80139c6c2a00`。
 
 ## 1. 現況盤點（已核對程式碼）
 
@@ -83,7 +84,7 @@
 
 ### Stage 5：商品列表精簡（G9，選配）
 **Goal**：商品卡改精簡列樣式、顯示限時優惠標籤；「優惠價」直接展開對應規格表單並聚焦原價欄。
-**Status**：Complete（2026-09-24）— `public/admin-products-ui.js`：有優惠的商品卡紅色左框＋「限時優惠」標籤、規格列顯示「限時優惠 −x%」、每個規格「優惠價」捷徑（展開該規格表單並聚焦原價欄，仍由原表單儲存）、「只看限時優惠（本頁 n）」篩選。
+**Status**：Complete（2026-09-24）— `public/admin-products-ui.js`：有優惠的商品卡紅色左框＋「限時優惠」標籤、規格列顯示「限時優惠 −x%」、每個規格「優惠價」捷徑（展開該規格表單並聚焦原價欄，仍由原表單儲存）、「只看限時優惠（本頁 n）」篩選。**已由 Stage 8 取代**：`admin-products-ui.js` 已刪除，改為 `admin-products-table.js`。
 
 ### Stage 7：滑出面板、說明收合、其餘頁面統一樣式（G10 與第二輪待辦）
 **Goal**：新增／設定類表單改為右側滑出面板；面板頂部長說明收合；會員、優惠券、帳戶、庫存、稽核、通知頁卡片與表單統一。
@@ -99,11 +100,11 @@
 
 - 所有新行為集中在新檔；回退只需移除 `app.js` 的 import 與 `index.html` 的 CSS link。
 - 不改 API 與 SQL，交易結果不受影響；訂單送出仍走原 `submitAdminOrderTransition` 等函式。
-- 未部署：正式站維持現況，需店主驗收後另行授權部署。
+- 部署：2026-09-24 經店主驗收後授權上線（見第 6 節上線紀錄與第 7、8 節）。
 
 ## 6. 本次成果與待辦
 
-**新增檔案**：`public/admin-icons.js`、`public/admin-shell.js`、`public/admin-overview.js`、`public/admin-orders-ui.js`、`public/admin-products-ui.js`、`public/admin-sheets.js`、`public/admin-shell.css`、`public/admin-pages.css`、`public/admin-forms.css`。
+**新增檔案**：`public/admin-icons.js`、`public/admin-shell.js`、`public/admin-overview.js`、`public/admin-orders-ui.js`、`public/admin-products-ui.js`（Stage 8 已刪除）、`public/admin-sheets.js`、`public/admin-shell.css`、`public/admin-pages.css`、`public/admin-forms.css`。
 **修改檔案**：`public/app.js`（+1 import、+1 `initAdminShell({...})` 接線，約 10 行）、`public/index.html`（+3 個 CSS link）。`styles.css`、Worker、SQL 均未修改。
 
 **店主驗收**：2026-09-24 店主確認新版後台 OK，本計劃結案。收款帳戶與庫存調整表單刻意保留在頁面上（編輯帳戶會直接聚焦欄位、庫存調整是該頁主要動作）。
@@ -115,10 +116,10 @@
 **Status**：Complete（部署 Version ID `4ac77490-da40-42a7-82a5-5da6f040a431`；前一版 `ded8db43-575b-4b8a-abcd-d7b19af626ad`）
 - 店主回報：手機新增／編輯優惠券只出現淡灰色畫面，點一下又回到原畫面。原因：滑出面板（`position:fixed`）位於後台捲動容器內，iOS／LINE WebKit 會把 fixed 元素困在捲動容器圖層（被外層遮罩蓋住，或跟著捲動內容定位到畫面外），只剩遮罩可見。修正：面板開啟時移到 `#admin-dialog` 最外層、關閉時放回 `<details>`（`admin-sheets.js`）；控制項樣式同時涵蓋 `.admin-sheet-panel`（`admin-forms.css`）；捲動容器改回 `-webkit-overflow-scrolling:auto`（`admin-shell.css`）。
 - 同時修正：在「新增商品」面板按「新增分類」時，分類面板會被立即關閉（一次一個面板的邏輯保留了錯的那個）。
-- 店主以手機確認灰畫面已修正，但回報 Safari 優惠券面板「點擊錯位」（2026-09-24，部署 `0d738d08-87ee-42a0-93da-fa44ec05f59f`）。推定原因：`editCoupon` 對已在 fixed 面板內的表單呼叫 `scrollIntoView({behavior:"smooth"})`，iOS Safari 會捲動整頁，fixed 元素點擊判定因此位移；開啟面板即自動聚焦輸入框、彈出鍵盤也會造成同樣位移。修正：表單在面板內時不再 `scrollIntoView`（`app.js`）；觸控裝置開啟面板改聚焦標題、不自動彈鍵盤，面板內容捲回頂端；開啟面板時記住整頁位置，輸入框失焦（鍵盤收起）後與關閉面板時捲回（`admin-sheets.js`）。正式站 375px 觸控模擬確認：聚焦在標題、面板位於 dialog 最外層、中央點擊命中面板；Chromium 無法重現 Safari 整頁位移，需店主以 iPhone Safari 再確認。
-- 店主以 iPhone Safari 回報：進後台後下半部被截斷、無法操作，按瀏覽器「上一頁」才恢復（2026-09-24，部署 `a2cd34ca-24a0-4224-a154-daafbae17832`、`220b4829-b710-43ec-bb90-41c50669de5a`）。推定原因：「管理後台」按鈕在頁尾，開啟時整頁已捲到底；`showDialog` 先 `showModal()` 讓後台進入 top layer，之後才鎖定頁面（body `position:fixed`，整頁捲動位置由數千 px 歸 0），iOS Safari 沿用舊捲動位置的繪製與點擊範圍；「上一頁」觸發 `popstate` 重排後才恢復。修正：`showDialog` 改為先鎖頁面再 `showModal()`（所有 dialog 共用）；另因 `html` 設 `scroll-behavior:smooth`，關閉視窗還原位置與面板還原位置改用 `behavior:"instant"`，避免關閉後整頁從頂端滑回、滑動中點擊位置再次位移。正式站 375px 觸控模擬：從頁尾（捲動 2795px）開後台 → 滿版 812px、內容可捲到底 → 編輯優惠券面板位於最外層、儲存鈕與欄位點擊命中 → 關閉後立即回到 2795px。Chromium 無法重現 Safari 行為，需店主以 iPhone Safari 再確認。
-- 上一項修正後問題仍存在；店主提供 iPhone Safari 錄影（2026-09-24，部署 `3e5a3c68-6059-4048-8fdd-caa663932f00`）。逐格比對確認真正原因：8.44s 載入中（內容未超出畫面）完整繪製；8.72s 概況資料載入、內容變長後，畫面停在「載入中高度」（重新整理／測試 Telegram 列）被截斷且無法點擊，之後不再變化。即 iOS Safari 對 top layer dialog 內的捲動容器，若首次繪製時內容未溢出便不建立捲動圖層，內容長高後也不更新繪製與點擊範圍；「上一頁」觸發重排才恢復。修正：`.admin-content::after`（absolute、高度 `100% + 1px`）讓容器從第一次繪製起就可捲動（`admin-shell.css`）；`admin-shell.js` 以 ResizeObserver 監看內容高度，變動時切換一次 `overflow-y` 強制重建捲動圖層並保留捲動位置。正式站實測：開啟當下溢出 1px（未修正時為 0，即觸發條件）、載入後溢出 701px 並執行一次重建、內容可捲到底、inline style 已還原。前兩項（先鎖頁再開啟、instant 還原）保留，屬正確性改善。
-- 驗證（本機測試台，375／1280）：捲到優惠券列表 1418px 深處按編輯，面板仍滿版顯示於螢幕、中央點擊命中面板；6 個面板開關、Esc、放回原位皆正常；儲存失敗時面板與內容保留、錯誤提示顯示於面板上方；成功後自動關閉。Chromium 無法重現 iOS 圖層行為，需店主以手機再確認一次。
+- 店主以手機確認灰畫面已修正，但回報 Safari 優惠券面板「點擊錯位」（2026-09-24，部署 `0d738d08-87ee-42a0-93da-fa44ec05f59f`）。推定原因：`editCoupon` 對已在 fixed 面板內的表單呼叫 `scrollIntoView({behavior:"smooth"})`，iOS Safari 會捲動整頁，fixed 元素點擊判定因此位移；開啟面板即自動聚焦輸入框、彈出鍵盤也會造成同樣位移。修正：表單在面板內時不再 `scrollIntoView`（`app.js`）；觸控裝置開啟面板改聚焦標題、不自動彈鍵盤，面板內容捲回頂端；開啟面板時記住整頁位置，輸入框失焦（鍵盤收起）後與關閉面板時捲回（`admin-sheets.js`）。正式站 375px 觸控模擬確認：聚焦在標題、面板位於 dialog 最外層、中央點擊命中面板；Chromium 無法重現 Safari 整頁位移；店主 2026-09-24 以 iPhone Safari 確認正常。
+- 店主以 iPhone Safari 回報：進後台後下半部被截斷、無法操作，按瀏覽器「上一頁」才恢復（2026-09-24，部署 `a2cd34ca-24a0-4224-a154-daafbae17832`、`220b4829-b710-43ec-bb90-41c50669de5a`）。推定原因：「管理後台」按鈕在頁尾，開啟時整頁已捲到底；`showDialog` 先 `showModal()` 讓後台進入 top layer，之後才鎖定頁面（body `position:fixed`，整頁捲動位置由數千 px 歸 0），iOS Safari 沿用舊捲動位置的繪製與點擊範圍；「上一頁」觸發 `popstate` 重排後才恢復。修正：`showDialog` 改為先鎖頁面再 `showModal()`（所有 dialog 共用）；另因 `html` 設 `scroll-behavior:smooth`，關閉視窗還原位置與面板還原位置改用 `behavior:"instant"`，避免關閉後整頁從頂端滑回、滑動中點擊位置再次位移。正式站 375px 觸控模擬：從頁尾（捲動 2795px）開後台 → 滿版 812px、內容可捲到底 → 編輯優惠券面板位於最外層、儲存鈕與欄位點擊命中 → 關閉後立即回到 2795px。Chromium 無法重現 Safari 行為；此輪修正仍未解決，見下一項。
+- 上一項修正後問題仍存在；店主提供 iPhone Safari 錄影（2026-09-24，部署 `3e5a3c68-6059-4048-8fdd-caa663932f00`）。逐格比對確認真正原因：8.44s 載入中（內容未超出畫面）完整繪製；8.72s 概況資料載入、內容變長後，畫面停在「載入中高度」（重新整理／測試 Telegram 列）被截斷且無法點擊，之後不再變化。即 iOS Safari 對 top layer dialog 內的捲動容器，若首次繪製時內容未溢出便不建立捲動圖層，內容長高後也不更新繪製與點擊範圍；「上一頁」觸發重排才恢復。修正：`.admin-content::after`（absolute、高度 `100% + 1px`）讓容器從第一次繪製起就可捲動（`admin-shell.css`）；`admin-shell.js` 以 ResizeObserver 監看內容高度，變動時切換一次 `overflow-y` 強制重建捲動圖層並保留捲動位置。正式站實測：開啟當下溢出 1px（未修正時為 0，即觸發條件）、載入後溢出 701px 並執行一次重建、內容可捲到底、inline style 已還原。前兩項（先鎖頁再開啟、instant 還原）保留，屬正確性改善。店主 2026-09-24 以 iPhone Safari 確認後台已可正常使用。
+- 驗證（本機測試台，375／1280）：捲到優惠券列表 1418px 深處按編輯，面板仍滿版顯示於螢幕、中央點擊命中面板；6 個面板開關、Esc、放回原位皆正常；儲存失敗時面板與內容保留、錯誤提示顯示於面板上方；成功後自動關閉。Chromium 無法重現 iOS 圖層行為；店主已以手機確認灰畫面修正（後續點擊錯位見上方）。
 
 ## 8. 商品與規格頁改版（Stage 8，2026-09-24 業主要求）
 
@@ -134,3 +135,4 @@
 - 篩選：分類／現貨／預購／限時優惠／未上架結果正確。版面：1440 表格（無橫向溢出）、768 兩欄卡片、375 單欄卡片；觸控目標 44px、開關 48×28。
 - 測後修正（`b62ef7b4`）：開關擴大點擊區左右各溢出 2px；商品未上架時「上架」確認文字改為直接說明前台仍不顯示；頁首三個面板按鈕在 ≥761px 排成一列。
 - 測試資料皆已還原（UX-11 售價 1280、無原價、規格上架、商品未上架）。
+- 店主 2026-09-24 以手機確認新版商品頁沒問題；程式已提交 `a646cbf`。

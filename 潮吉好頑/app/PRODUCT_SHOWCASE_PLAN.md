@@ -309,7 +309,7 @@ alter table public.products
 **Goal**：Worker 對 `/products/:id` 以 HTMLRewriter 注入 OG title／image；移除舊 product-detail dialog；更新 README。
 **Success Criteria**：LINE 貼網址出現商品圖與名稱；無殘留死碼。
 **Tests**：LINE 分享預覽；`git diff --check`；正式部署後依 AGENTS.md smoke（含 `/products/<id>` 回 200、`/api/products/<id>` 回 JSON、`app.js`／`product-showcase.css` marker）。
-**Status**：Complete（2026-09-24 部署；LINE 預覽待店主以新連結確認）
+**Status**：Complete（2026-09-24 部署；店主 2026-09-24 確認 LINE 分享可看到預覽圖）
 **部署紀錄**：Worker Version ID `bcd0360e-430e-4e69-9cb3-01965c6964e0`，100% 流量；前一版 `0eabe06a-f9cf-4671-83bf-1c59e13c0f6b` 可作回滾。實際上傳 5 個前端資源檔。
 **店主追加（同批部署）**：
 - 商品卡「查看規格」改為「直接購買」：尚未在購物車才加入 1 件，再打開購物車抽屜（不直接跳結帳）；售完時兩顆按鈕停用並顯示「已售完」；商品頁改由圖片與名稱進入，名稱加淡底線提示。同時修正推薦卡按鈕仍顯示舊文字「加入選物盒」。
@@ -379,18 +379,23 @@ alter table public.products
   - 舊版或亂填的 `v` 回傳目前圖片、`max-age=60`，不寫入快取，避免被灌爆快取。
   - 刪除照片、編輯商品（含下架）時清除本機房對應版本；其他機房最遲 1 天失效。新增／排序照片會更新版本，不再 purge。
   - 正式站實測：正確版本第 2 次 `HIT` 且帶 `s-maxage=86400`；錯誤版本兩次皆未進快取；不存在的圖片 404。
+- 店主 2026-09-24 以 iPhone Safari 確認兩段式刪除照片正常。
+
 ## 7. 風險與待確認事項
 
-| # | 風險／問題 | 處理 |
-| --- | --- | --- |
-| 1 | Supabase Auth Redirect URLs 若只允許根網址，商品頁登入會失敗 | Stage 1 前確認設定允許 `https://<domain>/**`；否則 `redirect_to` 固定根網址並以 `AUTH_RETURN_STATE_KEY` 帶回商品路徑 |
-| 2 | LIFF endpoint 子路徑、`liff.state` 與 History 路由互動 | Stage 5 於 LINE 內實機測試 |
-| 3 | 多圖增加 Storage／流量用量 | 上傳時轉 WebP、限制長邊 1600px、每商品 ≤10 張；edge cache immutable |
-| 4 | 修改 `auth-boot-critical` inline style 會使 CSP hash 失效 | 盡量不動；若必須修改，同步重算 `SECURITY_HEADERS` hash |
-| 5 | `app.js` 已 3797 行 | 本案只抽出不擴張；長期拆分另立計畫 |
-| 6 | Hero 選品權 | 預設由後台 `hero_rank` 控制；需店主確認是否要自動 fallback |
-| 7 | 現有 `.claude/launch.json` 是 `python -m http.server 8082`，沒有 SPA fallback 與 `/api/*` | 已新增 launch 設定 `worker-dev`（`npx wrangler dev --port 8082`）；5714 在此機器被 Windows 保留，不能使用。本機瀏覽器可能快取舊 python 伺服器的 `app.js`，驗證前需強制重新載入 |
-| 8 | 參考站素材與文案 | 只參考互動與版面模式，不複製其圖片、文案或品牌元素 |
+（2026-09-24 更新：以下為當初規劃時列出的風險，「狀態」欄記錄目前結果。）
+
+| # | 風險／問題 | 處理 | 狀態 |
+| --- | --- | --- | --- |
+| 1 | Supabase Auth Redirect URLs 若只允許根網址，商品頁登入會失敗 | Stage 1 前確認設定允許 `https://<domain>/**`；否則 `redirect_to` 固定根網址並以 `AUTH_RETURN_STATE_KEY` 帶回商品路徑 | 已解決：Supabase 接受 `/products/...` 回跳，店主實測商品頁登入後回到同一頁（Stage 5） |
+| 2 | LIFF endpoint 子路徑、`liff.state` 與 History 路由互動 | Stage 5 於 LINE 內實機測試 | 已解決：店主從 LINE 內開商品連結可正常開啟並登入（Stage 5） |
+| 3 | 多圖增加 Storage／流量用量 | 上傳時轉 WebP、限制長邊 1600px、每商品 ≤10 張 | 持續：邊緣快取已改為含版本的 key、`s-maxage` 1 天（第九輪） |
+| 4 | 修改 `auth-boot-critical` inline style 會使 CSP hash 失效 | 盡量不動；若必須修改，同步重算 `SECURITY_HEADERS` hash | 持續注意 |
+| 5 | `app.js` 過大（規劃時 3797 行） | 本案只抽出不擴張；長期拆分另立計畫 | 持續：2026-09-24 為 3752 行，拆分計畫尚未建立 |
+| 6 | Hero 選品權 | 預設由後台 `hero_rank` 控制 | 已實作：全部未設定排序時自動輪播最新預購商品（`hero-slides.js`） |
+| 7 | 現有 `.claude/launch.json` 是 `python -m http.server 8082`，沒有 SPA fallback 與 `/api/*` | 已新增 launch 設定 `worker-dev`（`npx wrangler dev --port 8082`）；5714 在此機器被 Windows 保留，不能使用 | 已處理 |
+| 8 | 參考站素材與文案 | 只參考互動與版面模式，不複製其圖片、文案或品牌元素 | 持續遵守 |
 
 **店主已決定（2026-09-23）**：Hero 採方案 B；推薦商品排除缺貨。
-**仍待決定**：商品頁購物須知摘要內容（Stage 5 前確認）。
+**已完成（店主 2026-09-24 確認）**：商品頁購物須知摘要內容。
+**已知未處理**：輪播圓點以 `width` 做過渡（第八輪設計檢測回報，輕微動畫效能問題）。

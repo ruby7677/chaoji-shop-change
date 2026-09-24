@@ -4,8 +4,8 @@
 
 本指引只適用此目錄。工作目錄為 `app/`，使用 PowerShell、原生 HTML/CSS/JavaScript、TypeScript Worker、Supabase；沒有前端框架或 bundler build 指令。
 
-- 正式前端：`app/public/index.html`、`app/public/styles.css`、`app/public/app.js`。
-- Worker API／授權／通知觸發：`app/src/index.ts`。
+- 正式前端：`app/public/index.html`、`app/public/styles.css`、`app/public/app.js`（主程式）；功能模組：後台 `admin-*.js`／`admin-*.css`，商品頁與首頁輪播 `product-*.js`、`hero-*.js`、`product-showcase.css`、`product-page.css`，LINE LIFF `liff-auth.js`。
+- Worker API／授權／通知觸發：`app/src/index.ts`；模組：`product-showcase.ts`（商品頁與多圖 API）、`product-image-storage.ts`（圖片儲存與邊緣快取）、`share-meta.ts`（分享預覽）、`notification-delivery.ts`（通知寄送）、`auth-session.ts`／`liff-session-vault.ts`（登入工作階段）。
 - LINE 訊息文案：`app/src/line-notification-messages.ts`。
 - DB：`app/supabase/migrations/`；部署：`app/wrangler.jsonc`。
 - `app/index.html`、`app/styles.css`、`app/app.js` 是歷史原型，不要同步修改或當正式入口。
@@ -20,7 +20,7 @@
 
 使用者最新明確決策決定目標；程式、已套用 migration 與實際設定決定目前行為。文件描述不等於已完成或已部署。涉及衝突先確認差異，不能以舊文件覆蓋新決策。
 
-長文僅按任務讀取：UI 大改查 `app/CODEX_UI_UX_HANDOFF.md`；Auth 設定查 `app/SUPABASE_SETUP.md`；安全作業查 `app/SECURITY_OPERATIONS_CHECKLIST.md`。`PRODUCT.md`、初期需求與交接書含歷史資訊，版本號、店址、運費與登入狀態需核對。
+長文僅按任務讀取：後台 UI 查 `app/ADMIN_REDESIGN_PLAN.md`、前台商品展示查 `app/PRODUCT_SHOWCASE_PLAN.md`（`app/CODEX_UI_UX_HANDOFF.md` 為初版改版交接，基準版本已過時，僅作背景）；Auth 設定查 `app/SUPABASE_SETUP.md`；安全作業查 `app/SECURITY_OPERATIONS_CHECKLIST.md`。`PRODUCT.md`、初期需求與交接書含歷史資訊，版本號、店址、運費與登入狀態需核對。
 
 ## chaoji-shop-change Skill 載入規則
 
