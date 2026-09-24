@@ -48,6 +48,24 @@ select tests.assert((select cost = 600 and sku = 'TEST-STOCK' from public.produc
                     'the Worker service role still reads every column');
 rollback;
 
+-- 點數紀錄：會員以自己的 JWT 只讀得到本人的紀錄與前台欄位；操作管理員 actor_id 不公開，也不能自行寫入。
+begin;
+select tests.seed();
+insert into public.point_ledger(member_id, kind, points, reason, actor_id) values
+  (tests.id('member_a'), 'manual', 30, 'A 的點數', tests.id('admin')),
+  (tests.id('member_b'), 'manual', 50, 'B 的點數', tests.id('admin'));
+select tests.login(tests.id('member_a'));
+select tests.assert((select count(*) = 1 and bool_and(member_id = tests.id('member_a') and points = 30)
+                       from (select id, member_id, order_id, kind, points, reason, created_at from public.point_ledger) l),
+                    'a member reads only their own point entries');
+select tests.expect_error($$select actor_id from public.point_ledger$$, 'permission denied', 'the acting admin is not exposed');
+select tests.expect_error($$insert into public.point_ledger(member_id, kind, points, reason) values (tests.id('member_a'), 'manual', 999, 'x')$$,
+                          'permission denied', 'a member still cannot grant points');
+select tests.expect_error($$update public.point_ledger set points = 999$$, 'permission denied', 'a member cannot edit point entries');
+select tests.login(null);
+select tests.expect_error($$select id from public.point_ledger$$, 'permission denied', 'anon cannot read point entries');
+rollback;
+
 -- 個人資料：只能改自己的姓名／電話／生日／地址；不能改管理員標記或 LINE 綁定，也改不到別人。
 begin;
 select tests.seed();

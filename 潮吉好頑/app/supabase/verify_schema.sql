@@ -337,6 +337,16 @@ select
     where has_column_privilege(r.role_name, 'public.product_variants', c.column_name, 'SELECT')
   ) as variant_private_columns_hidden_from_api_roles,
   has_table_privilege('anon', 'public.storefront_variants', 'SELECT') as storefront_view_readable_by_anon,
+  -- 202609250005_member_point_ledger_rls：會員以 JWT 讀本人點數紀錄，actor_id 不公開。
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'point_ledger' and policyname = 'members view own point ledger'
+      and cmd = 'SELECT' and roles = '{authenticated}'
+  ) as point_ledger_member_select_policy_exists,
+  has_column_privilege('authenticated', 'public.point_ledger', 'points', 'SELECT')
+    and not has_column_privilege('authenticated', 'public.point_ledger', 'actor_id', 'SELECT')
+    and not has_table_privilege('authenticated', 'public.point_ledger', 'INSERT')
+    and not has_table_privilege('anon', 'public.point_ledger', 'SELECT') as point_ledger_member_columns_only,
   -- migration 紀錄使用 repo 檔名的 12 碼版本；Supabase MCP／Dashboard 套用後會留下 14 碼時間戳，
   -- 需以 npm run db:history-sql -- align 改回檔名版本。
   not exists (
