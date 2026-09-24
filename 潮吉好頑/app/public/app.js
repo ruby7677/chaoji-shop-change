@@ -2907,7 +2907,7 @@ async function submitAdminOrderFulfillment(event) {
   if (button instanceof HTMLButtonElement) button.disabled = true;
   try {
     await adminFetch(`/api/admin/orders/${form.dataset.adminFulfillmentForm}/fulfillment`, { method: "PATCH", body: JSON.stringify({ shipping_fee: shippingFee, final_payment_confirmed: confirmed, final_payment_last_five: finalFive || null, note: noteField.value.trim() }) });
-    await refreshAdminSections(["orders"]);
+    await refreshAdminSections(["orders", "overview"]);
     switchAdminTab("orders");
     showToast("尾款與實際運費已更新", "success");
   } finally {
@@ -3635,6 +3635,7 @@ initAdminProductsTable({
 });
 initAdminShell({
   getStats: () => (adminData?.stats && Object.keys(adminData.stats).length ? adminData.stats : null),
+  getOverview: () => adminData?.overview || null,
   switchAdminTab,
   reloadAdminList,
   loadAdminSection,

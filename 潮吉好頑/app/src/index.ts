@@ -22,6 +22,7 @@ import {
 import { deleteVaultedSession, readVaultedSession, storeVaultedSession } from "./liff-session-vault";
 import { createProductShowcase, isShowcaseImageUpload } from "./product-showcase";
 import { createWebSession } from "./web-session";
+import { loadAdminOverview } from "./admin-overview";
 import { isShareMetaRequest, withShareMeta } from "./share-meta";
 import { IMAGE_CACHE_CONTROL, IMAGE_STALE_VERSION_CACHE_CONTROL, PRODUCT_IMAGE_BUCKET, PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_TYPES, hasImageSignature, imageContentType, productImageCacheKey, productImageEdgeCache, purgeProductImageCache, requestedImageVersion, storageObjectUrl } from "./product-image-storage";
 import {
@@ -1048,19 +1049,6 @@ async function fetchAdminRows(url: URL, headers: Record<string, string>) {
   return await response.json() as unknown[];
 }
 
-function buildAdminStats(orders: unknown[], products: unknown[], members: unknown[]) {
-  const orderRows = orders as Array<{ status?: string; delivery_method?: string; bank_account_id?: string | null; order_items?: Array<{ kind?: string }> }>;
-  const productRows = products as Array<{ product_variants?: Array<{ stock_on_hand?: number; safety_stock?: number }> }>;
-  return {
-    pendingReview: orderRows.filter((order) => order.status === "pending_review").length,
-    sellerPending: orderRows.filter((order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id).length,
-    preorderSellerPending: orderRows.filter((order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment" && Boolean(order.bank_account_id)).length,
-    readyForPickup: orderRows.filter((order) => order.status === "ready_for_pickup" && (order.delivery_method === "home_delivery" || (order.delivery_method === "store_pickup" && order.order_items?.some((item) => item.kind === "preorder")))).length,
-    lowStock: productRows.flatMap((product) => product.product_variants || []).filter((variant) => Number(variant.stock_on_hand) <= Number(variant.safety_stock)).length,
-    memberCount: members.length
-  };
-}
-
 function adminPage(request: Request, defaultSize: number) {
   const params = new URL(request.url).searchParams;
   const page = Math.max(0, Math.min(Number(params.get("page") || 0) || 0, 100000));
@@ -1088,13 +1076,9 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
   const rows = (resource: string, select: string, params: Record<string, string> = {}) => fetchAdminRows(adminResourceUrl(base, resource, select, params), headers);
   try {
     if (section === "overview") {
-      const response = await fetch(`${base}/rest/v1/rpc/admin_dashboard_stats`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ p_actor_id: actorId })
-      });
-      if (!response.ok) return databaseError(response);
-      return json({ stats: await response.json() });
+      const result = await loadAdminOverview(base, headers, actorId, (url) => fetchAdminRows(url, headers));
+      if (!result.ok) return databaseError(result.response);
+      return json({ stats: result.stats, overview: result.overview });
     }
     if (section === "orders") {
       const page = adminPage(request, 100);
@@ -1203,55 +1187,10 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
 async function adminDashboard(request: Request, env: Env): Promise<Response> {
   const admin = await requireAdmin(request, env);
   if (admin instanceof Response) return admin;
+  // 後台一律分區載入；舊的全量路徑（一次讀取 11 張表、各數百筆）已移除。
   const sectionParam = new URL(request.url).searchParams.get("section");
-  if (sectionParam) {
-    if (!ADMIN_DASHBOARD_SECTIONS.includes(sectionParam as AdminDashboardSection)) return json({ error: "管理資料分區不正確" }, { status: 400 });
-    return adminDashboardSection(request, env, sectionParam as AdminDashboardSection, admin.user.id);
-  }
-  const base = env.SUPABASE_URL as string;
-  const headers = serviceHeaders(env);
-  const [productsResponse, accountsResponse, movementsResponse, ordersResponse, historyResponse, membersResponse, pointsResponse, pointSettingsResponse, couponsResponse, birthdaySettingsResponse, categoriesResponse] = await Promise.all([
-    fetch(`${base}/rest/v1/products?select=id,name,description,image_path,image_updated_at,purchase_limit,is_published,display_order,category_id,details,hero_rank,hero_tagline,product_images(id,sort_order,updated_at,width,height),categories(id,name,is_active),product_variants(id,name,sku,kind,price,compare_at_price,stock_on_hand,safety_stock,preorder_arrival,deposit_rate,seller_link,is_published,display_order,updated_at)&order=display_order.asc&limit=500`, { headers }),
-    fetch(`${base}/rest/v1/bank_accounts?select=id,label,bank_name,account_name,account_number,is_active,display_order,created_at&order=display_order.asc&limit=100`, { headers }),
-    fetch(`${base}/rest/v1/inventory_movements?select=id,variant_id,kind,quantity_delta,reason,created_at,product_variants(name,sku,products(name))&order=created_at.desc&limit=50`, { headers }),
-    fetch(`${base}/rest/v1/orders?select=id,member_id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,paid_amount,payment_deadline,payment_last_five,bank_account_id,admin_note,confirmed_at,payment_confirmed_at,completed_at,cancelled_at,created_at,profiles!orders_member_id_fkey(full_name,phone),bank_accounts(label,bank_name,account_name,account_number),order_items(id,product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)&order=created_at.desc&limit=200`, { headers }),
-    fetch(`${base}/rest/v1/order_status_history?select=id,order_id,from_status,to_status,note,created_at,profiles(full_name)&order=created_at.desc&limit=500`, { headers }),
-    fetch(`${base}/rest/v1/admin_member_summary?select=id,full_name,phone,birthday,address,is_admin,created_at,point_balance,lifetime_spend,order_count&order=created_at.desc&limit=500`, { headers }),
-    fetch(`${base}/rest/v1/point_ledger?select=id,member_id,order_id,kind,points,reason,created_at,profiles!point_ledger_member_id_fkey(full_name),actor:profiles!point_ledger_actor_id_fkey(full_name),orders(order_number)&order=created_at.desc&limit=500`, { headers }),
-    fetch(`${base}/rest/v1/point_settings?select=earn_amount_per_point,point_value,min_redeem_points,max_redeem_mode,max_redeem_value,updated_at&id=eq.true`, { headers }),
-    fetch(`${base}/rest/v1/coupons?select=id,code,name,discount_amount,combinable_with_points,valid_from,valid_until,total_usage_limit,per_member_limit,is_active,is_birthday,created_at,coupon_products(product_id),coupon_members(member_id),coupon_redemptions(id)&order=created_at.desc&limit=500`, { headers }),
-    fetch(`${base}/rest/v1/birthday_coupon_settings?select=enabled,discount_amount,issue_days_before,valid_days,combinable_with_points,updated_at&id=eq.true`, { headers }),
-    fetch(`${base}/rest/v1/categories?select=id,name,display_order,is_active&order=display_order.asc,name.asc&limit=500`, { headers })
-  ]);
-  if (![productsResponse, accountsResponse, movementsResponse, ordersResponse, historyResponse, membersResponse, pointsResponse, pointSettingsResponse, couponsResponse, birthdaySettingsResponse, categoriesResponse].every((response) => response.ok)) {
-    return json({ error: "管理資料暫時無法載入" }, { status: 503 });
-  }
-  const [products, accounts, movements, orders, orderHistory, members, pointEntries, pointSettings, coupons, birthdaySettings, categories] = await Promise.all([
-    productsResponse.json(), accountsResponse.json(), movementsResponse.json(), ordersResponse.json() as Promise<Array<{ status: string; delivery_method?: string; bank_account_id?: string | null; order_items?: Array<{ kind?: string }> }>>, historyResponse.json(), membersResponse.json(), pointsResponse.json(), pointSettingsResponse.json() as Promise<unknown[]>, couponsResponse.json(), birthdaySettingsResponse.json() as Promise<unknown[]>, categoriesResponse.json()
-  ]);
-  return json({
-    products,
-    categories,
-    accounts,
-    movements,
-    orders,
-    orderHistory,
-    members,
-    pointEntries,
-    pointSettings: pointSettings[0] || null,
-    coupons,
-    birthdaySettings: birthdaySettings[0] || null,
-    stats: {
-      pendingReview: orders.filter((order) => order.status === "pending_review").length,
-      sellerPending: orders.filter((order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id).length,
-      preorderSellerPending: orders.filter((order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment" && Boolean(order.bank_account_id)).length,
-      // 只把完整可處理的 ready_for_pickup 計入「待取貨」；部分到貨仍需等待
-      // 其餘商品，賣貨便的同一資料庫狀態則代表已出貨，不應混入此待辦數字。
-      readyForPickup: orders.filter((order) => order.status === "ready_for_pickup" && (order.delivery_method === "home_delivery" || (order.delivery_method === "store_pickup" && order.order_items?.some((item) => item.kind === "preorder")))).length,
-      lowStock: (products as Array<{ product_variants?: Array<{ stock_on_hand: number; safety_stock: number }> }>).flatMap((product) => product.product_variants || []).filter((variant) => variant.stock_on_hand <= variant.safety_stock).length,
-      memberCount: (members as unknown[]).length
-    }
-  });
+  if (!sectionParam || !ADMIN_DASHBOARD_SECTIONS.includes(sectionParam as AdminDashboardSection)) return json({ error: "管理資料分區不正確" }, { status: 400 });
+  return adminDashboardSection(request, env, sectionParam as AdminDashboardSection, admin.user.id);
 }
 
 const adminOrderStatuses = ["pending_payment", "pending_review", "confirmed", "partially_ready", "ready_for_pickup", "completed", "cancelled", "refund_pending", "refunded"] as const;
