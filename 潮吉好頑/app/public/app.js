@@ -12,7 +12,12 @@ import { accessTokenExpiresSoon, initAuthExpiry, watchSessionExpiry } from "./au
 import { initAdminTab, openAdminFromRoute, openAdminInNewTab } from "./admin-tab.js";
 import { refreshWebSession, startWebSession } from "./web-session.js";
 import { adminOrderStatusLabel, auth, closeDialog, customerServiceLineUrl, deliveryMethodLabels, deliveryMethodNotes, formatDateTime, linkCustomerServiceText, orderIncludesPreorder, orderInventoryTypeLabel, orderStatusLabel, showDialog, showToast, syncPageScrollLock } from "./app-core.js";
-import { adminCategoryOptions, adminData, adminFetch, adminProductImageFallbackMarkup, applyAdminQuickFilter, changeAdminPage, editAccount, editAdminCategory, editCoupon, focusAdminCategoryForm, handleAdminProductImageError, invalidateAdminManagementOptions, issueBirthdayCouponsNow, loadAdminData, loadAdminSection, openAdmin, prepareProductImage, reloadAdminList, removeLegacyShippingUI, requeueAdminNotification, resetAccountForm, resetAdminCategoryForm, resetCouponForm, splitPreorderArrival, submitAdminAccount, submitAdminCategory, submitAdminOrderFulfillment, submitAdminOrderReturn, submitAdminOrderTransition, submitAdminProduct, submitBirthdaySettings, submitCoupon, submitDynamicAdminForm, submitInventoryAdjustment, submitMemberPointAdjustment, submitNewVariant, submitPointSettings, switchAdminTab, syncDepositField, syncPointMaxHint, testTelegramNotification } from "./admin-app.js";
+import { adminData, adminFetch, applyAdminQuickFilter, changeAdminPage, invalidateAdminManagementOptions, loadAdminData, loadAdminSection, openAdmin, reloadAdminList, switchAdminTab, testTelegramNotification } from "./admin-app.js";
+import { submitAdminOrderFulfillment, submitAdminOrderReturn, submitAdminOrderTransition } from "./admin-orders-panel.js";
+import { editCoupon, issueBirthdayCouponsNow, resetCouponForm, submitBirthdaySettings, submitCoupon, submitMemberPointAdjustment, submitPointSettings, syncPointMaxHint } from "./admin-members-panel.js";
+import { editAccount, requeueAdminNotification, resetAccountForm, submitAdminAccount } from "./admin-system-panel.js";
+import { adminCategoryOptions, editAdminCategory, focusAdminCategoryForm, removeLegacyShippingUI, resetAdminCategoryForm, splitPreorderArrival, submitAdminCategory, submitAdminProduct, submitDynamicAdminForm, submitInventoryAdjustment, submitNewVariant, syncDepositField } from "./admin-catalog-panel.js";
+import { adminProductImageFallbackMarkup, handleAdminProductImageError, prepareProductImage } from "./admin-product-image.js";
 
 export let products = [
   { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", icon: "🌀", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" },
