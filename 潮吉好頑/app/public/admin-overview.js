@@ -1,18 +1,19 @@
 // 後台概況儀表板（ADMIN_REDESIGN_PLAN Stage 3）：今日待辦、低庫存、最新訂單。
-// 以唯讀方式另外讀取 orders／products 第一頁，不寫入 app.js 的 adminData，避免干擾訂單頁篩選。
+// 資料來自 section=overview 的聚合回應（stats＋overview），與頁首徽章共用同一次請求；
+// 待辦與低庫存由伺服器依條件精準篩選，不受訂單或商品筆數影響。
 import { adminIcon } from "./admin-icons.js";
 import { escapeHtml, money } from "./product-format.js";
 
-// 後台 API 每位管理員每分鐘限 20 次（API_ADMIN_RATE_LIMITER），概況清單以較長快取避免佔用額度；
+// 後台 API 每位管理員每分鐘限 20 次（API_ADMIN_RATE_LIMITER），概況以較長快取避免佔用額度；
 // 按右上角重新整理可強制更新
 const CACHE_MS = 180_000;
-const RECENT_LIMIT = 6;
-const LIST_QUERY = "page=0&page_size=100&query=&status=all";
+const LOW_STOCK_SHOWN = 8;
 
 let deps = null;
 let panel = null;
 let root = null;
 let loadedAt = 0;
+let renderedOverview = null;
 let inFlight = null;
 
 const memberOf = (order) => (Array.isArray(order.profiles) ? order.profiles[0] : order.profiles) || {};
@@ -30,13 +31,6 @@ function todoItems(orders) {
   return TODO_RULES.flatMap((rule) => orders.filter(rule.match).map((order) => ({ order, rule })));
 }
 
-function lowStockVariants(products) {
-  return products.flatMap((product) => (product.product_variants || [])
-    .filter((variant) => Number(variant.stock_on_hand) <= Number(variant.safety_stock))
-    .map((variant) => ({ product, variant })))
-    .sort((a, b) => a.variant.stock_on_hand - b.variant.stock_on_hand);
-}
-
 function cardMarkup(title, subtitle, body, action = "") {
   return `<section class="admin-dash-card"><header><div><h3>${escapeHtml(title)}</h3>${subtitle ? `<p>${escapeHtml(subtitle)}</p>` : ""}</div>${action}</header>${body}</section>`;
 }
@@ -45,18 +39,19 @@ function emptyMarkup(text) {
   return `<p class="admin-dash-empty">${escapeHtml(text)}</p>`;
 }
 
-function render(orders, products) {
-  const todos = todoItems(orders);
-  const low = lowStockVariants(products);
-  const recent = [...orders].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, RECENT_LIMIT);
+function render(overview, stats) {
+  const todos = todoItems(Array.isArray(overview.todoOrders) ? overview.todoOrders : []);
+  const low = Array.isArray(overview.lowStock) ? overview.lowStock : [];
+  const lowCount = Number.isFinite(Number(stats?.lowStock)) ? Number(stats.lowStock) : low.length;
+  const recent = Array.isArray(overview.recentOrders) ? overview.recentOrders : [];
   const todoBody = todos.length ? `<ul class="admin-dash-list">${todos.map(({ order, rule }) => {
     const member = memberOf(order);
     return `<li class="${rule.urgent ? "is-urgent" : ""}"><span class="admin-dash-icon">${adminIcon(rule.icon)}</span>
       <div><strong>${escapeHtml(rule.title(order))}</strong><small>${escapeHtml(member.full_name || "未填姓名")}・${escapeHtml(rule.detail(order))}</small></div>
       <button class="admin-dash-action" type="button" data-admin-dash-order="${escapeHtml(order.order_number)}">處理</button></li>`;
   }).join("")}</ul>` : emptyMarkup("目前沒有需要人工處理的訂單。");
-  const lowBody = low.length ? `<ul class="admin-dash-list">${low.slice(0, 8).map(({ product, variant }) => `<li class="${variant.stock_on_hand <= 0 ? "is-urgent" : ""}"><span class="admin-dash-icon">${adminIcon("box")}</span>
-      <div><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(variant.name)}・庫存 ${variant.stock_on_hand}／安全庫存 ${variant.safety_stock}</small></div>
+  const lowBody = low.length ? `<ul class="admin-dash-list">${low.slice(0, LOW_STOCK_SHOWN).map((variant) => `<li class="${variant.stock_on_hand <= 0 ? "is-urgent" : ""}"><span class="admin-dash-icon">${adminIcon("box")}</span>
+      <div><strong>${escapeHtml(variant.product_name)}</strong><small>${escapeHtml(variant.name)}・庫存 ${variant.stock_on_hand}／安全庫存 ${variant.safety_stock}</small></div>
       <button class="admin-dash-action is-quiet" type="button" data-admin-dash-restock="${escapeHtml(variant.id)}">補貨</button></li>`).join("")}</ul>` : emptyMarkup("所有規格都高於安全庫存。");
   const recentBody = recent.length ? `<ul class="admin-dash-list is-compact">${recent.map((order) => {
     const member = memberOf(order);
@@ -65,8 +60,9 @@ function render(orders, products) {
       <span class="admin-dash-status status-chip status-${escapeHtml(order.status)}">${escapeHtml(deps.orderStatusLabel(order))}</span>
       <b>${money(order.amount_due)}</b></button></li>`;
   }).join("")}</ul>` : emptyMarkup("尚無訂單。");
-  root.innerHTML = `<div class="admin-dash-main">${cardMarkup("今日待辦", `${todos.length} 件需要處理（依最近 100 筆訂單）`, todoBody)}</div>
-    <div class="admin-dash-side">${cardMarkup("低庫存提醒", `${low.length} 個規格低於安全庫存`, lowBody)}
+  const todoSubtitle = overview.todoTruncated ? `超過 ${todos.length} 件需要處理，先列出最新的 ${todos.length} 件` : `${todos.length} 件需要處理`;
+  root.innerHTML = `<div class="admin-dash-main">${cardMarkup("今日待辦", todoSubtitle, todoBody)}</div>
+    <div class="admin-dash-side">${cardMarkup("低庫存提醒", `${lowCount} 個規格低於安全庫存`, lowBody)}
     ${cardMarkup("最新訂單", "點選可直接開啟該筆訂單", recentBody, '<button class="admin-dash-link" type="button" data-admin-tab="orders">全部訂單</button>')}</div>`;
 }
 
@@ -74,16 +70,22 @@ function renderError(message) {
   root.innerHTML = `<p class="admin-dash-error" role="alert">${adminIcon("alert")}<span>概況清單載入失敗：${escapeHtml(message)}。請按右上角重新整理。</span></p>`;
 }
 
+function renderLatest() {
+  const overview = deps.getOverview();
+  if (!overview || overview === renderedOverview) return;
+  render(overview, deps.getStats());
+  renderedOverview = overview;
+}
+
+// loadAdminSection 會合併進行中的 overview 請求（頁首徽章開後台時也會載入），不重複打 API
 async function load({ force = false } = {}) {
-  if (!force && Date.now() - loadedAt < CACHE_MS) return;
+  const stale = Date.now() - loadedAt >= CACHE_MS;
+  if (!force && !stale && deps.getOverview()) return renderLatest();
   if (inFlight) return inFlight;
   root.setAttribute("aria-busy", "true");
-  inFlight = Promise.all([
-    deps.adminFetch(`/api/admin/dashboard?section=orders&${LIST_QUERY}`),
-    deps.adminFetch(`/api/admin/dashboard?section=products&${LIST_QUERY}`)
-  ]).then(([orderResult, productResult]) => {
-    render(Array.isArray(orderResult.orders) ? orderResult.orders : [], Array.isArray(productResult.products) ? productResult.products : []);
+  inFlight = deps.loadAdminSection("overview", { force: force || (stale && Boolean(deps.getOverview())) }).then(() => {
     loadedAt = Date.now();
+    renderLatest();
   }).catch((error) => {
     renderError(error.status === 429 ? "操作太頻繁，已達每分鐘上限，請 1 分鐘後再按重新整理" : error.message || "未知錯誤");
   }).finally(() => {
@@ -125,10 +127,8 @@ export function initAdminOverview(dependencies) {
   panel.append(root);
   new MutationObserver(() => { if (isVisible()) load(); }).observe(panel, { attributes: true, attributeFilter: ["class"] });
   new MutationObserver(() => { if (isVisible()) load(); }).observe(panel.closest("dialog"), { attributes: true, attributeFilter: ["open"] });
-  // 後台任何表單送出（訂單轉換、庫存調整、商品編輯…）後資料可能已變，下次顯示概況時重新讀取
-  document.addEventListener("submit", (event) => {
-    if (event.target instanceof HTMLFormElement && event.target.closest("#admin-dialog")) loadedAt = 0;
-  }, true);
+  // 訂單、庫存與商品操作後 app.js 會重新載入 overview（refreshAdminSections），
+  // 資料物件因此換新；下次顯示概況時 renderLatest 會以新資料重繪，不另打 API。
   document.addEventListener("click", (event) => {
     const orderButton = event.target.closest("[data-admin-dash-order]");
     if (orderButton) return deps.openOrder(orderButton.dataset.adminDashOrder);

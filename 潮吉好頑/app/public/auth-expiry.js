@@ -1,6 +1,9 @@
-// 會員登入逾時處理：Supabase access token 約 1 小時到期，頁面不會自動換發。
-// 到期（或後台 API 回 401）時先嘗試恢復（LINE App 內的保存工作階段），失敗才把頁首恢復成未登入並提示重新登入，
+// 會員登入逾時處理：Supabase access token 約 1 小時到期。
+// 到期前 1 分鐘（或後台 API 回 401）先嘗試換發（LINE App 內的 LIFF 工作階段、一般瀏覽器的 web-session cookie），
+// 失敗才把頁首恢復成未登入並提示重新登入，
 // 避免頁首仍顯示會員名稱、但所有會員／後台操作都被拒絕。
+// 提前換發，避免在到期那一刻送出的請求拿到 401
+const RENEW_BEFORE_MS = 60 * 1000;
 let deps = null;
 let timer = null;
 let handling = null;
@@ -21,6 +24,12 @@ function isExpired(token) {
   return expiresAt !== null && Date.now() >= expiresAt;
 }
 
+// 已到期或即將到期（需要換發）
+export function accessTokenExpiresSoon(token) {
+  const expiresAt = tokenExpiresAt(token);
+  return expiresAt !== null && Date.now() >= expiresAt - RENEW_BEFORE_MS;
+}
+
 function renderLoggedOut() {
   const login = document.querySelector("[data-demo='login']");
   if (login) {
@@ -36,14 +45,21 @@ function renderLoggedOut() {
   });
 }
 
-// 可由其他地方（例如 API 回 401）呼叫；同時只處理一次
-export function handleSessionExpired() {
+// 可由其他地方（例如 API 回 401）呼叫；同時只處理一次。
+// early：到期前的預先換發；換發失敗但舊 token 仍有效時，等真正到期再處理，不提前登出。
+export function handleSessionExpired({ early = false } = {}) {
   if (!deps || !deps.getAccessToken()) return Promise.resolve();
   handling ||= (async () => {
     window.clearTimeout(timer);
     const restored = await deps.tryRestore().catch(() => false);
     if (restored && deps.getAccessToken() && !isExpired(deps.getAccessToken())) {
       watchSessionExpiry();
+      return;
+    }
+    const current = deps.getAccessToken();
+    const expiresAt = tokenExpiresAt(current);
+    if (early && current && expiresAt !== null && Date.now() < expiresAt) {
+      timer = window.setTimeout(() => { void handleSessionExpired(); }, expiresAt - Date.now());
       return;
     }
     deps.clearSession();
@@ -60,7 +76,7 @@ export function watchSessionExpiry() {
   const expiresAt = tokenExpiresAt(deps.getAccessToken());
   if (expiresAt === null) return;
   // setTimeout 上限約 24.8 天；token 只有小時級，不會超過
-  timer = window.setTimeout(() => { void handleSessionExpired(); }, Math.max(0, expiresAt - Date.now()));
+  timer = window.setTimeout(() => { void handleSessionExpired({ early: true }); }, Math.max(0, expiresAt - RENEW_BEFORE_MS - Date.now()));
 }
 
 // deps：getAccessToken、tryRestore、clearSession、closeDialog、showToast
@@ -71,6 +87,6 @@ export function initAuthExpiry(options) {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
     const token = deps.getAccessToken();
-    if (token && isExpired(token)) void handleSessionExpired();
+    if (token && accessTokenExpiresSoon(token)) void handleSessionExpired({ early: true });
   });
 }

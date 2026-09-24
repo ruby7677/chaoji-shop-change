@@ -9,8 +9,9 @@ import { initAdminProductGallery } from "./admin-product-gallery.js";
 import { initAdminProductsTable, renderAdminProductsTable } from "./admin-products-table.js";
 import { initAdminShell } from "./admin-shell.js";
 import { adminConfirm } from "./admin-confirm.js";
-import { handleSessionExpired, initAuthExpiry, watchSessionExpiry } from "./auth-expiry.js";
+import { accessTokenExpiresSoon, handleSessionExpired, initAuthExpiry, watchSessionExpiry } from "./auth-expiry.js";
 import { initAdminTab, openAdminFromRoute, openAdminInNewTab } from "./admin-tab.js";
+import { refreshWebSession, startWebSession } from "./web-session.js";
 
 let products = [
   { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", icon: "🌀", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" },
@@ -1089,6 +1090,33 @@ async function restorePersistentLiffSession() {
   auth.lineProviderToken = null;
   liffSessionMatches = true;
   persistEphemeralAuthSession({ includeRefresh: false });
+  return true;
+}
+
+// 一般瀏覽器：refresh token 只在 OAuth 回來當下交給 Worker 保存（web-session.js），前端不再留存
+function applyWebSession(result) {
+  auth.accessToken = result.access_token;
+  auth.refreshToken = null;
+  persistEphemeralAuthSession({ includeRefresh: false });
+}
+
+async function ensureWebSession() {
+  if (!auth.config?.authEnabled) return;
+  if (auth.refreshToken) {
+    const started = await startWebSession(auth.refreshToken);
+    if (started) applyWebSession(started);
+    else { auth.refreshToken = null; persistEphemeralAuthSession({ includeRefresh: false }); }
+    return;
+  }
+  if (auth.accessToken && !accessTokenExpiresSoon(auth.accessToken)) return;
+  const refreshed = await refreshWebSession();
+  if (refreshed) applyWebSession(refreshed);
+}
+
+async function restoreWebSession() {
+  const refreshed = await refreshWebSession();
+  if (!refreshed || (auth.user?.id && refreshed.user_id !== auth.user.id)) return false;
+  applyWebSession(refreshed);
   return true;
 }
 
@@ -2880,7 +2908,7 @@ async function submitAdminOrderFulfillment(event) {
   if (button instanceof HTMLButtonElement) button.disabled = true;
   try {
     await adminFetch(`/api/admin/orders/${form.dataset.adminFulfillmentForm}/fulfillment`, { method: "PATCH", body: JSON.stringify({ shipping_fee: shippingFee, final_payment_confirmed: confirmed, final_payment_last_five: finalFive || null, note: noteField.value.trim() }) });
-    await refreshAdminSections(["orders"]);
+    await refreshAdminSections(["orders", "overview"]);
     switchAdminTab("orders");
     showToast("尾款與實際運費已更新", "success");
   } finally {
@@ -3598,8 +3626,8 @@ initAdminTab({
 });
 initAuthExpiry({
   getAccessToken: () => auth.accessToken,
-  // LINE App 內可用保存的工作階段換發新 token；一般瀏覽器需重新登入
-  tryRestore: () => (liffState.isInClient ? restorePersistentLiffSession() : Promise.resolve(false)),
+  // LINE App 內用保存的 LIFF 工作階段、一般瀏覽器用 HttpOnly cookie（web-session.js）換發新 token
+  tryRestore: () => (liffState.isInClient ? restorePersistentLiffSession() : restoreWebSession()),
   clearSession: clearStoredAuthSession,
   closeDialog,
   showToast
@@ -3615,6 +3643,7 @@ initAdminProductsTable({
 });
 initAdminShell({
   getStats: () => (adminData?.stats && Object.keys(adminData.stats).length ? adminData.stats : null),
+  getOverview: () => adminData?.overview || null,
   switchAdminTab,
   reloadAdminList,
   loadAdminSection,
@@ -3751,6 +3780,7 @@ async function bootstrapAuth() {
     finishAuthBoot();
     // Member/session restoration continues after the public catalog is usable,
     // so a slow auth request cannot keep ordinary browsers behind the boot UI.
+    if (!liffStage.state?.isInClient) await ensureWebSession();
     await loadMember();
     await restoreAuthReturnState();
     openAdminFromRoute();

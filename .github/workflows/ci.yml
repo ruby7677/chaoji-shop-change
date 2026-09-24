@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    paths:
+      - "潮吉好頑/app/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "潮吉好頑/app/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: 潮吉好頑/app
+
+jobs:
+  checks:
+    name: Typecheck, JS syntax, Worker/frontend tests, bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: 潮吉好頑/app/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Typecheck Worker
+        run: npm run typecheck
+      - name: node --check frontend modules
+        run: npm run check:js
+      - name: Worker and frontend tests
+        run: npm test
+      - name: Bundle Worker (dry run, no deploy)
+        env:
+          WRANGLER_SEND_METRICS: "false"
+        run: npx wrangler deploy --dry-run --minify
+
+  database:
+    name: Migrations, verify_schema and transaction tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      CJ_TEST_DB: cj_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL 16 with pg_cron
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q postgresql-16 postgresql-16-cron
+          # pg_cron must be preloaded and can only be created in cron.database_name.
+          printf "shared_preload_libraries = 'pg_cron'\ncron.database_name = '%s'\n" "$CJ_TEST_DB" \
+            | sudo tee /etc/postgresql/16/main/conf.d/cj-test.conf
+          sudo systemctl restart postgresql
+          sudo -u postgres psql -q -c "alter user postgres password 'postgres'"
+      - name: Apply all migrations to a fresh database and run tests
+        run: bash tests/db/run.sh
