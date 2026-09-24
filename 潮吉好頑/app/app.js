@@ -1,6 +1,6 @@
 let products = [
-  { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", icon: "🌀", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" },
-  { id: "ux20", category: "UX系列", name: "UX20 榮耀戰神 亞洲版", price: 1350, stock: 23, type: "現貨", icon: "⚔️", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" }
+  { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", icon: "🌀" },
+  { id: "ux20", category: "UX系列", name: "UX20 榮耀戰神 亞洲版", price: 1350, stock: 23, type: "現貨", icon: "⚔️" }
 ];
 
 const cart = [];
@@ -14,7 +14,7 @@ function showToast(message) { const toast = document.querySelector("#toast"); to
 function renderProducts() {
   const keyword = search.value.trim().toLowerCase();
   const visible = products.filter((product) => (activeCategory === "all" || product.category === activeCategory || product.type === activeCategory) && `${product.category}${product.name}`.toLowerCase().includes(keyword));
-  grid.innerHTML = visible.length ? visible.map((product) => `<article class="product-card"><div class="product-image"><span>${product.icon ?? "🎁"}</span></div><div class="product-info"><span class="product-category">${product.category} · ${product.type}</span><h3>${product.name}</h3><p class="stock">${product.type === "現貨" ? `現貨 ${product.stock} 件` : `預購${product.preorder_arrival ? ` · ${product.preorder_arrival}` : " · 訂金 50%"}`}</p><div class="price">${money(product.price)}</div><div class="card-actions"><button type="button" data-add="${product.id}">加入購物車</button>${product.link ? `<a href="${product.link}" target="_blank" rel="noreferrer">賣貨便 ↗</a>` : ""}</div></div></article>`).join("") : "<p>目前沒有符合的商品。</p>";
+  grid.innerHTML = visible.length ? visible.map((product) => `<article class="product-card"><div class="product-image"><span>${product.icon ?? "🎁"}</span></div><div class="product-info"><span class="product-category">${product.category} · ${product.type}</span><h3>${product.name}</h3><p class="stock">${product.type === "現貨" ? `現貨 ${product.stock} 件` : `預購${product.preorder_arrival ? ` · ${product.preorder_arrival}` : " · 訂金 50%"}`}</p><div class="price">${money(product.price)}</div><div class="card-actions"><button type="button" data-add="${product.id}">加入購物車</button></div></div></article>`).join("") : "<p>目前沒有符合的商品。</p>";
 }
 function renderCart() {
   const items = document.querySelector("#cart-items");
@@ -121,7 +121,7 @@ async function loadProducts() {
     const response = await fetch("/api/catalog");
     if (!response.ok) return;
     const payload = await response.json();
-    if (Array.isArray(payload.products) && payload.products.length) products = payload.products.map((product) => ({ ...product, link: product.seller_link, icon: product.category?.startsWith("BX") ? "🌀" : "⚔️" }));
+    if (Array.isArray(payload.products) && payload.products.length) products = payload.products.map((product) => ({ ...product, icon: product.category?.startsWith("BX") ? "🌀" : "⚔️" }));
   } catch {
     // 在純靜態預覽時保留示範資料。
   }

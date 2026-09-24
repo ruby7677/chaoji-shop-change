@@ -5,9 +5,17 @@ SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 SUPABASE_CUSTOM_PROVIDER=custom:line-web
 LINE_AUTH_ENABLED=true
-# LINE Messaging API channel access token（僅放 .dev.vars / Cloudflare secret）
+LIFF_ID=2007619149-RYmOkjxJ
+LINE_LOGIN_CHANNEL_ID=2007619149
+# 至少 32 字元的隨機值；正式環境請用 wrangler secret put AUTH_SESSION_SECRET 設定。
+AUTH_SESSION_SECRET=replace-with-a-random-secret-at-least-32-characters
+# LINE Messaging API channel access token（會員訂單／生日券通知與好友檢查）
 LINE_MESSAGING_CHANNEL_ACCESS_TOKEN=
-# 逗號分隔的管理員 LINE user ID；低庫存及訂單管理通知會發送至這些帳號
-LINE_ADMIN_USER_IDS=
-# 設為 false 可暫停通知，但不會停用登入
+# 設為 false 可暫停會員 LINE 通知，但不會停用登入或好友檢查
 LINE_NOTIFY_ENABLED=true
+# Telegram BotFather 建立的 Bot token（僅放 .dev.vars / Cloudflare secret）
+TELEGRAM_BOT_TOKEN=
+# 逗號分隔的管理員私人／群組 chat ID；群組 ID 通常為負數
+TELEGRAM_ADMIN_CHAT_IDS=
+# 設為 false 可暫停 Telegram 管理員通知
+TELEGRAM_NOTIFY_ENABLED=true

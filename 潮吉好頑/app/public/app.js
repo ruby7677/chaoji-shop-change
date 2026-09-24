@@ -1,3 +1,7 @@
+import { liffState, initializeLiffClient, preloadLiffSdk, canRequestLineFriendship, requestLineFriendship } from "./liff-auth.js";
+import { escapeHtml, hasProductDiscount, isPreorderItem, money, productAvailability, productMark, productPriceMarkup } from "./product-format.js";
+import { productCardMarkup } from "./product-card.js";
+
 let products = [
   { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", icon: "🌀", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" },
   { id: "ux20", category: "UX系列", name: "UX20 榮耀戰神 亞洲版", price: 1350, stock: 23, type: "現貨", icon: "⚔️", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" }
@@ -7,10 +11,30 @@ const cart = [];
 const grid = document.querySelector("#product-grid");
 const search = document.querySelector("#product-search");
 const auth = { config: null, accessToken: null, refreshToken: null, lineProviderToken: null, user: null, profile: null, points: null, lineFriendFlag: null };
+let liffSessionMatches = false;
 const MEMBER_POINTS_TTL_MS = 12 * 60 * 1000;
 const LINE_FRIENDSHIP_TTL_MS = 15 * 60 * 1000;
 const AUTH_RETURN_STATE_KEY = "chaoji:auth-return-state";
 const AUTH_RETURN_MAX_AGE_MS = 10 * 60 * 1000;
+const LIFF_AUTO_LOGIN_KEY = "chaoji:liff-oauth-attempt";
+const LIFF_AUTO_LOGIN_MAX_AGE_MS = 2 * 60 * 1000;
+const LIFF_AUTO_CALLBACK_PARAM = "cj_liff_oauth";
+const LIFF_CONTEXT_KEY = "chaoji:liff-context";
+const AUTH_BOOT_FAILSAFE_MS = 30000;
+const AUTH_BOOT_STABLE_MESSAGE = "正在準備潮吉好頑…";
+const HERO_IMAGE_DECODE_TIMEOUT_MS = 1200;
+let authBootFailsafe = null;
+let authBootFailed = false;
+let authBootstrapInFlight = null;
+let liffBridgeInFlight = null;
+let liffBridgeResolved = false;
+let liffBridgeResult = false;
+let memberLoadInFlight = null;
+let memberLoadResolved = false;
+let liffOAuthCallbackSeen = false;
+let liffAutoLoginAttemptAt = 0;
+let liffPrimaryRedirectPending = false;
+let initialPageRendered = false;
 let memberPointsCache = { userId: null, value: null, expiresAt: 0 };
 let memberPointsInFlight = null;
 let lineFriendshipCache = { userId: null, value: null, expiresAt: 0 };
@@ -25,6 +49,10 @@ let currentOrders = [];
 let activePaymentOrder = null;
 let activeDetailProductId = null;
 let adminData = null;
+let adminDataActorId = null;
+let adminManagementOptionsActorId = null;
+let adminManagementOptionsLoadedAt = 0;
+let adminManagementOptionsInFlight = null;
 let cartDeliveryMethod = "store_pickup";
 let activeCheckoutScope = null;
 let activeCheckoutItems = null;
@@ -40,9 +68,13 @@ let cartSyncInFlight = null;
 let cartSyncGeneration = 0;
 let identitySyncUserId = null;
 let identitySyncInFlight = null;
-const adminSections = ["overview", "orders", "members", "products", "inventory", "discounts", "settings"];
+const adminSections = ["overview", "orders", "members", "products", "inventory", "discounts", "audit", "notifications", "settings"];
+const ADMIN_MANAGEMENT_OPTIONS_SECTIONS = new Set(["products", "inventory", "discounts"]);
+const ADMIN_MANAGEMENT_OPTIONS_TTL_MS = 5 * 60 * 1000;
 const adminSectionLoaded = new Set();
 const adminSectionInFlight = new Map();
+const adminSectionPages = { orders: 0, members: 0, products: 0, inventory: 0, discounts: 0, audit: 0, notifications: 0 };
+const adminSearchDebounceTimers = { orders: null, members: null, products: null, inventory: null, discounts: null, audit: null, notifications: null };
 
 function resetMemberCartSyncState() {
   if (cartSyncTimer) window.clearTimeout(cartSyncTimer);
@@ -108,44 +140,10 @@ const adminOrderTransitions = {
   refund_pending: [{ value: "refunded", label: "確認已退款" }, { value: "completed", label: "取消退款，恢復已完成" }]
 };
 
-function money(value) { return `NT$${value.toLocaleString("zh-TW")}`; }
-function escapeHtml(value) { return String(value ?? "").replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]); }
 const customerServiceLineUrl = "https://line.me/R/ti/p/@078isxfl?ts=03122133&oat_content=url";
 function linkCustomerServiceText(value) {
   return escapeHtml(value).replaceAll("小幫手", `<a class="helper-contact-link" href="${customerServiceLineUrl}" target="_blank" rel="noopener noreferrer">小幫手</a>`);
 }
-function productMark(product) {
-  const source = String(product?.category || product?.product_name || product?.name || "玩具").replace(/\s+/g, "");
-  return escapeHtml(source.slice(0, 2) || "玩具");
-}
-function productAvailability(product) {
-  if (product?.type === "現貨") return `現貨 ${Number(product.stock || 0)} 件`;
-  return product?.preorder_arrival ? `預購 · ${product.preorder_arrival}` : "預購 · 海運與集運依實際進度";
-}
-function hasProductDiscount(product) {
-  return Number(product?.compare_at_price || 0) > Number(product?.price || 0);
-}
-function productPriceMarkup(product) {
-  const price = Number(product?.price || 0);
-  return hasProductDiscount(product)
-    ? `<s class="price-original">${money(Number(product.compare_at_price))}</s><strong class="price-sale">${money(price)}</strong>`
-    : money(price);
-}
-function productPromotionBadge(product) {
-  return hasProductDiscount(product) ? '<span class="product-promotion-badge">限時優惠</span>' : "";
-}
-function productAvailabilityBadge(product) {
-  return isPreorderItem(product)
-    ? '<span class="product-availability-badge product-availability-badge-preorder">預購</span>'
-    : '<span class="product-availability-badge product-availability-badge-in-stock">現貨</span>';
-}
-function productTagMarkup(product) {
-  const tags = [];
-  if (isPreorderItem(product)) tags.push('<span class="product-tag product-tag-deposit">訂金50%</span>');
-  if (product?.points_eligible === false) tags.push('<span class="product-tag product-tag-no-points">不可積點</span>');
-  return tags.length ? `<div class="product-tags" aria-label="商品標籤">${tags.join("")}</div>` : "";
-}
-function isPreorderItem(item) { return ["預購", "preorder"].includes(String(item?.type || item?.kind || "").toLowerCase()); }
 function orderIncludesPreorder(order) { return (order?.order_items || []).some(isPreorderItem); }
 function orderInventoryTypeLabel(order) {
   const kinds = (order?.order_items || []).map((item) => String(item?.type || item?.kind || "").toLowerCase());
@@ -288,7 +286,7 @@ function renderHeroSpotlight() {
 function renderProducts() {
   const keyword = search.value.trim().toLowerCase();
   const visible = products.filter((product) => (activeCategory === "all" || product.category === activeCategory || product.type === activeCategory) && `${product.category}${product.name}`.toLowerCase().includes(keyword));
-  grid.innerHTML = visible.length ? visible.map((product) => `<article class="product-card" data-product-id="${escapeHtml(product.id)}"><div class="product-image">${productAvailabilityBadge(product)}${productPromotionBadge(product)}${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" loading="lazy" />` : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`}</div><div class="product-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${escapeHtml(product.name)}</h3>${productTagMarkup(product)}<p class="stock">${escapeHtml(productAvailability(product))}</p><div class="price${hasProductDiscount(product) ? " price-discounted" : ""}">${productPriceMarkup(product)}</div><div class="card-actions"><button type="button" data-add="${escapeHtml(product.id)}">加入選物盒</button><button type="button" class="detail-button" data-detail="${escapeHtml(product.id)}">查看規格</button></div></div></article>`).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
+  grid.innerHTML = visible.length ? visible.map(productCardMarkup).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
   grid.querySelectorAll("[data-add]").forEach((button) => { button.textContent = "加入購物車"; });
 }
 function cartItemMarkup(item) {
@@ -318,22 +316,25 @@ function renderCartSplitGroups() {
       ? "本站先建立預購訂單；到貨後客服通知，再由客服開賣貨便。運費由 7-11 取貨時收取。"
       : "先建立本站待確認訂單，再前往賣貨便完成結帳；運費由 7-11 取貨時收取。";
     const options = [
-      ["store_pickup", "到店取貨", "台南市中西區民生路二段 93 號"],
-      ["seller_delivery", "賣貨便", sellerNote],
-  ["home_delivery", "宅配", "現貨備貨完成或預購商品到貨後，由客服通知實際運費。"]
+      ["store_pickup", "到店取貨", "台南市中西區民生路二段 93 號", ""],
+      ["seller_delivery", "賣貨便", sellerNote, scope === "in_stock" ? "現貨／賣貨便 無法使用優惠券、點數折抵" : ""],
+      ["home_delivery", "宅配", "現貨備貨完成或預購商品到貨後，由客服通知實際運費。", ""]
     ];
-    return `<section class="cart-group" data-cart-group="${scope}"><header><div><span class="eyebrow">${scope === "in_stock" ? "READY" : "PREORDER"}</span><h3>${title}</h3></div><strong>${money(subtotal)}</strong></header><div class="cart-group-items">${group.map(cartItemMarkup).join("")}</div><fieldset class="cart-group-delivery"><legend>此組商品取貨方式</legend>${options.map(([value, label, note]) => `<label class="cart-delivery-option"><input type="radio" name="cart_group_delivery_method_${scope}" value="${value}" data-group-delivery="${scope}" ${method === value ? "checked" : ""} /> <span><strong>${label}</strong><small>${note}</small></span></label>`).join("")}</fieldset><p class="cart-delivery-feedback hidden" data-group-feedback="${scope}" role="status" aria-live="polite"></p><button class="primary-button cart-group-checkout" type="button" data-checkout-scope="${scope}">${scope === "in_stock" ? "結帳現貨商品" : "結帳預購商品"}</button></section>`;
+    return `<section class="cart-group" data-cart-group="${scope}"><header><div><span class="eyebrow">${scope === "in_stock" ? "READY" : "PREORDER"}</span><h3>${title}</h3></div><strong>${money(subtotal)}</strong></header><div class="cart-group-items">${group.map(cartItemMarkup).join("")}</div><fieldset class="cart-group-delivery"><legend>此組商品取貨方式</legend>${options.map(([value, label, note, warning]) => `<label class="cart-delivery-option"><input type="radio" name="cart_group_delivery_method_${scope}" value="${value}" data-group-delivery="${scope}" ${method === value ? "checked" : ""} /> <span><strong>${label}</strong><small>${note}</small>${warning ? `<em class="cart-seller-benefit-warning">${warning}</em>` : ""}</span></label>`).join("")}</fieldset><p class="cart-delivery-feedback hidden" data-group-feedback="${scope}" role="status" aria-live="polite"></p><button class="primary-button cart-group-checkout" type="button" data-checkout-scope="${scope}">${scope === "in_stock" ? "結帳現貨商品" : "結帳預購商品"}</button></section>`;
   }).join("");
   itemsNode.appendChild(wrapper);
 }
 
 function syncGlobalCartDeliveryCopy() {
   const allPreorder = cart.length > 0 && cart.every(isPreorderItem);
+  const hasInStock = cart.some((item) => !isPreorderItem(item));
   const sellerOption = document.querySelector("input[name='cart_delivery_method'][value='seller_delivery']")?.closest("label");
   const sellerNote = sellerOption?.querySelector("small");
+  const sellerWarning = sellerOption?.querySelector(".cart-seller-benefit-warning");
   if (sellerNote) sellerNote.textContent = allPreorder
     ? "本站先建立預購訂單；到貨後客服通知並開立賣貨便，運費由 7-11 取貨時收取。"
     : "前往賣貨便完成結帳，運費由 7-11 取貨時收取。";
+  sellerWarning?.classList.toggle("hidden", !hasInStock);
   const note = document.querySelector(".cart-delivery-note");
   if (note) note.textContent = allPreorder
     ? "預購賣貨便流程：先建立本站訂金訂單 → 到貨後客服通知 → 客服開立賣貨便供尾款取貨。"
@@ -512,7 +513,7 @@ async function loadMemberCart() {
     lastSyncedCartHash = remoteCartHash;
     saveCart({ sync: false });
     if (stableCartHash(cart) !== remoteCartHash) await syncMemberCartNow({ silent: true });
-    renderCart();
+    if (document.body.classList.contains("auth-boot-ready")) renderCart();
   } catch (error) {
     showToast(error.message || "會員購物車同步失敗，仍保留本機購物車", "warning");
   }
@@ -817,7 +818,70 @@ async function restoreAuthReturnState() {
   if (authReturnError) { showToast(authReturnError, "error"); authReturnError = null; }
 }
 
+function setAuthBootMessage(message, { force = false } = {}) {
+  const node = document.querySelector("[data-auth-boot-message]");
+  if (node && message && (force || authBootFailed)) node.textContent = message;
+}
+
+function startAuthBoot() {
+  authBootFailed = false;
+  const retry = document.querySelector("[data-auth-boot-retry]");
+  if (retry && retry.dataset.bound !== "true") {
+    retry.dataset.bound = "true";
+    retry.addEventListener("click", () => location.reload());
+  }
+  document.body.classList.add("auth-booting");
+  document.body.classList.remove("auth-boot-ready");
+  setAuthBootMessage(AUTH_BOOT_STABLE_MESSAGE, { force: true });
+  document.querySelector("#auth-boot-screen i")?.classList.remove("hidden");
+  document.querySelector("[data-auth-boot-retry]")?.classList.add("hidden");
+  if (authBootFailsafe) clearTimeout(authBootFailsafe);
+  authBootFailsafe = setTimeout(() => failAuthBoot("登入服務回應逾時，請點擊重試"), AUTH_BOOT_FAILSAFE_MS);
+}
+
+function failAuthBoot(message) {
+  if (authBootFailed) return;
+  authBootFailed = true;
+  if (authBootFailsafe) {
+    clearTimeout(authBootFailsafe);
+    authBootFailsafe = null;
+  }
+  setAuthBootMessage(message);
+  document.querySelector("#auth-boot-screen i")?.classList.add("hidden");
+  document.querySelector("[data-auth-boot-retry]")?.classList.remove("hidden");
+}
+
+function finishAuthBoot() {
+  // A late but successful resource response may arrive after the failsafe.
+  // Successful completion must be allowed to clear the retry state.
+  authBootFailed = false;
+  if (authBootFailsafe) {
+    clearTimeout(authBootFailsafe);
+    authBootFailsafe = null;
+  }
+  document.querySelector("#auth-boot-screen i")?.classList.remove("hidden");
+  document.querySelector("[data-auth-boot-retry]")?.classList.add("hidden");
+  document.body.classList.remove("auth-booting");
+  document.body.classList.add("auth-boot-ready");
+  document.querySelector("#auth-boot-screen")?.setAttribute("aria-hidden", "true");
+}
+
+function stripLiffCallbackMarker() {
+  const url = new URL(location.href);
+  if (!url.searchParams.has(LIFF_AUTO_CALLBACK_PARAM)) return;
+  url.searchParams.delete(LIFF_AUTO_CALLBACK_PARAM);
+  history.replaceState(null, "", url.pathname + (url.search || "") + (url.hash || ""));
+}
+
 function captureAuthSession() {
+  const currentUrl = new URL(location.href);
+  if (currentUrl.searchParams.has(LIFF_AUTO_CALLBACK_PARAM)) {
+    // The marker makes the OAuth handoff one-shot even when a browser or
+    // LINE webview does not preserve sessionStorage across the handoff.
+    liffOAuthCallbackSeen = true;
+    markLiffLaunchContext("oauth-callback");
+    stripLiffCallbackMarker();
+  }
   const fragment = new URLSearchParams(location.hash.replace(/^#/, ""));
   const hasAuthResponse = fragment.has("access_token") || fragment.has("error") || fragment.has("error_description");
   if (hasAuthResponse) {
@@ -837,7 +901,7 @@ function captureAuthSession() {
     auth.accessToken = fragment.get("access_token");
     auth.refreshToken = fragment.get("refresh_token");
     auth.lineProviderToken = fragment.get("provider_token");
-    sessionStorage.setItem("cj-auth", JSON.stringify({ accessToken: auth.accessToken, refreshToken: auth.refreshToken, lineProviderToken: auth.lineProviderToken }));
+    persistEphemeralAuthSession();
     history.replaceState(null, "", location.pathname + location.search);
     return;
   }
@@ -867,8 +931,268 @@ function captureAuthSession() {
 async function loadRuntimeConfig() {
   try {
     const response = await fetch("/api/config");
-    if (response.ok) auth.config = await response.json();
-  } catch { auth.config = null; }
+    if (!response.ok) return false;
+    auth.config = await response.json();
+    return true;
+  } catch {
+    auth.config = null;
+    return false;
+  }
+}
+
+function readLiffLaunchContext() {
+  try {
+    const raw = sessionStorage.getItem(LIFF_CONTEXT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      sessionStorage.removeItem(LIFF_CONTEXT_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    try { sessionStorage.removeItem(LIFF_CONTEXT_KEY); } catch { /* restricted storage */ }
+    return null;
+  }
+}
+
+function markLiffLaunchContext(source = "redirect") {
+  try {
+    sessionStorage.setItem(LIFF_CONTEXT_KEY, JSON.stringify({ createdAt: Date.now(), source }));
+  } catch { /* sessionStorage may be unavailable in restricted previews. */ }
+}
+
+function clearLiffLaunchContext() {
+  try { sessionStorage.removeItem(LIFF_CONTEXT_KEY); }
+  catch { /* sessionStorage may be unavailable in restricted previews. */ }
+  liffPrimaryRedirectPending = false;
+}
+
+function hasLiffCredentialFragment(url = new URL(location.href)) {
+  const fragment = new URLSearchParams(url.hash.replace(/^#/, ""));
+  const hasSupabaseSessionFields = fragment.has("refresh_token") || fragment.has("provider_token");
+  return fragment.has("context_token")
+    || fragment.has("feature_token")
+    || (!hasSupabaseSessionFields && fragment.has("id_token") && fragment.has("client_id"));
+}
+
+function hasLiffPrimaryRedirectParams(url = new URL(location.href)) {
+  // LINE may omit liff.state for a plain LIFF URL, but the primary redirect
+  // can still carry LIFF-only credential fields in the hash until liff.init()
+  // resolves. Never treat access_token alone as LIFF: Supabase uses it too.
+  const hasLiffQuery = [...url.searchParams.keys()].some((key) => key.startsWith("liff."));
+  return hasLiffQuery || hasLiffCredentialFragment(url);
+}
+
+function hasLiffLaunchIntent(url = new URL(location.href)) {
+  const hasPrimaryRedirect = hasLiffPrimaryRedirectParams(url);
+  const hasLiffOAuthCallback = url.searchParams.has(LIFF_AUTO_CALLBACK_PARAM);
+  if (hasPrimaryRedirect || hasLiffOAuthCallback) {
+    markLiffLaunchContext(hasLiffOAuthCallback ? "oauth-callback" : "primary-redirect");
+    return true;
+  }
+  return Boolean(readLiffLaunchContext());
+}
+
+async function initializeLiffStage({ launchIntent = false, explicitLaunch = false } = {}) {
+  if (!launchIntent || !auth.config?.liffEnabled || !auth.config?.liffId) {
+    return { state: null, primary: false, initialized: false };
+  }
+  const primaryBeforeInit = hasLiffPrimaryRedirectParams();
+  liffPrimaryRedirectPending = primaryBeforeInit;
+  try {
+    const state = await initializeLiffClient(auth.config.liffId);
+    if (!state?.isInClient) {
+      clearLiffLaunchContext();
+      return { state, primary: false, initialized: true };
+    }
+    markLiffLaunchContext("in-client");
+    // A primary endpoint may navigate while liff.init() is running. If the
+    // URL is still carrying the LIFF handoff after init resolves, do not
+    // start product/member work on a document that is not the final endpoint.
+    const primaryAfterInit = hasLiffPrimaryRedirectParams();
+    liffPrimaryRedirectPending = primaryBeforeInit && primaryAfterInit;
+    return { state, primary: liffPrimaryRedirectPending, initialized: true };
+  } catch (error) {
+    liffPrimaryRedirectPending = primaryBeforeInit || explicitLaunch;
+    if (primaryBeforeInit || explicitLaunch) throw error;
+    clearLiffLaunchContext();
+    // A stale same-tab marker must not make the public site depend on LIFF.
+    console.warn("Optional LIFF bootstrap unavailable; continuing as web page.", error);
+    return { state: null, primary: false, initialized: false };
+  }
+}
+
+function clearStoredAuthSession() {
+  clearMemberStateCache();
+  auth.accessToken = null;
+  auth.refreshToken = null;
+  auth.lineProviderToken = null;
+  auth.user = null;
+  auth.profile = null;
+  cartSyncUserId = null;
+  try { sessionStorage.removeItem("cj-auth"); } catch { /* restricted storage */ }
+}
+
+function persistEphemeralAuthSession({ includeRefresh = true } = {}) {
+  try {
+    sessionStorage.setItem("cj-auth", JSON.stringify({
+      accessToken: auth.accessToken,
+      refreshToken: includeRefresh ? auth.refreshToken : null,
+      lineProviderToken: auth.lineProviderToken
+    }));
+  } catch { /* restricted storage */ }
+}
+
+async function rememberPersistentLiffSession() {
+  if (!liffState.isInClient || !liffState.idToken || !auth.refreshToken) return false;
+  const response = await fetch("/api/auth/session/remember", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: auth.refreshToken, id_token: liffState.idToken })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || typeof result.access_token !== "string") return false;
+  auth.accessToken = result.access_token;
+  auth.refreshToken = null;
+  liffSessionMatches = true;
+  persistEphemeralAuthSession({ includeRefresh: false });
+  return true;
+}
+
+async function restorePersistentLiffSession() {
+  if (!liffState.isInClient || !liffState.idToken) return false;
+  const response = await fetch("/api/auth/session/restore", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id_token: liffState.idToken })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || typeof result.access_token !== "string") {
+    if (response.status === 409) clearStoredAuthSession();
+    return false;
+  }
+  auth.accessToken = result.access_token;
+  auth.refreshToken = null;
+  auth.lineProviderToken = null;
+  liffSessionMatches = true;
+  persistEphemeralAuthSession({ includeRefresh: false });
+  return true;
+}
+
+async function forgetPersistentLiffSession() {
+  try { await fetch("/api/auth/session/forget", { method: "POST" }); }
+  catch { /* best-effort cleanup */ }
+}
+
+function recentLiffAutoLoginAttempt() {
+  if (liffAutoLoginAttemptAt > 0 && Date.now() - liffAutoLoginAttemptAt < LIFF_AUTO_LOGIN_MAX_AGE_MS) return true;
+  try {
+    const raw = sessionStorage.getItem(LIFF_AUTO_LOGIN_KEY) || "";
+    const parsed = JSON.parse(raw);
+    const attemptedAt = typeof parsed === "object" ? Number(parsed?.createdAt) : Number(raw);
+    return Number.isFinite(attemptedAt) && attemptedAt > 0 && Date.now() - attemptedAt < LIFF_AUTO_LOGIN_MAX_AGE_MS;
+  } catch {
+    return false;
+  }
+}
+
+function markLiffAutoLoginAttempt() {
+  liffAutoLoginAttemptAt = Date.now();
+  const value = { createdAt: liffAutoLoginAttemptAt, nonce: globalThis.crypto?.randomUUID?.() || String(liffAutoLoginAttemptAt) };
+  try { sessionStorage.setItem(LIFF_AUTO_LOGIN_KEY, JSON.stringify(value)); }
+  catch { /* restricted storage */ }
+}
+
+async function verifyCurrentLiffIdentity({ matchSession = false } = {}) {
+  if (!liffState.idToken) return null;
+  const headers = { "Content-Type": "application/json" };
+  if (matchSession && auth.accessToken) headers.Authorization = `Bearer ${auth.accessToken}`;
+  const response = await fetch("/api/auth/liff/verify", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ id_token: liffState.idToken })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    liffSessionMatches = false;
+    const error = new Error(result.error || "LIFF LINE 身分驗證失敗");
+    error.code = result.code;
+    error.status = response.status;
+    throw error;
+  }
+  liffSessionMatches = result.sessionMatch === true;
+  return result;
+}
+
+async function runInitializeLiffBridge(initialState = null) {
+  if (!auth.config?.liffEnabled || !auth.config?.liffId) return false;
+  try {
+    const state = initialState || await initializeLiffClient(auth.config.liffId);
+    // External browsers may still have an active LIFF web session. Keep that
+    // separate from the site's normal Supabase LINE OAuth session: only the
+    // LINE in-app client is allowed to enter the LIFF session bridge.
+    if (!state.initialized || !state.isInClient || !state.loggedIn || !state.idToken) return false;
+    if (auth.accessToken && auth.refreshToken && state.isInClient) {
+      const remembered = await rememberPersistentLiffSession();
+      if (remembered) {
+        try { sessionStorage.removeItem(LIFF_AUTO_LOGIN_KEY); } catch { /* restricted storage */ }
+        return false;
+      }
+    }
+    if (!auth.accessToken && state.isInClient) {
+      const restored = await restorePersistentLiffSession();
+      if (restored) {
+        try { sessionStorage.removeItem(LIFF_AUTO_LOGIN_KEY); } catch { /* restricted storage */ }
+        return false;
+      }
+    }
+    try {
+      await verifyCurrentLiffIdentity({ matchSession: Boolean(auth.accessToken) });
+    } catch (error) {
+      const status = Number(error.status || 0);
+      if (status === 409) {
+        clearStoredAuthSession();
+        await forgetPersistentLiffSession();
+        liffSessionMatches = false;
+        // The server-side LIFF session is keyed by the LIFF identity, so the
+        // correct member can usually be restored without an OAuth redirect.
+        if (state.isInClient && await restorePersistentLiffSession()) return false;
+        await verifyCurrentLiffIdentity();
+      } else if (auth.accessToken && [401, 403].includes(status) && !recentLiffAutoLoginAttempt()) {
+        clearStoredAuthSession();
+        if (state.isInClient && await restorePersistentLiffSession()) return false;
+        await verifyCurrentLiffIdentity();
+      } else {
+        throw error;
+      }
+    }
+    if (auth.accessToken) {
+      try { sessionStorage.removeItem(LIFF_AUTO_LOGIN_KEY); } catch { /* restricted storage */ }
+      return false;
+    }
+    if (!state.isInClient) return false;
+    if (liffOAuthCallbackSeen || recentLiffAutoLoginAttempt()) return false;
+    return beginLineLogin({ automatic: true });
+  } catch (error) {
+    console.warn("LIFF initialization failed; falling back to web login.", error);
+    return false;
+  }
+}
+
+function initializeLiffBridge(initialState = null) {
+  if (liffBridgeResolved) return Promise.resolve(liffBridgeResult);
+  if (liffBridgeInFlight) return liffBridgeInFlight;
+  const promise = runInitializeLiffBridge(initialState).then((result) => {
+    liffBridgeResult = result === true;
+    liffBridgeResolved = true;
+    return liffBridgeResult;
+  }).catch((error) => {
+    liffBridgeInFlight = null;
+    throw error;
+  });
+  liffBridgeInFlight = promise;
+  return promise;
 }
 
 async function syncMemberIdentityOnce() {
@@ -898,27 +1222,40 @@ async function syncMemberIdentityOnce() {
   return identitySyncInFlight;
 }
 
-async function loadMember() {
-  if (!auth.accessToken || !auth.config?.authEnabled) return;
-  try {
-    const response = await fetch(`${auth.config.supabaseUrl}/auth/v1/user`, { headers: { apikey: auth.config.supabaseAnonKey, Authorization: `Bearer ${auth.accessToken}` } });
-    if (!response.ok) throw new Error("expired");
-    const user = await response.json();
-    if ((auth.user?.id && auth.user.id !== user.id) || (cartSyncUserId && cartSyncUserId !== user.id)) resetMemberCartSyncState();
-    if ((memberPointsCache.userId && memberPointsCache.userId !== user.id) || (lineFriendshipCache.userId && lineFriendshipCache.userId !== user.id)) clearMemberStateCache();
-    auth.user = user;
-    // Identity binding is an explicit, best-effort operation. A temporary
-    // service-role/database failure must not log the member out or block catalog.
-    await syncMemberIdentityOnce();
-    await loadProfile();
-    try { await loadPoints(); } catch { auth.points = null; }
-    await loadMemberCart();
-    updateMemberButton();
-    if (!profileIsComplete()) showProfileDialog(true);
-  } catch {
-    clearMemberStateCache();
-    auth.accessToken = null; auth.refreshToken = null; auth.lineProviderToken = null; auth.user = null; auth.profile = null; cartSyncUserId = null; sessionStorage.removeItem("cj-auth");
-  }
+function loadMember() {
+  if (memberLoadResolved) return Promise.resolve();
+  if (memberLoadInFlight) return memberLoadInFlight;
+  const promise = (async () => {
+    if (!auth.accessToken || !auth.config?.authEnabled) return;
+    try {
+      const response = await fetch(`${auth.config.supabaseUrl}/auth/v1/user`, { headers: { apikey: auth.config.supabaseAnonKey, Authorization: `Bearer ${auth.accessToken}` } });
+      if (!response.ok) throw new Error("expired");
+      const user = await response.json();
+      if ((auth.user?.id && auth.user.id !== user.id) || (cartSyncUserId && cartSyncUserId !== user.id)) resetMemberCartSyncState();
+      if ((memberPointsCache.userId && memberPointsCache.userId !== user.id) || (lineFriendshipCache.userId && lineFriendshipCache.userId !== user.id)) clearMemberStateCache();
+      auth.user = user;
+      updateMemberButton();
+      // Identity binding is an explicit, best-effort operation. A temporary
+      // service-role/database failure must not log the member out or block catalog.
+      await Promise.all([
+        syncMemberIdentityOnce(),
+        loadProfile(),
+        loadPoints().catch(() => { auth.points = null; }),
+        loadMemberCart()
+      ]);
+      updateMemberButton();
+      if (!profileIsComplete()) showProfileDialog(true);
+    } catch {
+      clearStoredAuthSession();
+    }
+  })();
+  memberLoadInFlight = promise.then((result) => {
+    memberLoadResolved = true;
+    return result;
+  }).finally(() => {
+    memberLoadInFlight = null;
+  });
+  return memberLoadInFlight;
 }
 
 async function loadProfile() {
@@ -1020,16 +1357,29 @@ function showProfileDialog(required = false) {
   showDialog(dialog);
 }
 
-function beginLineLogin() {
-  if (!auth.config?.authEnabled) return showToast("LINE Login 尚未在 Supabase 啟用");
+function beginLineLogin({ automatic = false } = {}) {
+  if (!auth.config?.authEnabled) {
+    showToast("LINE Login 尚未在 Supabase 啟用");
+    return false;
+  }
+  if (automatic && (liffOAuthCallbackSeen || recentLiffAutoLoginAttempt())) return false;
+  if (!automatic) {
+    try { sessionStorage.removeItem(LIFF_AUTO_LOGIN_KEY); } catch { /* restricted storage */ }
+  }
+  if (automatic) markLiffAutoLoginAttempt();
   saveAuthReturnState();
   saveCart();
-  const redirectTo = location.origin + location.pathname;
+  const redirectUrl = new URL(location.origin + location.pathname);
+  if (automatic) redirectUrl.searchParams.set(LIFF_AUTO_CALLBACK_PARAM, String(Date.now()));
   const url = new URL(`${auth.config.supabaseUrl}/auth/v1/authorize`);
   url.searchParams.set("provider", auth.config.lineProvider);
-  url.searchParams.set("redirect_to", redirectTo);
+  url.searchParams.set("redirect_to", redirectUrl.toString());
   url.searchParams.set("bot_prompt", "normal");
-  location.assign(url.toString());
+  // The automatic LIFF handoff must not add another history entry. Manual
+  // login keeps the normal browser navigation semantics.
+  if (automatic) location.replace(url.toString());
+  else location.assign(url.toString());
+  return true;
 }
 
 async function saveProfile(profile) {
@@ -1407,6 +1757,27 @@ function showLineFriendDialog(message = "請先加入潮吉好頑官方 LINE，�
   showDialog(dialog);
 }
 
+async function handleLineFriendRequest(button) {
+  if (!canRequestLineFriendship()) return false;
+  button.setAttribute("aria-disabled", "true");
+  try {
+    await requestLineFriendship();
+    const isFriend = await checkLineFriendship({ force: true });
+    if (!isFriend) {
+      showLineFriendDialog("尚未偵測到好友狀態，請完成加入後再重新檢查。");
+      return true;
+    }
+    closeDialog(document.querySelector("#line-friend-dialog"));
+    await openCheckout(activeCheckoutScope);
+    return true;
+  } catch (error) {
+    showLineFriendDialog(error.message || "LINE 好友狀態暫時無法確認");
+    return true;
+  } finally {
+    button.removeAttribute("aria-disabled");
+  }
+}
+
 async function checkLineFriendship({ force = false } = {}) {
   const userId = auth.user?.id;
   const accessToken = auth.accessToken;
@@ -1417,7 +1788,8 @@ async function checkLineFriendship({ force = false } = {}) {
   }
   if (lineFriendshipInFlight?.userId === userId && lineFriendshipInFlight?.accessToken === accessToken) return lineFriendshipInFlight.promise;
   const promise = (async () => {
-    const response = await fetch("/api/member/line-friendship", { headers: { Authorization: `Bearer ${accessToken}`, ...(auth.lineProviderToken ? { "X-LINE-Login-Access-Token": auth.lineProviderToken } : {}) } });
+    const lineAccessToken = liffSessionMatches && liffState.accessToken ? liffState.accessToken : auth.lineProviderToken;
+    const response = await fetch("/api/member/line-friendship", { headers: { Authorization: `Bearer ${accessToken}`, ...(lineAccessToken ? { "X-LINE-Login-Access-Token": lineAccessToken } : {}) } });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "LINE 好友狀態暫時無法確認");
     const friendFlag = result.friendFlag === true;
@@ -1501,7 +1873,7 @@ function renderPaymentOrder(order) {
       ? "到店取貨時支付，不需回報匯款末五碼。"
       : `<div class="transfer-account-card"><div class="transfer-card-head"><div class="transfer-card-title"><svg viewBox="0 0 24 24" aria-hidden="true"><line x1="3" y1="21" x2="21" y2="21"></line><line x1="3" y1="10" x2="21" y2="10"></line><polyline points="5 6 12 3 19 6"></polyline><line x1="4" y1="10" x2="4" y2="21"></line><line x1="20" y1="10" x2="20" y2="21"></line><line x1="8" y1="14" x2="8" y2="17"></line><line x1="12" y1="14" x2="12" y2="17"></line><line x1="16" y1="14" x2="16" y2="17"></line></svg><span>轉帳專用匯款帳號</span></div></div><div class="transfer-card-total"><span>本次應匯總額</span><strong>${money(order.deposit_due)}</strong></div><div class="transfer-account-inner"><div class="transfer-account-row"><span>收款銀行</span><strong>${escapeHtml(account?.bank_name || account?.label || "收款帳戶")}</strong></div><div class="transfer-account-row"><span>戶名</span><strong>${escapeHtml(account?.account_name || "-")}</strong></div><hr /><div class="transfer-account-number-label">匯款帳號</div><div class="transfer-account-number-line"><strong>${escapeHtml(accountNumber || "-")}</strong><button type="button" class="copy-account-button" data-copy-bank-account="${escapeHtml(accountNumber)}" aria-label="複製匯款帳號">複製<br />帳號</button></div></div><div class="transfer-card-note"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg><span>轉帳手續費自理；完成後請於下方立即填寫「帳號末五碼」。</span></div></div>`;
   const shippingFeeRow = deliveryMethod !== "store_pickup" ? `<div class="payment-row"><span>${sellerDelivery ? "賣貨便運費" : "實際運費"}</span><strong>${sellerDelivery ? "由 7-11 向客戶收取" : order.shipping_fee ? money(order.shipping_fee) : awaitingInStockHomeDeliveryFee ? linkCustomerServiceText("請先私訊小幫手確認") : "待客服通知"}</strong></div>` : "";
-  const balanceLabel = deliveryMethod === "store_pickup" || deliveryMethod === "home_delivery" ? "尾款" : "尾款／運費";
+  const balanceLabel = deliveryMethod === "store_pickup" || deliveryMethod === "home_delivery" || sellerDelivery ? "尾款" : "尾款／運費";
   const balanceRow = balance ? `<div class="payment-row"><span>${balanceLabel}</span><strong>${money(balance)}</strong></div>` : "";
   const amountDueRow = `<div class="payment-row amount${deliveryMethod === "store_pickup" ? " payment-store-pickup-due" : ""}"><span>本次應付</span><strong>${money(order.deposit_due)}</strong></div>`;
   const paymentRows = deliveryMethod === "store_pickup" ? `${amountDueRow}${balanceRow}` : `${amountDueRow}${balanceRow}${shippingFeeRow}`;
@@ -1608,7 +1980,8 @@ function renderOrders() {
         : linkCustomerServiceText("私訊小幫手確認");
     const deliveryFeeRow = deliveryMethod === "home_delivery" ? "" : `<div class="payment-row"><span>配送費用</span><strong>${deliveryNotice}</strong></div>`;
     const balanceNotice = deliveryMethod === "home_delivery" ? homeBalanceNotice : order.final_payment_confirmed_at ? "已確認" : "待客服通知或確認";
-    return `<article class="order-card${sellerPending ? " seller-pending" : ""}${preorderSellerPending ? " preorder-seller-pending" : ""}"><div class="order-card-head"><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(deliveryLabel)}</small></div><span class="status-chip${sellerPending ? " status-seller-pending" : ""}">${statusLabel}</span></div>${sellerPending ? '<p class="seller-pending-notice"><strong>本站待管理員核對</strong>：請先完成賣貨便結帳；核對後會更新本站訂單狀態並通知你。</p>' : preorderSellerPending ? '<p class="seller-pending-notice"><strong>預購訂金待確認</strong>：請於訂單成立後 2 小時內完成匯款並回報末五碼；到貨後客服會通知開立賣貨便。</p>' : ""}<div class="order-items">${items}</div><div class="payment-row"><span>付款方式</span><strong>${paymentNotice}</strong></div>${deliveryFeeRow}<div class="payment-row"><span>訂單總額</span><strong>${money(order.amount_due)}</strong></div><div class="payment-row"><span>本次應付</span><strong>${money(order.deposit_due)}</strong></div>${deliveryMethod !== "store_pickup" ? `<div class="payment-row"><span>尾款／運費</span><strong>${balanceNotice}</strong></div>` : ""}${order.bank_account_id && order.status === "pending_payment" && !expired ? `<button type="button" data-order-payment="${order.id}">回報匯款末五碼</button>` : ""}</article>`;
+    const balanceLabel = deliveryMethod === "home_delivery" ? "尾款／運費" : "尾款";
+    return `<article class="order-card${sellerPending ? " seller-pending" : ""}${preorderSellerPending ? " preorder-seller-pending" : ""}"><div class="order-card-head"><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(deliveryLabel)}</small></div><span class="status-chip${sellerPending ? " status-seller-pending" : ""}">${statusLabel}</span></div>${sellerPending ? '<p class="seller-pending-notice"><strong>本站待管理員核對</strong>：請先完成賣貨便結帳；核對後會更新本站訂單狀態並通知你。</p>' : preorderSellerPending ? '<p class="seller-pending-notice"><strong>預購訂金待確認</strong>：請於訂單成立後 2 小時內完成匯款並回報末五碼；到貨後客服會通知開立賣貨便。</p>' : ""}<div class="order-items">${items}</div><div class="payment-row"><span>付款方式</span><strong>${paymentNotice}</strong></div>${deliveryFeeRow}<div class="payment-row"><span>訂單總額</span><strong>${money(order.amount_due)}</strong></div><div class="payment-row"><span>本次應付</span><strong>${money(order.deposit_due)}</strong></div>${deliveryMethod !== "store_pickup" ? `<div class="payment-row"><span>${balanceLabel}</span><strong>${balanceNotice}</strong></div>` : ""}${order.bank_account_id && order.status === "pending_payment" && !expired ? `<button type="button" data-order-payment="${order.id}">回報匯款末五碼</button>` : ""}</article>`;
   }).join("");
 }
 
@@ -1671,13 +2044,13 @@ function relationOne(value) {
 
 async function openAdmin() {
   if (!auth.user || auth.profile?.is_admin !== true) return showToast("僅限管理員使用");
+  resetAdminDataForActor();
   if (window.matchMedia("(max-width: 900px)").matches) {
     document.querySelectorAll("#admin-dialog details[data-admin-mobile-collapse][open]").forEach((details) => details.removeAttribute("open"));
   }
   const dialog = document.querySelector("#admin-dialog");
   showDialog(dialog);
   const tab = document.querySelector("[data-admin-tab].active")?.dataset.adminTab || "overview";
-  await loadAdminSection(tab, { force: true });
   switchAdminTab(tab);
 }
 
@@ -1685,13 +2058,138 @@ function adminSectionForTab(tab) {
   return tab === "accounts" ? "settings" : adminSections.includes(tab) ? tab : "overview";
 }
 
+function resetAdminDataForActor() {
+  const actorId = auth.user?.id || null;
+  if (adminDataActorId === actorId) return;
+  adminDataActorId = actorId;
+  adminData = null;
+  adminSectionLoaded.clear();
+  adminSectionInFlight.clear();
+  adminManagementOptionsActorId = null;
+  adminManagementOptionsLoadedAt = 0;
+  adminManagementOptionsInFlight = null;
+}
+
+function hasFreshAdminManagementOptions() {
+  return adminManagementOptionsActorId === auth.user?.id
+    && adminManagementOptionsLoadedAt > 0
+    && Date.now() - adminManagementOptionsLoadedAt < ADMIN_MANAGEMENT_OPTIONS_TTL_MS;
+}
+
+function invalidateAdminManagementOptions() {
+  adminManagementOptionsLoadedAt = 0;
+  adminManagementOptionsActorId = null;
+}
+
 function mergeAdminData(partial) {
+  const hadManagementOptions = Boolean(adminData?.managementOptions);
+  const { managementOptions, ...sectionData } = partial;
   adminData = {
     ...(adminData || {}),
-    ...partial,
-    stats: { ...(adminData?.stats || {}), ...(partial.stats || {}) }
+    ...sectionData,
+    stats: { ...(adminData?.stats || {}), ...(sectionData.stats || {}) },
+    pagination: { ...(adminData?.pagination || {}), ...(sectionData.pagination || {}) }
   };
+  if (managementOptions && typeof managementOptions === "object") {
+    const products = Array.isArray(managementOptions.products) ? managementOptions.products : [];
+    const members = Array.isArray(managementOptions.members) ? managementOptions.members : [];
+    const categories = Array.isArray(managementOptions.categories) ? managementOptions.categories : [];
+    adminData.managementOptions = { products, members, categories };
+    adminData.productOptions = products;
+    adminData.discountProducts = products;
+    adminData.discountMembers = members;
+    adminData.categories = categories;
+    adminManagementOptionsActorId = auth.user?.id || null;
+    adminManagementOptionsLoadedAt = Date.now();
+    if (hadManagementOptions) refreshAdminManagementOptionControls();
+  }
   return adminData;
+}
+
+function adminSectionPageQuery(section) {
+  if (!(section in adminSectionPages)) return "";
+  const params = new URLSearchParams({ page: String(adminSectionPages[section]), page_size: "100" });
+  if (section === "orders") {
+    params.set("query", document.querySelector("#admin-order-search")?.value.trim() || "");
+    params.set("status", document.querySelector("#admin-order-status-filter")?.value || "all");
+  }
+  if (section === "members") params.set("query", document.querySelector("#admin-member-search")?.value.trim() || "");
+  if (section === "products") {
+    params.set("query", document.querySelector("#admin-product-search")?.value.trim() || "");
+    params.set("status", document.querySelector("#admin-product-status")?.value || "all");
+  }
+  if (section === "audit") {
+    params.set("resource", document.querySelector("#admin-audit-resource")?.value || "");
+    params.set("action", document.querySelector("#admin-audit-action")?.value || "");
+  }
+  if (section === "notifications") {
+    params.set("channel", document.querySelector("#admin-notification-channel")?.value || "all");
+    params.set("status", document.querySelector("#admin-notification-status")?.value || "all");
+  }
+  return params.toString();
+}
+
+function adminPaginationTarget(section) {
+  if (section === "orders") return "#admin-order-list";
+  if (section === "members") return "#admin-member-list";
+  if (section === "products") return "#admin-product-list";
+  if (section === "inventory") return "#admin-movement-list";
+  if (section === "discounts") return "#admin-coupon-list";
+  if (section === "notifications") return "#admin-notification-list";
+  return "#admin-audit-list";
+}
+
+function renderAdminPagination(section) {
+  if (!(section in adminSectionPages)) return;
+  const pagination = adminData?.pagination?.[section];
+  const target = document.querySelector(adminPaginationTarget(section));
+  if (!target) return;
+  let nav = document.querySelector(`[data-admin-pagination="${section}"]`);
+  if (!nav) {
+    nav = document.createElement("nav");
+    nav.className = "admin-pagination";
+    nav.dataset.adminPagination = section;
+    nav.setAttribute("aria-label", `${section} 分頁`);
+    target.insertAdjacentElement("afterend", nav);
+  }
+  if (!pagination) {
+    nav.classList.add("hidden");
+    nav.innerHTML = "";
+    return;
+  }
+  const page = Number(pagination.page || 0);
+  adminSectionPages[section] = page;
+  const pageSize = Number(pagination.pageSize || 100);
+  nav.classList.toggle("hidden", page === 0 && !pagination.hasMore);
+  nav.innerHTML = `<button class="secondary-button" type="button" data-admin-page="${section}" data-admin-page-delta="-1" ${page <= 0 ? "disabled" : ""}>上一頁</button><span aria-live="polite">第 ${page + 1} 頁</span><button class="secondary-button" type="button" data-admin-page="${section}" data-admin-page-delta="1" ${pagination.hasMore ? "" : "disabled"}>下一頁</button>`;
+  nav.dataset.pageSize = String(pageSize);
+}
+
+async function changeAdminPage(section, delta) {
+  const pagination = adminData?.pagination?.[section];
+  if (!pagination) return;
+  const current = Number(pagination.page || 0);
+  const next = current + delta;
+  if (next < 0 || (delta > 0 && !pagination.hasMore)) return;
+  adminSectionPages[section] = next;
+  try {
+    await loadAdminSection(section, { force: true });
+  } catch (error) {
+    adminSectionPages[section] = current;
+    throw error;
+  }
+}
+
+function reloadAdminList(section, immediate = false) {
+  if (!(section in adminSectionPages)) return;
+  adminSectionPages[section] = 0;
+  if (adminSearchDebounceTimers[section]) window.clearTimeout(adminSearchDebounceTimers[section]);
+  const run = () => {
+    adminSearchDebounceTimers[section] = null;
+    loadAdminSection(section, { force: true }).catch((error) => showToast(error.message, "error"));
+  };
+  if (immediate) run();
+  else adminSearchDebounceTimers[section] = window.setTimeout(run, 300);
 }
 
 function renderAdminSection(section) {
@@ -1708,62 +2206,98 @@ function renderAdminSection(section) {
   if (section === "orders") {
     renderAdminOrderStatusFilter();
     renderAdminOrders();
+    renderAdminPagination(section);
     return;
   }
   if (section === "members") {
     renderAdminMembers();
+    renderAdminPagination(section);
+    return;
+  }
+  if (section === "audit") {
+    renderAdminAudit();
+    renderAdminPagination(section);
+    return;
+  }
+  if (section === "notifications") {
+    renderAdminNotifications();
+    renderAdminPagination(section);
     return;
   }
   if (section === "products") {
     renderAdminCategories();
     renderAdminProducts();
-    renderAdminSelects();
+    renderAdminSelects({ preserveSelection: true });
     removeLegacyShippingUI();
+    renderAdminPagination(section);
     return;
   }
   if (section === "inventory") {
-    renderAdminSelects();
+    renderAdminSelects({ preserveSelection: true });
     renderAdminMovements();
     renderAdminLowStock();
+    renderAdminPagination(section);
     return;
   }
   if (section === "discounts") {
     ensureDiscountAdminUI();
     renderAdminDiscounts();
+    renderAdminPagination(section);
     return;
   }
   renderAdminAccounts();
 }
 
 async function loadAdminSection(tabOrSection, { force = false } = {}) {
+  resetAdminDataForActor();
   const section = adminSectionForTab(tabOrSection);
-  if (!force && adminSectionLoaded.has(section)) {
-    renderAdminSection(section);
-    return adminData;
-  }
   const existing = adminSectionInFlight.get(section);
   if (existing) return existing;
+  let includeManagementOptions = ADMIN_MANAGEMENT_OPTIONS_SECTIONS.has(section) && !hasFreshAdminManagementOptions();
+  if (!force && adminSectionLoaded.has(section) && !includeManagementOptions) return adminData;
+  if (includeManagementOptions && adminManagementOptionsInFlight) {
+    await adminManagementOptionsInFlight;
+    return loadAdminSection(tabOrSection, { force });
+  }
+  includeManagementOptions = ADMIN_MANAGEMENT_OPTIONS_SECTIONS.has(section) && !hasFreshAdminManagementOptions();
+  if (!force && adminSectionLoaded.has(section) && !includeManagementOptions) return adminData;
+  const requestActorId = auth.user?.id || null;
   const loading = document.querySelector("#admin-loading");
   const errorNode = document.querySelector("#admin-error");
   loading.classList.remove("hidden");
   errorNode.classList.add("hidden");
   const request = (async () => {
     try {
-      const partial = await adminFetch(`/api/admin/dashboard?section=${encodeURIComponent(section)}`);
+      const pageQuery = adminSectionPageQuery(section);
+      const endpoint = ["audit", "notifications"].includes(section)
+        ? `${section === "audit" ? "/api/admin/audit-logs" : "/api/admin/notification-deliveries"}?${pageQuery}`
+        : `/api/admin/dashboard?section=${encodeURIComponent(section)}${pageQuery ? `&${pageQuery}` : ""}${includeManagementOptions ? "&include_options=true" : ""}`;
+      const partial = await adminFetch(endpoint);
+      if (requestActorId !== (auth.user?.id || null)) return adminData;
+      const options = partial.managementOptions;
+      if (includeManagementOptions && (!options || !Array.isArray(options.products) || !Array.isArray(options.members) || !Array.isArray(options.categories))) {
+        throw new Error("管理表單選項暫時無法載入");
+      }
       mergeAdminData(partial);
       adminSectionLoaded.add(section);
       renderAdminSection(section);
       return adminData;
     } catch (error) {
-      errorNode.textContent = error.message;
-      errorNode.classList.remove("hidden");
+      if (requestActorId === (auth.user?.id || null)) {
+        errorNode.textContent = error.message;
+        errorNode.classList.remove("hidden");
+      }
       throw error;
     } finally {
-      loading.classList.add("hidden");
-      adminSectionInFlight.delete(section);
+      if (adminSectionInFlight.get(section) === request) {
+        loading.classList.add("hidden");
+        adminSectionInFlight.delete(section);
+      }
+      if (includeManagementOptions && adminManagementOptionsInFlight === request) adminManagementOptionsInFlight = null;
     }
   })();
   adminSectionInFlight.set(section, request);
+  if (includeManagementOptions) adminManagementOptionsInFlight = request;
   return request;
 }
 
@@ -1790,7 +2324,7 @@ function applyAdminQuickFilter(filter) {
     const statusFilter = document.querySelector("#admin-order-status-filter");
     if (statusFilter) statusFilter.value = ["pending_review", "seller_pending", "ready_for_pickup"].includes(filter) ? filter : "all";
     switchAdminTab("orders");
-    renderAdminOrders();
+    reloadAdminList("orders", true);
   }
   document.querySelector(".admin-content")?.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -1815,12 +2349,7 @@ function resetCouponForm() {
 }
 
 function renderAdminDiscounts() {
-  const productBox = document.querySelector("#coupon-product-options");
-  const memberBox = document.querySelector("#coupon-member-options");
-  const products = adminData.discountProducts || adminData.products || [];
-  const members = adminData.discountMembers || adminData.members || [];
-  productBox.innerHTML = products.map((product) => `<label><input type="checkbox" name="coupon_product" value="${product.id}" /> ${escapeHtml(product.name)}</label>`).join("") || "<small>尚無商品</small>";
-  memberBox.innerHTML = members.map((member) => `<label><input type="checkbox" name="coupon_member" value="${member.id}" /> ${escapeHtml(member.full_name || member.phone || "未命名會員")}</label>`).join("") || "<small>尚無會員</small>";
+  renderAdminDiscountOptionBoxes({ preserveSelection: true });
   const birthday = adminData.birthdaySettings;
   if (birthday) {
     document.querySelector("#birthday-amount").value = birthday.discount_amount;
@@ -1831,6 +2360,78 @@ function renderAdminDiscounts() {
   }
   const list = document.querySelector("#admin-coupon-list");
   list.innerHTML = (adminData.coupons || []).map((coupon) => `<div class="admin-card coupon-card"><div><strong>${escapeHtml(coupon.code)} · ${escapeHtml(coupon.name)}</strong><small>折 ${money(coupon.discount_amount)} · ${coupon.combinable_with_points ? "可" : "不可"}與點數併用 · 已用 ${(coupon.coupon_redemptions || []).length}${coupon.total_usage_limit ? `/${coupon.total_usage_limit}` : ""} · ${coupon.is_active ? "啟用" : "停用"}<br />${new Date(coupon.valid_from).toLocaleString("zh-TW")} 至 ${new Date(coupon.valid_until).toLocaleString("zh-TW")}${coupon.is_birthday ? " · 生日券" : ""}</small></div>${coupon.is_birthday ? "" : `<button type="button" data-coupon-edit="${coupon.id}">編輯</button>`}</div>`).join("") || '<div class="empty-state">尚未建立優惠券。</div>';
+}
+
+function renderAdminDiscountOptionBoxes({ preserveSelection = false } = {}) {
+  const productBox = document.querySelector("#coupon-product-options");
+  const memberBox = document.querySelector("#coupon-member-options");
+  const products = adminData.discountProducts || adminData.products || [];
+  const members = adminData.discountMembers || adminData.members || [];
+  const checkedProducts = preserveSelection ? new Set([...productBox.querySelectorAll("[name='coupon_product']:checked")].map((input) => input.value)) : new Set();
+  const checkedMembers = preserveSelection ? new Set([...memberBox.querySelectorAll("[name='coupon_member']:checked")].map((input) => input.value)) : new Set();
+  productBox.innerHTML = products.map((product) => `<label><input type="checkbox" name="coupon_product" value="${escapeHtml(product.id)}" ${checkedProducts.has(product.id) ? "checked" : ""} /> ${escapeHtml(product.name)}</label>`).join("") || "<small>尚無商品</small>";
+  memberBox.innerHTML = members.map((member) => `<label><input type="checkbox" name="coupon_member" value="${escapeHtml(member.id)}" ${checkedMembers.has(member.id) ? "checked" : ""} /> ${escapeHtml(member.full_name || member.phone || "未命名會員")}</label>`).join("") || "<small>尚無會員</small>";
+}
+
+function auditMaskedValue(value) {
+  const text = String(value ?? "");
+  return text.length > 4 ? `${"*".repeat(Math.max(4, text.length - 4))}${text.slice(-4)}` : "****";
+}
+
+function auditJsonSummary(value) {
+  if (value == null) return "—";
+  let text = "";
+  try {
+    text = JSON.stringify(value, (key, child) => /account_number|channel_access_token|bot_token|secret|password/i.test(key) ? auditMaskedValue(child) : child);
+  } catch {
+    text = String(value);
+  }
+  if (text.length > 320) text = `${text.slice(0, 317)}…`;
+  return escapeHtml(text);
+}
+
+function renderAdminAudit() {
+  const container = document.querySelector("#admin-audit-list");
+  if (!container) return;
+  const actionLabels = { create: "新增", update: "更新", adjust: "調整", upload: "上傳" };
+  const resourceLabels = { product: "商品", product_variant: "規格", category: "分類", bank_account: "收款帳戶", coupon: "優惠券", birthday_coupon_settings: "生日券設定", point_settings: "點數設定", member_points: "會員點數", product_image: "商品圖片" };
+  const logs = Array.isArray(adminData?.auditLogs) ? adminData.auditLogs : [];
+  container.innerHTML = logs.length ? logs.map((entry) => {
+    const actor = relationOne(entry.profiles);
+    return `<article class="admin-card audit-log-card"><div><strong>${escapeHtml(actionLabels[entry.action] || entry.action)} · ${escapeHtml(resourceLabels[entry.resource] || entry.resource)}</strong><small>${formatDateTime(entry.created_at)} · 操作人：${escapeHtml(actor?.full_name || entry.actor_id || "未知")}</small><small>目標：${escapeHtml(entry.target || "—")}</small><small>前：<code>${auditJsonSummary(entry.before_data)}</code></small><small>後：<code>${auditJsonSummary(entry.after_data)}</code></small></div></article>`;
+  }).join("") : '<div class="empty-state">目前沒有符合條件的稽核紀錄。</div>';
+}
+
+function notificationStatusLabel(status) {
+  return { pending: "待處理", processing: "發送中", sent: "已送出", failed: "失敗" }[status] || status || "未知";
+}
+
+function renderAdminNotifications() {
+  const container = document.querySelector("#admin-notification-list");
+  if (!container) return;
+  const channelLabels = { line: "LINE", telegram: "Telegram" };
+  const logs = Array.isArray(adminData?.notificationDeliveries) ? adminData.notificationDeliveries : [];
+  container.innerHTML = logs.length ? logs.map((entry) => {
+    const failed = entry.status === "failed";
+    const retryButton = failed ? `<button class="secondary-button" type="button" data-admin-notification-requeue="${escapeHtml(entry.channel)}:${escapeHtml(entry.id)}">重新排入</button>` : "";
+    const retryAt = entry.next_retry_at ? `下次重試：${formatDateTime(entry.next_retry_at)}` : "無排程重試";
+    const error = entry.error_message ? `錯誤：${escapeHtml(entry.error_message)}` : "無錯誤訊息";
+    return `<article class="admin-card notification-delivery-card"><div><strong>${escapeHtml(channelLabels[entry.channel] || entry.channel)} · ${escapeHtml(notificationStatusLabel(entry.status))}</strong><small>${formatDateTime(entry.updated_at || entry.created_at)} · 事件 ${escapeHtml(entry.event_type || "—")}</small><small>收件人：${escapeHtml(entry.recipient_name || entry.recipient_hint || "已遮罩")} · 訂單：${escapeHtml(entry.order_number || "—")}</small><small>嘗試 ${Number(entry.attempt_count || 0)} 次 · ${escapeHtml(retryAt)}</small><small>${error}</small></div>${retryButton}</article>`;
+  }).join("") : '<div class="empty-state">目前沒有符合條件的通知紀錄。</div>';
+}
+
+async function requeueAdminNotification(button) {
+  const [channel, id] = String(button.dataset.adminNotificationRequeue || "").split(":");
+  if (!["line", "telegram"].includes(channel) || !/^[0-9a-f-]{36}$/i.test(id || "")) throw new Error("通知紀錄資料不正確");
+  if (!window.confirm("確定將這筆失敗通知重新排入下一次重試嗎？目前不會立即發送。")) return;
+  button.disabled = true;
+  try {
+    await adminFetch(`/api/admin/notification-deliveries/${channel}/${id}/requeue`, { method: "POST", body: JSON.stringify({}) });
+    await loadAdminSection("notifications", { force: true });
+    showToast("通知已排入下一次重試", "success");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 const adminOrderStatusFilterGroups = [
@@ -1880,13 +2481,13 @@ function removeLegacyShippingUI() {
   document.querySelector("[data-admin-tab='shipping']")?.remove();
   document.querySelector("[data-admin-panel='shipping']")?.remove();
   const checkoutCopy = document.querySelector("#checkout-form > .dialog-copy");
-  if (checkoutCopy) checkoutCopy.textContent = "確認後會立即保留商品；購物車若含現貨與預購，會分開建立訂單與付款期限。本站匯款訂單請於預購 2 小時內、現貨 24 小時內回報末五碼；預購賣貨便到貨後由客服通知並開立賣貨便，運費由 7-11 取貨時收取；宅配現貨付款確認後即可由客服確認尾款與運費，預購商品則於到貨後通知。";
+  if (checkoutCopy) checkoutCopy.textContent = "送出後會立即保留商品；購物車若含現貨與預購，會分開建立訂單與付款期限。本站匯款訂單請於預購 2 小時內、現貨 24 小時內回報末五碼；確認付款後才扣除庫存。預購賣貨便到貨後由客服通知並開立賣貨便，運費由 7-11 取貨時收取；宅配現貨付款確認後即可由客服確認尾款與運費，預購商品則於到貨後通知。";
   const checkoutTerms = document.querySelector("#checkout-form > .terms");
-  if (checkoutTerms) checkoutTerms.textContent = "送出後將立即保留本組商品庫存；預購須於 2 小時內、現貨須於 24 小時內完成匯款，逾期未回報付款將自動取消並釋放庫存。付款完成視同同意代購規則；賣貨便運費由 7-11 於取貨時收取，宅配現貨付款確認後由客服確認尾款與運費，預購商品到貨後通知，確認入帳後才安排寄出，任何原因不接受退換貨。";
+  if (checkoutTerms) checkoutTerms.textContent = "送出後將立即保留本組商品庫存；預購須於 2 小時內、現貨須於 24 小時內完成匯款，逾期未回報付款將自動取消並釋放保留量，確認付款後才扣除庫存。付款完成視同同意代購規則；賣貨便運費由 7-11 於取貨時收取，宅配現貨付款確認後由客服確認尾款與運費，預購商品到貨後通知，確認入帳後才安排寄出，任何原因不接受退換貨。";
   const productCopy = document.querySelector("[data-admin-panel='products'] > .dialog-copy");
   if (productCopy) productCopy.textContent = "每件商品可上傳 1 張主圖；JPG、PNG、WebP 會優先保留比例、縮放並轉成 WebP，若瀏覽器不支援轉換則保留原始格式；單張上限 5MB。";
   const orderCopy = document.querySelector("[data-admin-panel='orders'] > .dialog-copy");
-  if (orderCopy) orderCopy.textContent = "確認訂金／付款後才會扣除庫存；賣貨便運費由 7-11 向客戶收取，不計入訂單；現貨宅配付款確認後即可填寫實際運費，預購宅配則於到貨後更新狀態，再確認尾款與運費入帳後安排寄出。";
+  if (orderCopy) orderCopy.textContent = "建立訂單會先保留庫存；確認訂金／付款後才會扣除庫存。未扣庫存的取消會釋放保留量；已扣庫存且尚未完成交付的取消會反轉原銷售異動。賣貨便運費由 7-11 向客戶收取，不計入訂單；現貨宅配付款確認後即可填寫實際運費，預購宅配則於到貨後更新狀態，再確認尾款與運費入帳後安排寄出。";
   const ordersCopy = document.querySelector("#orders-dialog .dialog-copy");
   if (ordersCopy) ordersCopy.textContent = "可查看訂單狀態，匯款訂單可補填匯款帳號末五碼；賣貨便訂單會先顯示為待確認，待管理員人工核對。";
 }
@@ -1913,6 +2514,7 @@ function renderAdminMembers() {
   const members = (adminData.members || []).filter((member) => `${member.full_name || ""} ${member.phone || ""}`.toLowerCase().includes(keyword));
   if (!members.length) {
     container.innerHTML = '<div class="empty-state">目前沒有符合條件的會員。</div>';
+    renderAdminPagination("members");
     return;
   }
   const kindLabels = { earn: "消費入點", redeem: "點數折抵", reversal: "點數扣回", manual: "人工調整" };
@@ -1923,6 +2525,7 @@ function renderAdminMembers() {
     const orderHistory = memberOrders.map((order) => `<li><span>${escapeHtml(order.order_number)} · ${escapeHtml(orderStatusLabel(order))}</span><strong>${money(order.amount_due)}</strong><small>${formatDateTime(order.created_at)} · ${order.delivery_method === "store_pickup" ? "到店取貨" : order.delivery_method === "seller_delivery" ? "賣貨便" : "宅配"}</small></li>`).join("");
     return `<article class="admin-member-card"><header><div><h3>${escapeHtml(member.full_name || "尚未填寫姓名")}${member.is_admin ? " · 管理員" : ""}</h3><small>${escapeHtml(member.phone || "尚未填寫手機")} · 加入於 ${formatDateTime(member.created_at)}</small></div><div class="member-metrics"><span>點數<b>${member.point_balance}</b></span><span>累積消費<b>${money(member.lifetime_spend)}</b></span><span>訂單<b>${member.order_count}</b></span></div></header><div class="member-extra"><span>生日：${escapeHtml(member.birthday || "未填")}</span><span>地址：${escapeHtml(member.address || "未填")}</span></div><form class="admin-point-adjust" data-admin-points-form="${member.id}"><label>異動點數<input name="points" required type="number" step="1" placeholder="增加填正數、扣除填負數" /></label><label>原因<input name="reason" required maxlength="200" placeholder="例如：活動贈點、人工更正" /></label><button class="secondary-button" type="submit">調整點數</button></form><details class="admin-order-history"><summary>消費紀錄（${member.order_count || 0}）</summary>${orderHistory ? `<ol class="member-ledger">${orderHistory}</ol>` : '<p>尚無消費紀錄。</p>'}</details><details class="admin-order-history"><summary>點數紀錄（${memberPointEntries(member.id).length}）</summary>${history ? `<ol class="member-ledger">${history}</ol>` : '<p>尚無點數紀錄。</p>'}</details></article>`;
   }).join("");
+  renderAdminPagination("members");
 }
 
 function syncPointMaxHint() {
@@ -2018,6 +2621,25 @@ function adminOrderHistory(orderId) {
   return (adminData.orderHistory || []).filter((entry) => entry.order_id === orderId);
 }
 
+function adminReturnConfirmation(orderItemId) {
+  return (adminData.returns || []).find((entry) => entry.order_item_id === orderItemId);
+}
+
+function renderAdminReturnPanel(order) {
+  if (order.status !== "refunded") return "";
+  const items = (order.order_items || []).filter((item) => item.id);
+  if (!items.length) return "";
+  const rows = items.map((item) => {
+    const confirmation = adminReturnConfirmation(item.id);
+    const itemLabel = `${item.product_name || "商品"}${item.variant_name && item.variant_name !== "單一規格" ? ` · ${item.variant_name}` : ""}`;
+    if (confirmation) {
+      return `<div class="admin-return-confirmed"><strong>${escapeHtml(itemLabel)} × ${item.quantity}</strong><small>已驗收 ${confirmation.received_quantity} 件：可再售 ${confirmation.restock_quantity} 件、報廢 ${confirmation.scrap_quantity} 件 · ${formatDateTime(confirmation.created_at)}</small>${confirmation.note ? `<small>備註：${escapeHtml(confirmation.note)}</small>` : ""}</div>`;
+    }
+    return `<form class="admin-return-form" data-admin-return-form="${escapeHtml(item.id)}" data-return-max="${Number(item.quantity) || 0}"><strong>${escapeHtml(itemLabel)} × ${item.quantity}</strong><p class="admin-order-note">收到退貨後才填寫。可再售數量才會回補庫存，報廢數量只留下稽核紀錄。</p><div class="form-grid"><label>收到數量<input name="received_quantity" type="number" min="1" max="${Number(item.quantity) || 0}" required /></label><label>可再售回補<input name="restock_quantity" type="number" min="0" max="${Number(item.quantity) || 0}" value="0" required /></label><label>報廢數量<input name="scrap_quantity" type="number" min="0" max="${Number(item.quantity) || 0}" value="0" required /></label><label class="wide">驗收備註<textarea name="note" rows="2" maxlength="1000" placeholder="例如：外盒損傷、配件缺少"></textarea></label></div><button class="secondary-button" type="submit">確認退貨驗收</button></form>`;
+  }).join("");
+  return `<section class="admin-return-panel"><h4>退貨驗收</h4><p class="admin-order-note">已退款訂單不會自動回補；逐項確認實際收到數量，再分為可再售或報廢。</p>${rows}</section>`;
+}
+
 function adminDiscountLabel(value) {
   const amount = Math.max(0, Number(value || 0));
   return amount > 0 ? `-${money(amount)}` : "未使用";
@@ -2033,13 +2655,10 @@ function renderAdminOrders() {
     const isSellerPending = order.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id;
     const matchesStatus = status === "all" || (status === "seller_pending" ? isSellerPending : order.status === status);
     return matchesStatus && searchable.includes(keyword);
-  }).sort((left, right) => {
-    const priority = (order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id ? 0 : order.status === "pending_review" ? 1 : order.status === "pending_payment" ? 2 : order.status === "ready_for_pickup" ? 3 : order.status === "partially_ready" ? 4 : 5;
-    const byPriority = priority(left) - priority(right);
-    return byPriority || new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
-  });
+  }).sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
   if (!orders.length) {
     container.innerHTML = '<div class="empty-state">目前沒有符合條件的訂單。</div>';
+    renderAdminPagination("orders");
     return;
   }
   container.innerHTML = orders.map((order) => {
@@ -2053,6 +2672,8 @@ function renderAdminOrders() {
       && (!item.storePaymentOnly || !order.bank_account_id)
       && (item.value !== "partially_ready" || preorderStorePickup)
       && (item.value !== "ready_for_pickup" || preorderStorePickup || order.delivery_method === "seller_delivery" || (order.delivery_method === "home_delivery" && hasPreorder))
+      && !(item.value === "ready_for_pickup" && order.delivery_method === "seller_delivery" && !hasPreorder)
+      && !(item.value === "cancelled" && order.delivery_method === "seller_delivery" && order.status === "ready_for_pickup")
       && (item.value !== "completed" || order.delivery_method !== "home_delivery" || Boolean(order.final_payment_confirmed_at))
     );
     const options = transitions.map((item) => {
@@ -2069,7 +2690,7 @@ function renderAdminOrders() {
         : item.value === "ready_for_pickup" && preorderStorePickup
           ? "通知會員可到店取貨"
         : item.value === "completed" && order.delivery_method === "seller_delivery"
-          ? "確認賣貨便已取貨並完成訂單"
+          ? "確認已出貨、通知會員並完成訂單"
         : item.value === "completed" && order.delivery_method === "home_delivery"
           ? "確認寄送完成並結束訂單"
         : item.label;
@@ -2082,8 +2703,9 @@ function renderAdminOrders() {
     const deliveryLabel = deliveryMethodLabels[order.delivery_method || "store_pickup"] || "到店取貨";
     const orderDeliveryLabel = `${orderInventoryTypeLabel(order)}．${deliveryLabel}`;
     const shippingInfo = order.delivery_method === "home_delivery" ? `<p class="admin-order-note">收件人：${escapeHtml(order.shipping_recipient_name || "未填寫")}<br />電話：${escapeHtml(order.shipping_phone || "未填寫")}<br />地址：${escapeHtml(order.shipping_address || "未填寫")}</p>` : "";
-    return `<article class="admin-order-card"><header><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(orderDeliveryLabel)}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(adminOrderStatusLabel(order))}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div><div class="admin-order-payment"><span class="admin-order-total">總額 <b>${money(order.amount_due)}</b></span><span class="admin-order-payment-method">運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span class="admin-order-deposit">訂金應付 <b>${money(order.deposit_due)}</b></span><span class="admin-order-paid">已確認 <b>${money(order.paid_amount || 0)}</b></span><span class="admin-order-balance">待收尾款 <b>${money(balance)}</b></span><span class="admin-order-discount admin-order-coupon">優惠券折抵 <b>${adminDiscountLabel(couponDiscount)}</b></span><span class="admin-order-discount admin-order-points">點數折抵 <b>${adminDiscountLabel(pointDiscount)}</b></span></div>${shippingInfo}<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span>匯款末五碼：<b>${escapeHtml(order.payment_last_five || "尚未回報")}</b></span></div>${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status">${options}</select></label><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消與退款相關操作必填；其他操作可選填"></textarea></label><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>'}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
+    return `<article class="admin-order-card"><header><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(orderDeliveryLabel)}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(adminOrderStatusLabel(order))}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div><div class="admin-order-payment"><span class="admin-order-total">總額 <b>${money(order.amount_due)}</b></span><span class="admin-order-payment-method">運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span class="admin-order-deposit">訂金應付 <b>${money(order.deposit_due)}</b></span><span class="admin-order-paid">已確認 <b>${money(order.paid_amount || 0)}</b></span><span class="admin-order-balance">待收尾款 <b>${money(balance)}</b></span><span class="admin-order-discount admin-order-coupon">優惠券折抵 <b>${adminDiscountLabel(couponDiscount)}</b></span><span class="admin-order-discount admin-order-points">點數折抵 <b>${adminDiscountLabel(pointDiscount)}</b></span></div>${shippingInfo}<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span>匯款末五碼：<b>${escapeHtml(order.payment_last_five || "尚未回報")}</b></span></div>${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status">${options}</select></label><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消與退款相關操作必填；其他操作可選填"></textarea></label><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>'}${renderAdminReturnPanel(order)}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
   }).join("");
+  renderAdminPagination("orders");
   container.querySelectorAll(".admin-order-card").forEach((card, index) => {
     const paymentNode = card.querySelector(".admin-order-payment-method");
     const order = orders[index];
@@ -2168,12 +2790,17 @@ async function submitAdminOrderTransition(event) {
   const targetStatus = targetStatusField.value;
   const note = noteField.value.trim();
   if (["cancelled", "refund_pending", "refunded"].includes(targetStatus) && !note) throw new Error("取消或退款相關操作必須填寫原因");
+  const currentOrder = (adminData.orders || []).find((order) => order.id === form.dataset.adminOrderForm);
   const warning = targetStatus === "confirmed"
     ? "確認款項後會正式扣除商品庫存。確定繼續？"
     : targetStatus === "completed"
       ? "完成訂單代表商品已取走且尾款已收訖。確定繼續？"
-      : ["cancelled", "refund_pending", "refunded"].includes(targetStatus)
-        ? "此操作不會自動回補已扣除的庫存，後續可依個案從庫存異動調整。確定繼續？"
+      : targetStatus === "cancelled" && ["pending_payment", "pending_review"].includes(currentOrder?.status)
+        ? "此訂單尚未扣除實體庫存；取消後會釋放保留量。確定繼續？"
+      : targetStatus === "cancelled"
+        ? "此訂單已扣除庫存且尚未完成交付；取消後會由系統反轉原銷售異動，不能再手動重複回補。確定繼續？"
+      : ["refund_pending", "refunded"].includes(targetStatus)
+        ? "退款流程不會自動回補庫存；收到實物後，請在已退款訂單逐項驗收並分為可再售或報廢。確定繼續？"
         : "確定更新此訂單狀態？";
   if (!window.confirm(warning)) return;
   const button = form.querySelector("button[type='submit']");
@@ -2187,6 +2814,33 @@ async function submitAdminOrderTransition(event) {
     renderProducts();
   } finally {
     button.disabled = false;
+  }
+}
+
+async function submitAdminOrderReturn(event) {
+  event.preventDefault();
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement)) throw new Error("退貨驗收表單資料無法讀取");
+  const receivedField = form.elements.namedItem("received_quantity");
+  const restockField = form.elements.namedItem("restock_quantity");
+  const scrapField = form.elements.namedItem("scrap_quantity");
+  const noteField = form.elements.namedItem("note");
+  if (!(receivedField instanceof HTMLInputElement) || !(restockField instanceof HTMLInputElement) || !(scrapField instanceof HTMLInputElement) || !(noteField instanceof HTMLTextAreaElement)) throw new Error("退貨驗收表單欄位不完整");
+  const received = Number(receivedField.value);
+  const restock = Number(restockField.value);
+  const scrap = Number(scrapField.value);
+  const max = Number(form.dataset.returnMax || 0);
+  if (![received, restock, scrap].every(Number.isInteger) || received <= 0 || received > max || restock < 0 || scrap < 0 || restock + scrap !== received) throw new Error("收到、可再售與報廢數量必須正確相等，且不可超過原購買數量");
+  if (!window.confirm(`確認收到 ${received} 件，其中可再售 ${restock} 件、報廢 ${scrap} 件？`)) return;
+  const button = form.querySelector("button[type='submit']");
+  if (button instanceof HTMLButtonElement) button.disabled = true;
+  try {
+    await adminFetch(`/api/admin/order-items/${form.dataset.adminReturnForm}/return`, { method: "POST", body: JSON.stringify({ received_quantity: received, restock_quantity: restock, scrap_quantity: scrap, note: noteField.value.trim() }) });
+    await refreshAdminSections(["orders", "overview", "inventory", "products"]);
+    switchAdminTab("orders");
+    showToast("退貨驗收已記錄", "success");
+  } finally {
+    if (button instanceof HTMLButtonElement) button.disabled = false;
   }
 }
 
@@ -2287,7 +2941,7 @@ function renderAdminCategories() {
     return;
   }
   const productCounts = new Map(categories.map((category) => [category.id, 0]));
-  (adminData.products || []).forEach((product) => {
+  (adminData.productOptions || adminData.products || []).forEach((product) => {
     if (product.category_id && productCounts.has(product.category_id)) productCounts.set(product.category_id, productCounts.get(product.category_id) + 1);
   });
   list.innerHTML = categories.map((category) => `<article class="admin-card admin-category-card"><div><strong>${escapeHtml(category.name)}</strong><small>排序 ${Number(category.display_order || 0)} · ${category.is_active === false ? "已停用（不供新商品選擇）" : "啟用"} · 使用商品 ${productCounts.get(category.id) || 0} 件</small></div><button type="button" data-admin-category-edit="${escapeHtml(category.id)}">編輯</button></article>`).join("");
@@ -2306,6 +2960,7 @@ async function submitAdminCategory(event) {
   if (submit instanceof HTMLButtonElement) { submit.disabled = true; submit.textContent = "儲存中…"; }
   try {
     await adminFetch(id ? `/api/admin/categories/${id}` : "/api/admin/categories", { method: id ? "PATCH" : "POST", body: JSON.stringify({ name, display_order: displayOrder, is_active: isActive }) });
+    invalidateAdminManagementOptions();
     resetAdminCategoryForm();
     await refreshAdminSections(["products"]);
     switchAdminTab("products");
@@ -2315,12 +2970,34 @@ async function submitAdminCategory(event) {
   }
 }
 
-function renderAdminSelects() {
-  const products = adminData.products || [];
+function renderAdminSelects({ preserveSelection = false } = {}) {
+  const products = adminData.productOptions || adminData.products || [];
   const productOptions = products.map((product) => `<option value="${product.id}">${escapeHtml(product.name)}</option>`).join("");
-  document.querySelector("#admin-variant-product").innerHTML = productOptions || '<option value="">請先建立商品</option>';
+  const productSelect = document.querySelector("#admin-variant-product");
+  const selectedProduct = preserveSelection ? productSelect?.value : "";
+  if (productSelect) {
+    productSelect.innerHTML = productOptions || '<option value="">請先建立商品</option>';
+    if (selectedProduct && [...productSelect.options].some((option) => option.value === selectedProduct)) productSelect.value = selectedProduct;
+  }
   const variantOptions = products.flatMap((product) => (product.product_variants || []).map((variant) => `<option value="${variant.id}">${escapeHtml(product.name)} · ${escapeHtml(variant.name)}（庫存 ${variant.stock_on_hand}）</option>`)).join("");
-  document.querySelector("#admin-inventory-variant").innerHTML = variantOptions || '<option value="">目前沒有商品規格</option>';
+  const variantSelect = document.querySelector("#admin-inventory-variant");
+  const selectedVariant = preserveSelection ? variantSelect?.value : "";
+  if (variantSelect) {
+    variantSelect.innerHTML = variantOptions || '<option value="">目前沒有商品規格</option>';
+    if (selectedVariant && [...variantSelect.options].some((option) => option.value === selectedVariant)) variantSelect.value = selectedVariant;
+  }
+}
+
+function refreshAdminManagementOptionControls() {
+  if (!adminData) return;
+  renderAdminCategories();
+  document.querySelectorAll("[data-edit-product-form] select[name='category_id']").forEach((select) => {
+    const selected = select.value;
+    select.innerHTML = adminCategoryOptions(selected, { includeInactiveSelected: true });
+    if ([...select.options].some((option) => option.value === selected)) select.value = selected;
+  });
+  renderAdminSelects({ preserveSelection: true });
+  renderAdminDiscountOptionBoxes({ preserveSelection: true });
 }
 
 function adminPriceMarkup(variant) {
@@ -2434,7 +3111,7 @@ function renderAdminLowStock() {
   const list = document.querySelector("#admin-low-stock-list");
   const count = document.querySelector("#admin-low-stock-count");
   if (!list) return;
-  const lowStock = (adminData.products || []).flatMap((product) => (product.product_variants || []).filter((variant) => Number(variant.stock_on_hand) <= Number(variant.safety_stock)).map((variant) => ({ product, variant })));
+  const lowStock = (adminData.productOptions || adminData.managementOptions?.products || []).flatMap((product) => (product.product_variants || []).filter((variant) => Number(variant.stock_on_hand) <= Number(variant.safety_stock)).map((variant) => ({ product, variant })));
   if (count) count.textContent = `${lowStock.length} 項`;
   list.innerHTML = lowStock.length ? lowStock.map(({ product, variant }) => `<div class="admin-low-stock-row"><div><strong>${escapeHtml(product.name)} · ${escapeHtml(variant.name)}</strong><small>SKU ${escapeHtml(variant.sku)} · 安全庫存 ${variant.safety_stock}</small></div><span>${variant.stock_on_hand}</span><button class="secondary-button" type="button" data-admin-low-stock-variant="${escapeHtml(variant.id)}">調整庫存</button></div>`).join("") : '<p class="admin-low-stock-empty">目前沒有低於安全庫存的規格。</p>';
 }
@@ -2647,6 +3324,7 @@ async function submitAdminProduct(event) {
   try {
     const preparedImage = selectedImage ? await prepareProductImage(selectedImage) : null;
     const result = await adminFetch("/api/admin/products", { method: "POST", body: JSON.stringify(productFormBody()) });
+    invalidateAdminManagementOptions();
     await uploadAdminProductImage(result.ids.product_id, preparedImage?.file);
     form.reset();
     document.querySelector("#admin-variant-name").value = "單一規格";
@@ -2681,6 +3359,7 @@ async function submitNewVariant(event) {
     is_published: document.querySelector("#admin-new-published").checked
   };
   await adminFetch("/api/admin/variants", { method: "POST", body: JSON.stringify(body) });
+  invalidateAdminManagementOptions();
   event.currentTarget.reset();
   document.querySelector("#admin-new-safety-stock").value = "3";
   const newCompareAtPriceInput = document.querySelector("#admin-new-compare-at-price");
@@ -2703,6 +3382,7 @@ async function submitInventoryAdjustment(event) {
   }
   try {
     const result = await adminFetch(`/api/admin/variants/${variantId}/inventory`, { method: "POST", body: JSON.stringify({ quantity_delta: Number(document.querySelector("#admin-inventory-delta").value), reason: document.querySelector("#admin-inventory-reason").value }) });
+    invalidateAdminManagementOptions();
     form.reset();
     await refreshAdminSections(["inventory", "products", "overview"]);
     switchAdminTab("inventory");
@@ -2742,6 +3422,7 @@ async function submitDynamicAdminForm(event) {
       preparedImage = hasImage ? await prepareProductImage(selectedImage) : null;
       const purchaseLimit = String(formData.get("purchase_limit") || "").trim();
       await adminFetch(`/api/admin/products/${productId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), description: formData.get("description"), category_id: String(formData.get("category_id") || "").trim() || null, purchase_limit: purchaseLimit ? Number(purchaseLimit) : null, points_eligible: formData.get("points_excluded") !== "on", display_order: Number(formData.get("display_order") || 0), is_published: formData.get("is_published") === "on" }) });
+      invalidateAdminManagementOptions();
       if (preparedImage) await uploadAdminProductImage(productId, preparedImage.file);
       event.target.dataset.imageFallback = preparedImage && !preparedImage.converted ? "true" : "false";
     } finally {
@@ -2753,6 +3434,7 @@ async function submitDynamicAdminForm(event) {
       const kind = formData.get("kind");
       const compareAtPrice = String(formData.get("compare_at_price") || "").trim();
       await adminFetch(`/api/admin/variants/${variantId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), sku: formData.get("sku"), kind, price: Number(formData.get("price")), compare_at_price: compareAtPrice ? Number(compareAtPrice) : null, safety_stock: Number(formData.get("safety_stock") || 3), deposit_rate: kind === "preorder" ? 0.5 : Number(formData.get("deposit_rate") || 0) / 100, preorder_arrival: preorderArrivalValue(formData.get("preorder_arrival_from"), formData.get("preorder_arrival_until"), formData.get("preorder_arrival_raw")), display_order: Number(formData.get("display_order") || 0), seller_link: formData.get("seller_link"), is_published: formData.get("is_published") === "on" }) });
+      invalidateAdminManagementOptions();
     } finally {
       if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; }
     }
@@ -2811,6 +3493,12 @@ document.addEventListener("click", (event) => {
   if (event.target.closest("[data-orders-open]")) openOrders();
   if (event.target.closest("[data-orders-close]")) closeDialog(document.querySelector("#orders-dialog"));
   if (event.target.closest("[data-orders-shop]")) { closeDialog(document.querySelector("#orders-dialog")); document.querySelector("#products")?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  const lineFriendRequest = event.target.closest("[data-line-friend-request]");
+  if (lineFriendRequest && canRequestLineFriendship()) {
+    event.preventDefault();
+    handleLineFriendRequest(lineFriendRequest);
+    return;
+  }
   if (event.target.closest("[data-payment-close], [data-payment-later]")) closeDialog(document.querySelector("#payment-dialog"));
   const lineFriendCheck = event.target.closest("[data-line-friend-check]");
   if (lineFriendCheck) {
@@ -2831,6 +3519,19 @@ document.addEventListener("click", (event) => {
   if (event.target.closest("[data-admin-refresh]")) loadAdminData().catch((error) => showToast(error.message, "error"));
   if (event.target.closest("[data-telegram-test]")) testTelegramNotification().catch((error) => showToast(error.message, "error"));
   if (event.target.closest("[data-birthday-issue]")) issueBirthdayCouponsNow().catch((error) => showToast(error.message, "error"));
+  const adminPageButton = event.target.closest("[data-admin-page]");
+  if (adminPageButton) {
+    const section = adminPageButton.dataset.adminPage;
+    const delta = Number(adminPageButton.dataset.adminPageDelta || 0);
+    adminPageButton.disabled = true;
+    changeAdminPage(section, delta).catch((error) => showToast(error.message, "error")).finally(() => { adminPageButton.disabled = false; });
+    return;
+  }
+  const notificationRequeueButton = event.target.closest("[data-admin-notification-requeue]");
+  if (notificationRequeueButton) {
+    requeueAdminNotification(notificationRequeueButton).catch((error) => showToast(error.message, "error"));
+    return;
+  }
   if (event.target.closest("[data-admin-category-focus]")) focusAdminCategoryForm();
   if (event.target.closest("[data-admin-category-cancel]")) resetAdminCategoryForm();
   const categoryEdit = event.target.closest("[data-admin-category-edit]");
@@ -2850,8 +3551,10 @@ document.addEventListener("click", (event) => {
 document.addEventListener("error", handleAdminProductImageError, true);
 document.addEventListener("change", (event) => {
   if (event.target.closest("#checkout-form")) clearCheckoutFieldErrorFor(event.target);
-  if (event.target.matches("#admin-order-status-filter")) renderAdminOrders();
-  if (event.target.matches("#admin-product-status")) renderAdminProducts();
+  if (event.target.matches("#admin-order-status-filter")) reloadAdminList("orders", true);
+  if (event.target.matches("#admin-product-status")) reloadAdminList("products", true);
+  if (event.target.matches("#admin-audit-resource, #admin-audit-action")) reloadAdminList("audit", true);
+  if (event.target.matches("#admin-notification-channel, #admin-notification-status")) reloadAdminList("notifications", true);
   if (event.target.matches("#point-max-mode")) syncPointMaxHint();
   if (event.target.matches("#admin-kind")) syncDepositField(event.target, document.querySelector("#admin-deposit-rate"));
   if (event.target.matches("#admin-new-kind")) syncDepositField(event.target, document.querySelector("#admin-new-deposit-rate"));
@@ -2869,9 +3572,9 @@ document.addEventListener("change", (event) => {
   }
 });
 document.addEventListener("input", (event) => {
-  if (event.target.matches("#admin-order-search")) renderAdminOrders();
-  if (event.target.matches("#admin-member-search")) renderAdminMembers();
-  if (event.target.matches("#admin-product-search")) renderAdminProducts();
+  if (event.target.matches("#admin-order-search")) reloadAdminList("orders");
+  if (event.target.matches("#admin-member-search")) reloadAdminList("members");
+  if (event.target.matches("#admin-product-search")) reloadAdminList("products");
   if (event.target.matches("#checkout-points")) renderCheckoutSummary();
   if (event.target.matches("#checkout-coupon-code")) renderCheckoutSummary();
   if (event.target.matches("#checkout-address")) renderCheckoutSummary();
@@ -2893,6 +3596,11 @@ document.addEventListener("submit", async (event) => {
   }
   if (event.target.matches("[data-admin-order-form]")) {
     try { await submitAdminOrderTransition(event); }
+    catch (error) { showToast(error.message, "error"); }
+    return;
+  }
+  if (event.target.matches("[data-admin-return-form]")) {
+    try { await submitAdminOrderReturn(event); }
     catch (error) { showToast(error.message, "error"); }
     return;
   }
@@ -2950,11 +3658,105 @@ async function loadProducts() {
   }
 }
 
-removeLegacyShippingUI();
-removeLegacySellerCheckoutOption();
-captureAuthSession();
-await Promise.all([loadRuntimeConfig(), loadProducts()]);
-loadLocalCart();
-await loadMember();
-renderHeroSpotlight(); renderProducts(); renderCart();
-await restoreAuthReturnState();
+function waitForHeroImageDecode(timeoutMs = HERO_IMAGE_DECODE_TIMEOUT_MS) {
+  const image = document.querySelector("#hero-product-visual img");
+  if (!image || !image.getAttribute("src")) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId = null;
+    let onLoad = null;
+    let onError = null;
+    const finish = (decoded) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
+      if (onLoad) image.removeEventListener("load", onLoad);
+      if (onError) image.removeEventListener("error", onError);
+      resolve(decoded);
+    };
+    timeoutId = window.setTimeout(() => finish(false), timeoutMs);
+    if (typeof image.decode === "function") {
+      // Prefer the browser's decode result when available. A load event can
+      // fire before pixels are ready on mobile WebViews, so it must not win
+      // over decode success, failure, or the timeout.
+      try {
+        image.decode().then(() => finish(true)).catch(() => finish(false));
+      } catch {
+        finish(false);
+      }
+      return;
+    }
+    onLoad = () => finish(true);
+    onError = () => finish(false);
+    if (image.complete) {
+      finish(image.naturalWidth > 0);
+      return;
+    }
+    image.addEventListener("load", onLoad, { once: true });
+    image.addEventListener("error", onError, { once: true });
+  });
+}
+
+function renderInitialPageOnce() {
+  if (initialPageRendered) return;
+  initialPageRendered = true;
+  renderHeroSpotlight();
+  renderProducts();
+  renderCart();
+}
+
+async function bootstrapAuth() {
+  if (authBootstrapInFlight) return authBootstrapInFlight;
+  authBootstrapInFlight = (async () => {
+    removeLegacyShippingUI();
+    removeLegacySellerCheckoutOption();
+    const bootUrl = new URL(location.href);
+    // Overlap the LIFF SDK download with /api/config for LINE launches only;
+    // ordinary browsers never load the SDK.
+    if (hasLiffPrimaryRedirectParams(bootUrl) || bootUrl.searchParams.has(LIFF_AUTO_CALLBACK_PARAM) || readLiffLaunchContext()) preloadLiffSdk();
+    const configLoaded = await loadRuntimeConfig();
+    const liffPrimaryRedirect = hasLiffPrimaryRedirectParams(bootUrl);
+    const explicitLiffLaunch = liffPrimaryRedirect || bootUrl.searchParams.has(LIFF_AUTO_CALLBACK_PARAM);
+    const liffLaunchIntent = hasLiffLaunchIntent(bootUrl);
+    if (!configLoaded && explicitLiffLaunch) throw new Error("登入服務設定載入失敗");
+    if (!configLoaded && liffLaunchIntent) clearLiffLaunchContext();
+    // LIFF primary redirects can carry LINE-owned access_token/id_token fields
+    // in the hash until liff.init() resolves. Only normal browser OAuth and
+    // the cj_liff_oauth callback may be captured before LIFF initialization.
+    if (!liffPrimaryRedirect) captureAuthSession();
+    const liffStage = await initializeLiffStage({
+      launchIntent: configLoaded && liffLaunchIntent,
+      explicitLaunch: explicitLiffLaunch
+    });
+    if (liffStage.primary) return;
+    if (liffPrimaryRedirect) captureAuthSession();
+    loadLocalCart();
+    const liffRedirecting = liffLaunchIntent && liffStage.initialized && liffStage.state?.isInClient
+      ? await initializeLiffBridge(liffStage.state)
+      : false;
+    if (liffRedirecting) return;
+    await loadProducts();
+    renderInitialPageOnce();
+    await waitForHeroImageDecode();
+    finishAuthBoot();
+    // Member/session restoration continues after the public catalog is usable,
+    // so a slow auth request cannot keep ordinary browsers behind the boot UI.
+    await loadMember();
+    await restoreAuthReturnState();
+  })();
+  return authBootstrapInFlight;
+}
+
+startAuthBoot();
+try {
+  await bootstrapAuth();
+} catch (error) {
+  console.error("App bootstrap failed.", error);
+  if (liffPrimaryRedirectPending || hasLiffPrimaryRedirectParams() || new URL(location.href).searchParams.has(LIFF_AUTO_CALLBACK_PARAM)) {
+    failAuthBoot("LINE 登入頁面準備失敗，請點擊重試");
+  } else {
+    renderInitialPageOnce();
+    finishAuthBoot();
+    showToast("頁面載入較慢，部分會員資料可能需要重新整理", "error");
+  }
+}

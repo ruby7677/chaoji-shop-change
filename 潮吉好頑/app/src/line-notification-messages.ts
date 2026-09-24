@@ -1,31 +1,42 @@
 /**
- * LINE 通知文案集中設定區
+ * 通知文案集中設定區
  *
- * 日後要調整 LINE 顯示文字時，優先修改這個檔案，再重新部署 Worker。
+ * 會員通知由 LINE 發送，管理員通知由 Telegram 發送；兩者共用訂單文案。
+ * 日後要調整顯示文字時，優先修改這個檔案，再重新部署 Worker。
  * ${...} 會由程式帶入訂單、會員或優惠券的即時資料，請保留這些欄位。
  */
 
-export const LINE_NOTIFICATION_COPY = {
+export const NOTIFICATION_COPY = {
   test: {
-    title: "LINE 通知測試成功",
+    title: "Telegram 管理員通知測試成功",
     timeLabel: "測試時間",
     note: "這是一則由管理後台發出的測試訊息。"
   },
   order: {
+    titleSuffix: "選物",
     status: {
       created: "待確認中",
+      createdPayment: "待確認付款",
       paymentReported: "會員已回報匯款",
-      depositConfirmed: "已確認收到訂金",
-      sellerConfirmed: "已建立訂單，出貨中",
-      arrived: "已到貨，待付尾款出貨",
-      shipping: "已確認收到尾款，出貨中",
-      completed: "已完成"
+      preorderPaymentReported: "會員已回報付訂",
+      storeConfirmed: "已確認訂單付訂完成",
+      remoteConfirmed: "已確認訂單付訂完成，待到貨通知",
+      sellerStockConfirmed: "已確認訂單，備貨中",
+      homeStockConfirmed: "已確認訂單付訂完成，現貨備貨中",
+      arrivedStorePreorder: "商品已到貨，私訊小幫手約取貨時間",
+      arrivedSellerPreorder: "商品已到貨，私訊小幫手開賣貨便",
+      arrivedHome: "商品已到貨，私訊小幫手確認尾款及運費",
+      shippedSeller: "已出貨，請留意到貨的簡訊通知",
+      shippedHome: "已出貨，請留意貨運的電話／簡訊通知",
+      completedPickup: "已完成取貨"
     },
     labels: {
       order: "訂單編號",
       status: "訂單狀態",
+      member: "會員名稱",
       items: "商品",
       delivery: "取貨方式",
+      shipping: "運費",
       payment: "付款方式",
       deliveryNote: "配送說明",
       total: "總金額",
@@ -38,18 +49,22 @@ export const LINE_NOTIFICATION_COPY = {
       recipientHeading: "收件資訊確認"
     },
     payment: {
-      bankPending: "匯款／轉帳後、待客服確認通知",
-      storePending: "到店支付後、待客服確認通知",
-      sellerPending: "賣貨便結帳後、待管理員核對通知"
+      bank: "匯款／轉帳",
+      seller: "賣貨便取貨付款"
     },
     delivery: {
-      remoteBalancePending: "待到貨後通知",
-      genericBalancePending: "待到貨後客服通知",
-      sellerBalancePending: "尾款待到貨後通知；賣貨便運費由 7-11 收取",
-      arrivalNote: "到貨由客服通知補尾款後出貨",
-      sellerNote: "到貨由客服通知補尾款後寄出；賣貨便運費由 7-11 於取貨時收取",
-      storeBalance: "到店確認",
-      storeNote: "到貨通知後到店取貨，尾款於取貨時確認"
+      storeReported: "到店取貨",
+      storePreorderReported: "到店取貨付尾款",
+      storeConfirmed: "私訊小幫手約時間到店取貨",
+      storePreorderArrived: "到店取貨",
+      sellerReported: "賣貨便取貨付尾款",
+      sellerShipped: "7-11賣貨便",
+      home: "宅配寄送",
+      preorderNoticeHeading: "預購商品注意事項：",
+      preorderNoticeLine: "預購商品報價有時效性，請於訂單成立後2小時內完成付訂",
+      preorderNoticeCancel: "否則訂單將自動取消",
+      homeShippingPending: "待到貨與尾款一併確認通知",
+      homeShippingPendingStock: "私訊小幫手確認"
     }
   },
   lowStock: {
@@ -64,17 +79,30 @@ export const LINE_NOTIFICATION_COPY = {
   }
 } as const;
 
-export type LineOrderEventType = "created" | "payment_reported" | "status_changed" | "fulfillment_updated";
+export type OrderNotificationEventType = "created" | "payment_reported" | "status_changed" | "fulfillment_updated";
 
-type OrderMessageData = {
+export function routeOrderNotificationRecipients(
+  eventType: OrderNotificationEventType,
+  memberLineUserId: string | null | undefined,
+  telegramAdminChatIds: string[],
+  suppressMemberLineRecipient = false
+) {
+  return {
+    lineRecipients: eventType === "payment_reported" || suppressMemberLineRecipient || !memberLineUserId ? [] : [memberLineUserId],
+    telegramRecipients: [...new Set(telegramAdminChatIds.filter(Boolean))]
+  };
+}
+
+export type OrderMessageData = {
   storeName: string;
-  eventType: LineOrderEventType;
+  eventType: OrderNotificationEventType;
   orderStatus: string;
   statusLabel: string;
   orderNumber: string;
   items: string;
   deliveryLine: string;
   paymentLine: string;
+  hasPreorder: boolean;
   amountDue: number;
   depositDue: number;
   paidAmount: number;
@@ -85,140 +113,319 @@ type OrderMessageData = {
   shippingAddress?: string | null;
 };
 
+/**
+ * LINE Messaging API payload for a single push message.
+ *
+ * Order notifications use a Flex bubble for a richer, card-like presentation;
+ * all other notification types continue to use the existing text payload.
+ */
+export type LinePushMessage =
+  | { type: "text"; text: string }
+  | { type: "flex"; altText: string; contents: Record<string, unknown> };
+
 function money(value: number) {
   return `NT$${value.toLocaleString("zh-TW")}`;
 }
 
-export function buildLineTestMessage(storeName: string, timestamp: string) {
-  const copy = LINE_NOTIFICATION_COPY.test;
+export function buildTelegramTestMessage(storeName: string, timestamp: string) {
+  const copy = NOTIFICATION_COPY.test;
   return [storeName, copy.title, `${copy.timeLabel}：${timestamp}`, copy.note].join("\n");
 }
 
-export function buildOrderNotificationMessage(data: OrderMessageData) {
-  const copy = LINE_NOTIFICATION_COPY.order;
-  const isRemote = data.deliveryLine !== "到店取貨";
-  const isHomeDelivery = data.deliveryLine === "宅配";
-  const isPaymentReported = data.eventType === "payment_reported";
-  const isDepositConfirmed = data.eventType === "status_changed" && data.orderStatus === "confirmed";
-  const isArrival = (data.eventType === "fulfillment_updated" && !data.finalPaymentConfirmed)
-    || (data.eventType === "status_changed" && ["partially_ready", "ready_for_pickup"].includes(data.orderStatus));
-  const balance = Math.max(data.amountDue - data.paidAmount, 0);
+export function buildOrderNotificationMessage(data: OrderMessageData): string | null {
+  const copy = NOTIFICATION_COPY.order;
+  const title = `【${data.storeName}${copy.titleSuffix}】`;
+  const isSeller = data.deliveryLine === "賣貨便";
+  const isHome = data.deliveryLine === "宅配";
+  const isPreorder = data.hasPreorder;
   const productLine = `${copy.labels.items}：${data.items || "-"}`;
-  const orderHeader = [
-    data.storeName,
+  const header = (status: string) => [
+    title,
     `${copy.labels.order}：${data.orderNumber}`,
-    `${copy.labels.status}：${copy.status.created}`,
+    `${copy.labels.status}：${status}`,
     ""
+  ];
+  const message = (status: string, lines: string[]) => header(status).concat(lines).join("\n");
+
+  // completed 才代表實際取貨／寄送結案。宅配即使先前已確認尾款與運費，
+  // 也必須等管理員執行「確認寄送完成並結束訂單」後才發最後出貨通知。
+  if (data.eventType === "status_changed" && data.orderStatus === "completed") {
+    if (isSeller) {
+      return message(copy.status.shippedSeller, [productLine, `${copy.labels.delivery}：${copy.delivery.sellerShipped}`]);
+    }
+    if (isHome) {
+      return message(copy.status.shippedHome, [productLine, `${copy.labels.delivery}：${copy.delivery.home}`]);
+    }
+    if (data.deliveryLine !== "到店取貨") return null;
+    return message(copy.status.completedPickup, [productLine, `${copy.labels.delivery}：${data.deliveryLine}`]);
+  }
+
+  if (data.eventType === "created") {
+    const lines = [
+      productLine,
+      `${copy.labels.total}：${money(data.amountDue)}`,
+      ...(isSeller && !isPreorder ? [] : [`${copy.labels.deposit}：${money(data.depositDue)}`]),
+      ...(isHome ? [`${copy.labels.shipping}：${isPreorder ? copy.delivery.homeShippingPending : copy.delivery.homeShippingPendingStock}`] : []),
+      `${copy.labels.payment}：${isSeller && !isPreorder ? copy.payment.seller : copy.payment.bank}`
+    ];
+    if (isPreorder) lines.push("", copy.delivery.preorderNoticeHeading, copy.delivery.preorderNoticeLine, copy.delivery.preorderNoticeCancel);
+    return message((isSeller || isHome) && !isPreorder ? copy.status.created : copy.status.createdPayment, lines);
+  }
+
+  if (data.eventType === "payment_reported") {
+    const delivery = isSeller
+      ? copy.delivery.sellerReported
+      : isHome
+        ? copy.delivery.home
+        : isPreorder
+          ? copy.delivery.storePreorderReported
+          : copy.delivery.storeReported;
+    return message(isPreorder ? copy.status.preorderPaymentReported : copy.status.paymentReported, [productLine, `${copy.labels.delivery}：${delivery}`]);
+  }
+
+  if (data.eventType === "fulfillment_updated" && data.finalPaymentConfirmed && isSeller) {
+    return message(copy.status.shippedSeller, [productLine, `${copy.labels.delivery}：${copy.delivery.sellerShipped}`]);
+  }
+
+  const isArrival = data.eventType === "fulfillment_updated"
+    || (data.eventType === "status_changed" && ["partially_ready", "ready_for_pickup"].includes(data.orderStatus));
+  if (isArrival) {
+    if (isSeller) {
+      if (isPreorder) return message(copy.status.arrivedSellerPreorder, [productLine]);
+      if (data.eventType === "status_changed" && data.orderStatus === "ready_for_pickup") {
+        return message(copy.status.shippedSeller, [productLine, `${copy.labels.delivery}：${copy.delivery.sellerShipped}`]);
+      }
+      return null;
+    }
+    if (isHome) {
+      // 儲存尾款／運費只更新付款與配送資料，不代表已寄出，也不重複發到貨通知。
+      if (data.eventType === "fulfillment_updated") return null;
+      if (!isPreorder) return null;
+      return message(copy.status.arrivedHome, [productLine]);
+    }
+    if (isPreorder) return message(copy.status.arrivedStorePreorder, [productLine, `${copy.labels.delivery}：${copy.delivery.storePreorderArrived}`]);
+    return null;
+  }
+
+  if (data.eventType === "status_changed" && data.orderStatus === "confirmed") {
+    if (isSeller) return message(isPreorder ? copy.status.remoteConfirmed : copy.status.sellerStockConfirmed, [productLine]);
+    if (isHome) return message(isPreorder ? copy.status.remoteConfirmed : copy.status.homeStockConfirmed, [productLine]);
+    if (isPreorder) return message(copy.status.remoteConfirmed, [productLine]);
+    return message(copy.status.storeConfirmed, [productLine, `${copy.labels.delivery}：${copy.delivery.storeConfirmed}`]);
+  }
+
+  return message(data.statusLabel || data.orderStatus, [productLine, `${copy.labels.delivery}：${data.deliveryLine}`]);
+}
+
+/**
+ * Adds the member display name to the administrator-only Telegram copy.
+ * Keep the original blank line after the status row so every existing event
+ * keeps its layout; LINE customers use the Flex payload and never call this.
+ */
+export function buildTelegramOrderNotificationMessage(message: string, memberName?: string | null) {
+  const lines = message.split("\n");
+  const statusPrefix = `${NOTIFICATION_COPY.order.labels.status}：`;
+  const statusIndex = lines.findIndex((line) => line.startsWith(statusPrefix));
+  if (statusIndex < 0) return message;
+  const safeMemberName = (memberName || "").replace(/[\r\n]+/g, " ").trim() || "會員";
+  lines.splice(statusIndex + 1, 0, `${NOTIFICATION_COPY.order.labels.member}：${safeMemberName}`);
+  return lines.join("\n");
+}
+
+function flexRow(label: string, value: string) {
+  return {
+    type: "box",
+    layout: "horizontal",
+    spacing: "sm",
+    alignItems: "start",
+    contents: [
+      { type: "text", text: label, color: "#8A8A8A", size: "sm", flex: 3, wrap: true },
+      { type: "text", text: value || "-", color: "#3D3D3D", size: "sm", weight: "bold", flex: 7, wrap: true }
+    ]
+  };
+}
+
+function orderFlexTitle(data: OrderMessageData) {
+  if (data.eventType === "created") return "訂單建立提醒";
+  if (data.eventType === "payment_reported") return "匯款回報已送出";
+  if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "賣貨便") return "賣貨便出貨通知";
+  if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "宅配") return "宅配出貨通知";
+  if (data.eventType === "fulfillment_updated") return "訂單進度更新";
+  return "訂單狀態更新";
+}
+
+function orderFlexSummary(data: OrderMessageData) {
+  if (data.eventType === "created") {
+    return "提醒您已成功建立訂單，請依頁面提示完成付款或回報匯款末五碼。";
+  }
+  if (data.eventType === "payment_reported") {
+    return "已收到您的匯款回報，待管理員確認後會再通知您。";
+  }
+  if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "到店取貨") {
+    return "訂單已完成取貨，謝謝您的支持！";
+  }
+  if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "賣貨便") {
+    return "商品已由賣貨便出貨，請留意 7-ELEVEN 到貨通知。";
+  }
+  if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "宅配") {
+    return "商品已寄出，請留意貨運的電話／簡訊通知。";
+  }
+  return "訂單進度已更新，請留意後續通知。";
+}
+
+/**
+ * Builds the customer-facing LINE card while keeping the existing plain text
+ * message as altText. Telegram and other internal channels continue to use
+ * buildOrderNotificationMessage() unchanged.
+ */
+export function buildLineOrderFlexMessage(data: OrderMessageData, altText: string): LinePushMessage {
+  const isSeller = data.deliveryLine === "賣貨便";
+  const isHome = data.deliveryLine === "宅配";
+  const itemSummary = data.items.slice(0, 500);
+  const contents: Array<Record<string, unknown>> = [
+    flexRow(NOTIFICATION_COPY.order.labels.order, data.orderNumber),
+    flexRow(NOTIFICATION_COPY.order.labels.items, itemSummary),
+    flexRow(NOTIFICATION_COPY.order.labels.delivery, data.deliveryLine),
+    flexRow(NOTIFICATION_COPY.order.labels.payment, data.paymentLine)
   ];
 
   if (data.eventType === "created") {
-    return [
-      ...orderHeader,
-      productLine,
-      `${copy.labels.total}：${money(data.amountDue)}`,
-      `${copy.labels.deposit}：${money(data.depositDue)}`,
-      `${copy.labels.payment}：${data.paymentLine === "到店支付" ? copy.payment.storePending : data.paymentLine === "賣貨便付款（外部）" ? copy.payment.sellerPending : copy.payment.bankPending}`
-    ].join("\n");
-  }
-
-  if (data.finalPaymentConfirmed && isRemote) {
-    return [
-      data.storeName,
-      `${copy.labels.order}：${data.orderNumber}`,
-      `${copy.labels.status}：${copy.status.shipping}`,
-      "",
-      productLine
-    ].join("\n");
-  }
-
-  if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "賣貨便") {
-    return [
-      data.storeName,
-      `${copy.labels.order}：${data.orderNumber}`,
-      `${copy.labels.status}：${copy.status.completed}`,
-      "",
-      productLine,
-      `${copy.labels.delivery}：${data.deliveryLine}`
-    ].join("\n");
-  }
-
-  if (isArrival && isRemote) {
-    const tailAmount = Math.max(balance - data.shippingFee, 0);
-    const isSellerDelivery = data.deliveryLine === "賣貨便";
-    return [
-      data.storeName,
-      `${copy.labels.order}：${data.orderNumber}`,
-      `${copy.labels.status}：${copy.status.arrived}`,
-      "",
-      productLine,
-      `${copy.labels.delivery}：${data.deliveryLine}`,
-      isSellerDelivery
-        ? `${copy.labels.balance}：尾款${tailAmount.toLocaleString("zh-TW")}元／賣貨便運費由 7-11 收取`
-        : `${copy.labels.balance}：尾款${tailAmount.toLocaleString("zh-TW")}元/運費${data.shippingFee.toLocaleString("zh-TW")}元`,
-      `${copy.labels.totalBalance}：${(isSellerDelivery ? tailAmount : balance).toLocaleString("zh-TW")}元`,
-      "",
-      copy.labels.recipientHeading,
-      `${copy.labels.recipient}：${data.shippingRecipientName || ""}`,
-      `${copy.labels.phone}：${data.shippingPhone || ""}`,
-      `${copy.labels.address}：${data.shippingAddress || ""}`
-    ].join("\n");
-  }
-
-  if (isPaymentReported || isDepositConfirmed) {
-    const depositStatus = isDepositConfirmed ? copy.status.depositConfirmed : copy.status.paymentReported;
-    if (isDepositConfirmed && data.deliveryLine === "賣貨便") {
-      return [
-        data.storeName,
-        `${copy.labels.order}：${data.orderNumber}`,
-        `${copy.labels.status}：${copy.status.sellerConfirmed}`,
-        "",
-        productLine,
-        `${copy.labels.delivery}：${data.deliveryLine}`
-      ].join("\n");
+    contents.push(flexRow(NOTIFICATION_COPY.order.labels.total, money(data.amountDue)));
+    if (!isSeller || data.hasPreorder) {
+      contents.push(flexRow(NOTIFICATION_COPY.order.labels.deposit, money(data.depositDue)));
     }
-    if (isHomeDelivery) {
-      return [
-        data.storeName,
-        `${copy.labels.order}：${data.orderNumber}`,
-        `${copy.labels.status}：${depositStatus}`,
-        "",
-        productLine,
-        `${copy.labels.delivery}：${data.deliveryLine}`,
-        `${copy.labels.balance}：${copy.delivery.remoteBalancePending}`,
-        `${copy.labels.deliveryNote}：`,
-        copy.delivery.arrivalNote
-      ].join("\n");
+    if (isHome) {
+      const shippingValue = data.shippingFee > 0
+        ? money(data.shippingFee)
+        : data.hasPreorder
+          ? NOTIFICATION_COPY.order.delivery.homeShippingPending
+          : NOTIFICATION_COPY.order.delivery.homeShippingPendingStock;
+      contents.push(flexRow(NOTIFICATION_COPY.order.labels.shipping, shippingValue));
     }
-    return [
-      data.storeName,
-      `${copy.labels.order}：${data.orderNumber}`,
-      `${copy.labels.status}：${depositStatus}`,
-      "",
-      `${copy.labels.delivery}：${data.deliveryLine}`,
-      `${copy.labels.balance}：${isRemote ? (data.deliveryLine === "賣貨便" ? copy.delivery.sellerBalancePending : copy.delivery.genericBalancePending) : copy.delivery.storeBalance}`,
-      `${copy.labels.deliveryNote}：`,
-      isRemote ? (data.deliveryLine === "賣貨便" ? copy.delivery.sellerNote : copy.delivery.arrivalNote) : copy.delivery.storeNote
-    ].join("\n");
   }
 
-  return [
-    data.storeName,
-    `${copy.labels.order}：${data.orderNumber}`,
-    `${copy.labels.status}：${data.statusLabel || data.orderStatus}`,
-    "",
-    productLine,
-    `${copy.labels.delivery}：${data.deliveryLine}`,
-    `${copy.labels.balance}：${isRemote ? (data.deliveryLine === "賣貨便" ? copy.delivery.sellerBalancePending : copy.delivery.genericBalancePending) : copy.delivery.storeBalance}`
-  ].join("\n");
+  if (data.shippingRecipientName || data.shippingPhone || data.shippingAddress) {
+    const recipient = [data.shippingRecipientName, data.shippingPhone].filter(Boolean).join("／").slice(0, 120);
+    if (recipient) contents.push(flexRow(NOTIFICATION_COPY.order.labels.recipient, recipient));
+    if (data.shippingAddress) contents.push(flexRow(NOTIFICATION_COPY.order.labels.address, data.shippingAddress.slice(0, 160)));
+  }
+
+  const safeAltText = altText.slice(0, 1500);
+  return {
+    type: "flex",
+    altText: safeAltText,
+    contents: {
+      type: "bubble",
+      size: "mega",
+      styles: {
+        header: { backgroundColor: "#06C755" },
+        body: { backgroundColor: "#FFFFFF" },
+        footer: { backgroundColor: "#F3F3F3" }
+      },
+      header: {
+        type: "box",
+        layout: "horizontal",
+        paddingAll: "18px",
+        contents: [
+          { type: "text", text: "官方帳號個人服務通知", color: "#FFFFFF", size: "lg", weight: "bold", flex: 1, wrap: true },
+          { type: "text", text: "🔔", color: "#FFFFFF", size: "lg", flex: 0, align: "end" }
+        ]
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "20px",
+        spacing: "md",
+        contents: [
+          { type: "text", text: orderFlexTitle(data), color: "#333333", size: "xl", weight: "bold", wrap: true },
+          { type: "text", text: orderFlexSummary(data), color: "#555555", size: "md", margin: "md", wrap: true },
+          { type: "separator", margin: "lg", color: "#E5E5E5" },
+          { type: "text", text: data.statusLabel || data.orderStatus, color: "#06C755", size: "md", weight: "bold", margin: "lg", wrap: true },
+          ...contents
+        ]
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "12px",
+        contents: [
+          { type: "text", text: "請回到官方帳號查看完整訂單資訊。", color: "#8A8A8A", size: "sm", align: "center", wrap: true }
+        ]
+      }
+    }
+  };
+}
+
+/** Customer-facing birthday coupon card. Keep the plain text as altText so
+ * older LINE clients still receive the complete notification content. */
+export function buildLineBirthdayFlexMessage(
+  storeName: string,
+  coupon: { name: string; code: string; discountAmount: number },
+  altText: string
+): LinePushMessage {
+  const row = (label: string, value: string) => ({
+    type: "box",
+    layout: "horizontal",
+    spacing: "sm",
+    alignItems: "start",
+    contents: [
+      { type: "text", text: label, color: "#8A8A8A", size: "sm", flex: 3, wrap: true },
+      { type: "text", text: value || "-", color: "#3D3D3D", size: "sm", weight: "bold", flex: 7, wrap: true }
+    ]
+  });
+  return {
+    type: "flex",
+    altText: altText.slice(0, 1500),
+    contents: {
+      type: "bubble",
+      size: "mega",
+      styles: {
+        header: { backgroundColor: "#06C755" },
+        body: { backgroundColor: "#FFFFFF" },
+        footer: { backgroundColor: "#F3F3F3" }
+      },
+      header: {
+        type: "box",
+        layout: "horizontal",
+        paddingAll: "18px",
+        contents: [
+          { type: "text", text: "官方帳號個人服務通知", color: "#FFFFFF", size: "lg", weight: "bold", flex: 1, wrap: true },
+          { type: "text", text: "🔔", color: "#FFFFFF", size: "lg", flex: 0, align: "end" }
+        ]
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "20px",
+        spacing: "md",
+        contents: [
+          { type: "text", text: "生日優惠通知", color: "#333333", size: "xl", weight: "bold", wrap: true },
+          { type: "text", text: `${storeName}祝您生日快樂！`, color: "#555555", size: "md", margin: "md", wrap: true },
+          { type: "separator", margin: "lg", color: "#E5E5E5" },
+          row("優惠券", coupon.name.slice(0, 120)),
+          row("優惠碼", coupon.code.slice(0, 80)),
+          row("折抵金額", money(coupon.discountAmount))
+        ]
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "12px",
+        contents: [
+          { type: "text", text: "結帳時輸入優惠碼即可使用。", color: "#8A8A8A", size: "sm", align: "center", wrap: true }
+        ]
+      }
+    }
+  };
 }
 
 export function buildLowStockMessage(storeName: string, lines: string[]) {
-  const copy = LINE_NOTIFICATION_COPY.lowStock;
+  const copy = NOTIFICATION_COPY.lowStock;
   return [storeName, copy.title, ...lines.map((line) => `${copy.bullet}${line}`)].join("\n");
 }
 
 export function buildBirthdayCouponMessage(storeName: string, coupon: { name: string; code: string; discountAmount: number }) {
-  const copy = LINE_NOTIFICATION_COPY.birthday;
+  const copy = NOTIFICATION_COPY.birthday;
   return [
     storeName,
     copy.greeting,

@@ -1,15 +1,18 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "chaoji-haowan-shop",
+  "name": "chaoji-haowan-shop-preview",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-08",
-  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": true },
+  "assets": {
+    "directory": "./design-preview",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
   "vars": {
     "STORE_NAME": "潮吉好頑",
     "SUPABASE_CUSTOM_PROVIDER": "custom:line-web",
     "LINE_AUTH_ENABLED": "true",
-    "LIFF_ID": "2007619149-RYmOkjxJ",
-    "LINE_LOGIN_CHANNEL_ID": "2007619149",
     "LINE_NOTIFY_ENABLED": "true",
     "TELEGRAM_NOTIFY_ENABLED": "true"
   },
@@ -29,8 +32,5 @@
       "namespace_id": "2026091403",
       "simple": { "limit": 20, "period": 60 }
     }
-  ],
-  "triggers": {
-    "crons": ["*/5 * * * *", "0 * * * *"]
-  }
+  ]
 }

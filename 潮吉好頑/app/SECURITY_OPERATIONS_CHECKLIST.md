@@ -14,7 +14,25 @@
   - `API_MEMBER_RATE_LIMITER`：每會員好友驗證／付款 30 次／60 秒。
   - `API_ADMIN_RATE_LIMITER`：每位管理員 API 20 次／60 秒。
 - Worker 安全標頭：CSP、HSTS、X-Frame-Options、X-Content-Type-Options、Referrer-Policy、Permissions-Policy。
-- 最新 Worker：`deployed-line-admin-no-mfa-v2`（Version ID `e2f56dd1-9454-4310-9fb2-0fd98f403f11`）。
+- 最新 Worker：Version ID `f6ad722f-ec88-4259-8f28-48f6d6ab68fc`（2026-09-23 部署：後台分頁載入與管理選項快取效能修復）。
+- 商品積點 eligibility migration：`product_points_eligibility` 與 `product_points_admin_acl`；新版管理商品 RPC 僅保留 service_role execute，`search_path` 維持空值。
+
+## 本次本機待核對／待套用 migration
+
+以下 migration 已在本機工作樹完成審查與程式接線；本輪沒有 production deploy、遠端 SQL 或真實通知測試，因此套用前仍須先核對 Supabase migration history：
+
+- `202609220001_member_point_balance_rpc.sql`：完整 point ledger 餘額 RPC，前台近期 100 筆只作歷程。
+- `202609220002_notification_delivery_state_machine.sql`：LINE／Telegram 原子 claim、lease、claim token fencing 與 transient retry；外部 API 仍只能保證 at-least-once。
+- `202609220003_inventory_cancellation_returns.sql`：取消／退款庫存狀態限制、原 sale 反轉冪等、賣貨便已出貨保守退款，以及退貨可再售／報廢驗收紀錄。
+- `202609220004_audit_logs_admin_search.sql`、`202609220005_audit_existing_admin_rpcs.sql`：service-role-only、不可更新／刪除的 `audit_logs`、固定名稱管理 RPC 與資料庫端訂單／會員搜尋。既有訂單 history、inventory movements、point ledger、return confirmations 仍各自保存原始交易歷程，不由通用 audit 重複取代。
+- `202609220006_admin_catalog_coupon_inventory_search.sql`：商品／優惠券／庫存異動固定 RPC 搜尋分頁，以及不受清單分頁影響的完整管理 options payload。
+- `202609220007_notification_claim_found_fix.sql`：修正動態 notification claim 的 `ROW_COUNT` 判定；不改既有簽名、claim token fencing 或 service-role 權限。
+- `202609230001_notification_operations.sql`：通知紀錄 service-role-only list、failed-only requeue 與 retry audit；後台重排不會直接呼叫外部通知 API。
+- `202609230002_notification_display_context.sql`：通知列表補充遮罩收件人 context 與已知訂單編號；非訂單 event 不猜測關聯，仍不回傳 recipient_id、payload 或 token。
+
+套用後需以 `supabase/verify_schema.sql` 唯讀確認函式簽名、notification claim token、退貨驗收表與管理概況 count RPC，再執行 Supabase Security Advisors。不要把本機 dry-run 視為 migration 已套用或 production 已更新。
+
+Audit 驗證方案：以隔離測試管理員執行商品／規格／分類／收款帳戶／優惠券／生日券／點數設定 mutation，確認每次資料變更與 audit row 同 transaction；一般會員、anon 與偽造 actor 應被 RPC 拒絕。對 `audit_logs` 執行 UPDATE、DELETE、TRUNCATE 應分別被權限或 `AUDIT_LOG_IMMUTABLE` 拒絕。若商品圖片 binary 上傳成功但後續 DB pointer 更新失敗，需依 storage 與 audit 結果人工補償；此跨服務操作不宣稱單一 transaction。
 
 ## A. Supabase Auth：Email／洩漏密碼防護
 

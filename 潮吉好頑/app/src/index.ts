@@ -1,10 +1,30 @@
 import {
   buildBirthdayCouponMessage,
-  buildLineTestMessage,
+  buildLineBirthdayFlexMessage,
+  buildLineOrderFlexMessage,
   buildLowStockMessage,
   buildOrderNotificationMessage,
-  type LineOrderEventType
+  buildTelegramOrderNotificationMessage,
+  buildTelegramTestMessage,
+  routeOrderNotificationRecipients,
+  type LinePushMessage,
+  type OrderNotificationEventType
 } from "./line-notification-messages";
+import {
+  clearRefreshSessionCookie,
+  openRefreshToken,
+  readRefreshSessionCookie,
+  refreshSessionCookie,
+  refreshSupabaseSession,
+  sealRefreshToken,
+  type SupabaseRefreshSession
+} from "./auth-session";
+import { deleteVaultedSession, readVaultedSession, storeVaultedSession } from "./liff-session-vault";
+import {
+  deliverLineNotification,
+  deliverTelegramNotification,
+  retryDueNotificationDeliveries
+} from "./notification-delivery";
 
 interface Env {
   ASSETS: Fetcher;
@@ -14,9 +34,14 @@ interface Env {
   SUPABASE_SERVICE_ROLE_KEY?: string;
   SUPABASE_CUSTOM_PROVIDER?: string;
   LINE_AUTH_ENABLED?: string;
+  LIFF_ID?: string;
+  LINE_LOGIN_CHANNEL_ID?: string;
+  AUTH_SESSION_SECRET?: string;
   LINE_MESSAGING_CHANNEL_ACCESS_TOKEN?: string;
-  LINE_ADMIN_USER_IDS?: string;
   LINE_NOTIFY_ENABLED?: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  TELEGRAM_ADMIN_CHAT_IDS?: string;
+  TELEGRAM_NOTIFY_ENABLED?: string;
   API_ORDER_RATE_LIMITER?: RateLimit;
   API_MEMBER_RATE_LIMITER?: RateLimit;
   API_ADMIN_RATE_LIMITER?: RateLimit;
@@ -31,6 +56,8 @@ type Product = {
   description?: string;
   variant_name?: string;
   purchase_limit?: number | null;
+  points_eligible?: boolean;
+  compare_at_price?: number | null;
   price: number;
   stock: number;
   type: "現貨" | "預購";
@@ -51,7 +78,7 @@ const demoProducts: Product[] = [
 ];
 
 const SECURITY_HEADERS: Record<string, string> = {
-  "Content-Security-Policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; form-action 'self'; upgrade-insecure-requests",
+  "Content-Security-Policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' https://static.line-scdn.net; style-src 'self' 'sha256-L0NsGOdCgMq8WQ+53SoJ4y/OJrxNakwWYcLt+wUiWoE='; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co https://api.line.me https://access.line.me https://liff.line.me https://liffsdk.line-scdn.net; form-action 'self'; upgrade-insecure-requests",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -75,6 +102,7 @@ function json(data: unknown, init: ResponseInit = {}) {
 const MAX_JSON_REQUEST_BYTES = 128 * 1024;
 const MAX_ORDER_ITEMS = 50;
 const MAX_ITEM_QUANTITY = 100;
+const MAX_CART_ITEMS = 50;
 const LINE_FRIEND_VERIFICATION_TTL_SECONDS = 15 * 60;
 
 async function enforceRateLimit(limiter: RateLimit | undefined, key: string): Promise<Response | null> {
@@ -97,7 +125,7 @@ function lineIdentityId(user: AuthUser, env: Env) {
   const metadataSources = (user.identities || [])
     .filter((identity) => {
       const provider = identity.provider?.toLowerCase();
-      return !provider || provider === "line" || provider === "custom:line-web" || provider === expectedProvider;
+      return provider === "line" || provider === "custom:line-web" || provider === expectedProvider;
     })
     .map((identity) => identity.identity_data || {});
   const value = metadataSources
@@ -110,6 +138,188 @@ function hasLineIdentity(user: AuthUser, env: Env) {
   return Boolean(lineIdentityId(user, env));
 }
 
+type VerifiedLiffIdentity = {
+  iss?: string;
+  sub?: string;
+  aud?: string;
+  exp?: number;
+  iat?: number;
+  name?: string;
+  picture?: string;
+};
+
+async function verifyLiffIdToken(env: Env, idToken: string): Promise<VerifiedLiffIdentity | null> {
+  const channelId = env.LINE_LOGIN_CHANNEL_ID?.trim();
+  if (!channelId) return null;
+  const response = await fetch("https://api.line.me/oauth2/v2.1/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ id_token: idToken, client_id: channelId })
+  });
+  if (!response.ok) return null;
+  const payload = await response.json() as VerifiedLiffIdentity;
+  const expiresAt = Number(payload.exp || 0) * 1000;
+  if (
+    payload.iss !== "https://access.line.me"
+    || payload.aud !== channelId
+    || typeof payload.sub !== "string"
+    || !/^U[0-9a-f]{32}$/i.test(payload.sub)
+    || !Number.isFinite(expiresAt)
+    || expiresAt <= Date.now()
+  ) return null;
+  return payload;
+}
+
+async function verifyLiffIdentity(request: Request, env: Env): Promise<Response> {
+  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `liff:${request.headers.get("CF-Connecting-IP") || "unknown"}`);
+  if (rateLimitResponse) return rateLimitResponse;
+  if (!env.LINE_LOGIN_CHANNEL_ID || !env.LIFF_ID) return json({ error: "LIFF 尚未設定" }, { status: 503 });
+  let body: { id_token?: unknown } | null;
+  try { body = await request.json() as { id_token?: unknown } | null; }
+  catch { return json({ error: "LIFF 驗證資料格式錯誤" }, { status: 400 }); }
+  const idToken = typeof body?.id_token === "string" ? body.id_token.trim() : "";
+  if (!idToken || idToken.length > 8192) return json({ error: "LIFF 驗證資料不完整" }, { status: 400 });
+  const identity = await verifyLiffIdToken(env, idToken);
+  if (!identity?.sub) return json({ error: "LIFF LINE 身分驗證失敗" }, { status: 401 });
+  let sessionMatch: boolean | null = null;
+  if (bearerToken(request)) {
+    const authResult = await requireUser(request, env);
+    if (authResult instanceof Response) return authResult;
+    const authenticatedLineId = lineIdentityId(authResult.user, env);
+    sessionMatch = Boolean(authenticatedLineId && authenticatedLineId.toLowerCase() === identity.sub.toLowerCase());
+    if (!sessionMatch) return json({ error: "LIFF LINE 身分與目前會員登入不一致", code: "LIFF_SESSION_MISMATCH" }, { status: 409 });
+  }
+  return json({ verified: true, sessionMatch, displayName: typeof identity.name === "string" ? identity.name : null });
+}
+
+async function refreshedAuthUser(env: Env, session: SupabaseRefreshSession): Promise<AuthUser | null> {
+  if (session.user && typeof session.user === "object") return session.user as AuthUser;
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return null;
+  const response = await fetch(env.SUPABASE_URL + "/auth/v1/user", {
+    headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: "Bearer " + session.access_token }
+  });
+  if (!response.ok) return null;
+  return await response.json() as AuthUser;
+}
+
+function sessionBridgeReady(env: Env) {
+  return Boolean(
+    env.AUTH_SESSION_SECRET
+    && env.AUTH_SESSION_SECRET.length >= 32
+    && env.SUPABASE_URL
+    && env.SUPABASE_ANON_KEY
+    && env.LINE_LOGIN_CHANNEL_ID
+  );
+}
+
+async function validateRefreshedLineSession(
+  env: Env,
+  session: SupabaseRefreshSession,
+  lineUserId: string
+) {
+  const user = await refreshedAuthUser(env, session);
+  if (!user || !hasLineIdentity(user, env)) return null;
+  const authenticatedLineId = lineIdentityId(user, env);
+  if (!authenticatedLineId || authenticatedLineId.toLowerCase() !== lineUserId.toLowerCase()) return null;
+  return user;
+}
+
+async function rememberLiffSession(request: Request, env: Env): Promise<Response> {
+  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, "session-remember:" + (request.headers.get("CF-Connecting-IP") || "unknown"));
+  if (rateLimitResponse) return rateLimitResponse;
+  if (!sessionBridgeReady(env)) return json({ error: "LIFF 持久登入尚未設定" }, { status: 503 });
+
+  let body: { refresh_token?: unknown; id_token?: unknown } | null;
+  try { body = await request.json() as { refresh_token?: unknown; id_token?: unknown } | null; }
+  catch { return json({ error: "登入工作階段資料格式錯誤" }, { status: 400 }); }
+  const refreshToken = typeof body?.refresh_token === "string" ? body.refresh_token.trim() : "";
+  const idToken = typeof body?.id_token === "string" ? body.id_token.trim() : "";
+  if (!refreshToken || refreshToken.length > 8192 || !idToken || idToken.length > 8192) {
+    return json({ error: "登入工作階段資料不完整" }, { status: 400 });
+  }
+
+  const identity = await verifyLiffIdToken(env, idToken);
+  if (!identity?.sub) return json({ error: "LIFF LINE 身分驗證失敗" }, { status: 401 });
+  const refreshed = await refreshSupabaseSession(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!, refreshToken);
+  if (!refreshed) {
+    return json({ error: "會員登入工作階段已失效" }, { status: 401, headers: { "Set-Cookie": clearRefreshSessionCookie() } });
+  }
+  const user = await validateRefreshedLineSession(env, refreshed, identity.sub);
+  if (!user) {
+    return json({ error: "LIFF LINE 身分與會員登入不一致" }, { status: 409, headers: { "Set-Cookie": clearRefreshSessionCookie() } });
+  }
+
+  return persistedSessionResponse(env, identity.sub, user, refreshed);
+}
+
+// The vault is the canonical store once available. Keeping the same refresh
+// token lineage in both a cookie and the vault would let an old copy be reused
+// after rotation, which Supabase treats as token reuse and revokes the session.
+async function persistedSessionResponse(env: Env, lineUserId: string, user: AuthUser, refreshed: SupabaseRefreshSession) {
+  const sealed = await sealRefreshToken(env.AUTH_SESSION_SECRET!, refreshed.refresh_token);
+  const vaulted = await storeVaultedSession(env, lineUserId, user.id, sealed);
+  return json({
+    access_token: refreshed.access_token,
+    expires_in: Number(refreshed.expires_in || 0),
+    user_id: user.id
+  }, { headers: { "Set-Cookie": vaulted ? clearRefreshSessionCookie() : refreshSessionCookie(sealed) } });
+}
+
+type SealedSessionResult =
+  | { ok: true; user: AuthUser; refreshed: SupabaseRefreshSession }
+  | { ok: false; reason: "invalid" | "expired" | "mismatch" };
+
+async function restoreSealedSession(env: Env, sealed: string, lineUserId: string): Promise<SealedSessionResult> {
+  const refreshToken = await openRefreshToken(env.AUTH_SESSION_SECRET!, sealed);
+  if (!refreshToken) return { ok: false, reason: "invalid" };
+  const refreshed = await refreshSupabaseSession(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!, refreshToken);
+  if (!refreshed) return { ok: false, reason: "expired" };
+  const user = await validateRefreshedLineSession(env, refreshed, lineUserId);
+  if (!user) return { ok: false, reason: "mismatch" };
+  return { ok: true, user, refreshed };
+}
+
+async function restoreLiffSession(request: Request, env: Env): Promise<Response> {
+  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, "session-restore:" + (request.headers.get("CF-Connecting-IP") || "unknown"));
+  if (rateLimitResponse) return rateLimitResponse;
+  if (!sessionBridgeReady(env)) return json({ error: "LIFF 持久登入尚未設定" }, { status: 503 });
+
+  let body: { id_token?: unknown } | null;
+  try { body = await request.json() as { id_token?: unknown } | null; }
+  catch { return json({ error: "LIFF 驗證資料格式錯誤" }, { status: 400 }); }
+  const idToken = typeof body?.id_token === "string" ? body.id_token.trim() : "";
+  if (!idToken || idToken.length > 8192) return json({ error: "LIFF 驗證資料不完整" }, { status: 400 });
+
+  // Every restore path is keyed by a LINE-verified identity; the vault and the
+  // cookie only supply the refresh token for that same LINE user.
+  const identity = await verifyLiffIdToken(env, idToken);
+  if (!identity?.sub) {
+    return json({ error: "LIFF LINE 身分驗證失敗" }, { status: 401, headers: { "Set-Cookie": clearRefreshSessionCookie() } });
+  }
+
+  const vaulted = await readVaultedSession(env, identity.sub);
+  if (vaulted.status === "found") {
+    const result = await restoreSealedSession(env, vaulted.sealed, identity.sub);
+    if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
+    // Keep the row on a refresh failure: it may be a transient Supabase error,
+    // and the next successful LINE Login overwrites it anyway.
+    if (result.reason !== "expired") await deleteVaultedSession(env, identity.sub);
+  }
+
+  const sealedCookie = readRefreshSessionCookie(request);
+  if (!sealedCookie) return json({ error: "沒有可恢復的登入工作階段", code: "NO_PERSISTENT_SESSION" }, { status: 401 });
+  const result = await restoreSealedSession(env, sealedCookie, identity.sub);
+  if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
+  const clearCookie = { "Set-Cookie": clearRefreshSessionCookie() };
+  if (result.reason === "invalid") return json({ error: "登入工作階段無效", code: "INVALID_PERSISTENT_SESSION" }, { status: 401, headers: clearCookie });
+  if (result.reason === "expired") return json({ error: "會員登入工作階段已失效" }, { status: 401, headers: clearCookie });
+  return json({ error: "LIFF LINE 身分與保存的會員登入不一致", code: "LIFF_SESSION_MISMATCH" }, { status: 409, headers: clearCookie });
+}
+
+async function forgetLiffSession(): Promise<Response> {
+  return json({ ok: true }, { headers: { "Set-Cookie": clearRefreshSessionCookie() } });
+}
+
 async function requireUser(request: Request, env: Env): Promise<{ authorization: string; user: AuthUser } | Response> {
   const authorization = bearerToken(request);
   if (!authorization) return json({ error: "需要會員登入" }, { status: 401 });
@@ -120,7 +330,6 @@ async function requireUser(request: Request, env: Env): Promise<{ authorization:
   if (!response.ok) return json({ error: "登入已過期，請重新登入" }, { status: 401 });
   const user = await response.json() as AuthUser;
   if (env.LINE_AUTH_ENABLED === "true" && !hasLineIdentity(user, env)) return json({ error: "本網站僅接受 LINE 會員登入" }, { status: 403 });
-  await syncLineIdentity(env, user);
   return { authorization, user };
 }
 
@@ -151,19 +360,32 @@ function serviceHeaders(env: Env, prefer?: string) {
 }
 
 async function syncLineIdentity(env: Env, user: AuthUser) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return;
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return { ok: false, synced: false };
   // `user_metadata` is editable by the signed-in user. Only use provider identity
   // data and never overwrite an existing binding from a later client request.
   const lineId = lineIdentityId(user, env);
-  if (!lineId) return;
+  if (!lineId) return { ok: true, synced: false };
   const profileUrl = new URL(`${env.SUPABASE_URL}/rest/v1/profiles`);
   profileUrl.searchParams.set("id", `eq.${user.id}`);
   profileUrl.searchParams.set("line_user_id", "is.null");
-  await fetch(profileUrl, {
+  const response = await fetch(profileUrl, {
     method: "PATCH",
     headers: serviceHeaders(env, "return=minimal"),
     body: JSON.stringify({ line_user_id: lineId })
   });
+  return { ok: response.ok, synced: response.ok };
+}
+
+async function syncMemberIdentity(request: Request, env: Env): Promise<Response> {
+  const authResult = await requireUser(request, env);
+  if (authResult instanceof Response) return authResult;
+  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `identity-sync:${authResult.user.id}`);
+  if (rateLimitResponse) return rateLimitResponse;
+  let result: { ok: boolean; synced: boolean };
+  try { result = await syncLineIdentity(env, authResult.user); }
+  catch { return json({ error: "會員身分同步暫時無法完成" }, { status: 503 }); }
+  if (!result.ok) return json({ error: "會員身分同步暫時無法完成" }, { status: 503 });
+  return json({ ok: true, synced: result.synced });
 }
 
 function lineFriendVerificationIsFresh(value: string | null | undefined) {
@@ -185,81 +407,69 @@ async function setLineFriendVerification(env: Env, userId: string, verified: boo
 
 const lineOrderStatusLabels: Record<string, string> = {
   pending_payment: "待付款", pending_review: "待確認款項", confirmed: "已確認付款",
-  partially_ready: "部分可取貨", ready_for_pickup: "可取貨", completed: "已完成",
+  partially_ready: "部分到貨", ready_for_pickup: "配送處理中", completed: "已完成訂單",
   cancelled: "已取消", refund_pending: "退款處理中", refunded: "已退款"
 };
-
-function lineAdminRecipients(env: Env) {
-  return (env.LINE_ADMIN_USER_IDS || "").split(",").map((id) => id.trim()).filter(Boolean);
-}
 
 function lineNotificationEnabled(env: Env) {
   return env.LINE_NOTIFY_ENABLED !== "false" && Boolean(env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN);
 }
 
-async function notifyLine(env: Env, eventKey: string, recipientId: string, eventType: string, message: string) {
-  if (!lineNotificationEnabled(env) || !recipientId) return false;
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return false;
-  const claim = await fetch(`${env.SUPABASE_URL}/rest/v1/line_notification_logs`, {
-    method: "POST",
-    headers: serviceHeaders(env, "resolution=ignore-duplicates,return=representation"),
-    body: JSON.stringify({ event_key: eventKey, recipient_id: recipientId, event_type: eventType })
-  });
-  if (!claim.ok) return false;
-  const claimed = await claim.json() as unknown[];
-  if (!claimed.length) return true;
-  const push = await fetch("https://api.line.me/v2/bot/message/push", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ to: recipientId, messages: [{ type: "text", text: message.slice(0, 5000) }] })
-  });
-  const pushError = push.ok ? null : `LINE ${push.status}: ${(await push.text()).slice(0, 500)}`;
-  const logUrl = new URL(`${env.SUPABASE_URL}/rest/v1/line_notification_logs`);
-  logUrl.searchParams.set("event_key", `eq.${eventKey}`);
-  logUrl.searchParams.set("recipient_id", `eq.${recipientId}`);
-  await fetch(logUrl, {
-    method: "PATCH",
-    headers: serviceHeaders(env, "return=minimal"),
-    body: JSON.stringify({ status: push.ok ? "sent" : "failed", error_message: pushError, sent_at: push.ok ? new Date().toISOString() : null })
-  });
-  return push.ok;
+function telegramAdminRecipients(env: Env) {
+  return [...new Set((env.TELEGRAM_ADMIN_CHAT_IDS || "").split(",").map((id) => id.trim()).filter((id) => /^-?\d+$/.test(id) || /^@[A-Za-z0-9_]{5,}$/.test(id)))];
 }
 
-async function testLineNotification(request: Request, env: Env): Promise<Response> {
+function telegramNotificationEnabled(env: Env) {
+  return env.TELEGRAM_NOTIFY_ENABLED !== "false" && Boolean(env.TELEGRAM_BOT_TOKEN);
+}
+
+async function notifyLine(env: Env, eventKey: string, recipientId: string, eventType: string, message: string | LinePushMessage) {
+  if (!lineNotificationEnabled(env) || !recipientId) return false;
+  const payload = typeof message === "string" ? { type: "text", text: message.slice(0, 5000) } : message;
+  return deliverLineNotification(env, eventKey, recipientId, eventType, payload);
+}
+
+async function notifyTelegram(env: Env, eventKey: string, chatId: string, eventType: string, message: string) {
+  if (!telegramNotificationEnabled(env) || !chatId) return false;
+  return deliverTelegramNotification(env, eventKey, chatId, eventType, message);
+}
+
+async function testTelegramNotification(request: Request, env: Env): Promise<Response> {
   const admin = await requireAdmin(request, env);
   if (admin instanceof Response) return admin;
-  if (env.LINE_NOTIFY_ENABLED === "false") return json({ error: "LINE 通知目前已停用" }, { status: 503 });
-  if (!env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) return json({ error: "尚未設定 LINE_MESSAGING_CHANNEL_ACCESS_TOKEN" }, { status: 503 });
-  const recipients = lineAdminRecipients(env);
-  if (!recipients.length) return json({ error: "尚未設定 LINE_ADMIN_USER_IDS" }, { status: 503 });
-  const eventKey = `line-test:${crypto.randomUUID()}`;
+  if (env.TELEGRAM_NOTIFY_ENABLED === "false") return json({ error: "Telegram 管理員通知目前已停用" }, { status: 503 });
+  if (!env.TELEGRAM_BOT_TOKEN) return json({ error: "尚未設定 TELEGRAM_BOT_TOKEN" }, { status: 503 });
+  const recipients = telegramAdminRecipients(env);
+  if (!recipients.length) return json({ error: "尚未設定 TELEGRAM_ADMIN_CHAT_IDS" }, { status: 503 });
+  const eventKey = `telegram-test:${crypto.randomUUID()}`;
   const timestamp = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(new Date());
-  const message = buildLineTestMessage(env.STORE_NAME, timestamp);
-  const results = await Promise.allSettled(recipients.map(async (recipientId) => notifyLine(env, `${eventKey}:${recipientId}`, recipientId, "line_test", message)));
+  const message = buildTelegramTestMessage(env.STORE_NAME, timestamp);
+  const results = await Promise.allSettled(recipients.map(async (chatId) => notifyTelegram(env, `${eventKey}:${chatId}`, chatId, "telegram_test", message)));
   const sent = results.filter((result): result is PromiseFulfilledResult<boolean> => result.status === "fulfilled" && result.value).length;
-  if (!sent) return json({ error: "LINE 測試通知未送出，請確認管理員 LINE ID、頻道權杖與 Bot 好友關係" }, { status: 502 });
-  return json({ ok: true, sent, total: recipients.length, message: `LINE 測試通知已送出 ${sent}/${recipients.length} 位管理員` });
+  if (!sent) return json({ error: "Telegram 測試通知未送出，請確認 Bot token、管理員 chat ID，並先與 Bot 開始對話" }, { status: 502 });
+  return json({ ok: true, sent, total: recipients.length, message: `Telegram 測試通知已送出 ${sent}/${recipients.length} 位管理員` });
 }
 
 async function loadOrderNotification(env: Env, orderId: string) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set("select", "id,order_number,status,delivery_method,bank_account_id,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,paid_amount,final_payment_last_five,final_payment_confirmed_at,updated_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,profiles!orders_member_id_fkey(full_name,line_user_id),order_items(product_name,variant_name,quantity)");
+  url.searchParams.set("select", "id,order_number,status,delivery_method,bank_account_id,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,paid_amount,final_payment_last_five,final_payment_confirmed_at,updated_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,profiles!orders_member_id_fkey(full_name,line_user_id,is_admin),order_items(product_name,variant_name,quantity,kind)");
   url.searchParams.set("id", `eq.${orderId}`);
   const response = await fetch(url, { headers: serviceHeaders(env) });
   if (!response.ok) return null;
   const rows = await response.json() as unknown[];
-  return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; shipping_address?: string | null; shipping_recipient_name?: string | null; shipping_phone?: string | null; shipping_fee_notified_at?: string | null; paid_amount?: number; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number }> };
+  return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; shipping_address?: string | null; shipping_recipient_name?: string | null; shipping_phone?: string | null; shipping_fee_notified_at?: string | null; paid_amount?: number; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string; is_admin?: boolean }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number; kind?: string }> };
 }
 
-async function notifyOrderEvent(env: Env, orderId: string, eventType: LineOrderEventType) {
+async function notifyOrderEvent(env: Env, orderId: string, eventType: OrderNotificationEventType) {
   const order = await loadOrderNotification(env, orderId);
-  if (!order || !lineNotificationEnabled(env)) return;
+  if (!order) return;
   const items = (order.order_items || []).map((item) => `${item.product_name}${item.variant_name === "單一規格" ? "" : ` · ${item.variant_name}`} ×${item.quantity}`).join("、");
+  const hasPreorder = (order.order_items || []).some((item) => item.kind === "preorder");
   const deliveryLabels: Record<string, string> = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配" };
   const deliveryLine = deliveryLabels[order.delivery_method || "store_pickup"] || "到店取貨";
   const paymentLine = order.delivery_method === "seller_delivery" ? "賣貨便付款（外部）" : order.bank_account_id ? "匯款／轉帳" : "到店支付";
-  const message = buildOrderNotificationMessage({
+  const orderMessageData = {
     storeName: env.STORE_NAME,
     eventType,
     orderStatus: order.status,
@@ -268,6 +478,7 @@ async function notifyOrderEvent(env: Env, orderId: string, eventType: LineOrderE
     items,
     deliveryLine,
     paymentLine,
+    hasPreorder,
     amountDue: order.amount_due,
     depositDue: order.deposit_due,
     paidAmount: order.paid_amount ?? order.deposit_due,
@@ -276,20 +487,31 @@ async function notifyOrderEvent(env: Env, orderId: string, eventType: LineOrderE
     shippingRecipientName: order.shipping_recipient_name,
     shippingPhone: order.shipping_phone,
     shippingAddress: order.shipping_address
-  });
-  const recipients = new Set<string>(lineAdminRecipients(env));
-  // 會員回報匯款只通知管理員；管理員確認訂金後的 status_changed 才通知會員。
-  if (eventType !== "payment_reported" && order.profiles?.line_user_id) recipients.add(order.profiles.line_user_id);
+  };
+  const message = buildOrderNotificationMessage(orderMessageData);
+  if (!message) return;
+  const lineMessage = buildLineOrderFlexMessage(orderMessageData, message);
+  const telegramMessage = buildTelegramOrderNotificationMessage(message, order.profiles?.full_name);
+  const suppressAdminMemberLine = eventType === "status_changed"
+    && order.status === "confirmed"
+    && order.delivery_method === "seller_delivery"
+    && !hasPreorder
+    && order.profiles?.is_admin === true;
   const eventKey = eventType === "status_changed"
     ? `${eventType}:${orderId}:${order.status}:${order.updated_at || "current"}`
     : eventType === "fulfillment_updated"
       ? `${eventType}:${orderId}:${order.updated_at || "current"}`
       : `${eventType}:${orderId}`;
-  await Promise.allSettled([...recipients].map((recipient) => notifyLine(env, eventKey, recipient, `order_${eventType}`, message)));
+  const routing = routeOrderNotificationRecipients(eventType, order.profiles?.line_user_id, telegramAdminRecipients(env), suppressAdminMemberLine);
+  const tasks: Promise<boolean>[] = routing.telegramRecipients.map((chatId) => notifyTelegram(env, eventKey, chatId, `order_${eventType}`, telegramMessage));
+  // 會員回報匯款只通知 Telegram 管理員；一般會員狀態走 LINE，管理員本人賣貨便備貨確認只保留 Telegram。
+  tasks.push(...routing.lineRecipients.map((recipientId) => notifyLine(env, eventKey, recipientId, `order_${eventType}`, lineMessage)));
+  await Promise.allSettled(tasks);
 }
 
 async function notifyLowStock(env: Env) {
-  if (!lineNotificationEnabled(env) || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !lineAdminRecipients(env).length) return;
+  const recipients = telegramAdminRecipients(env);
+  if (!telegramNotificationEnabled(env) || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !recipients.length) return;
   const base = env.SUPABASE_URL;
   const headers = serviceHeaders(env);
   const [variantsResponse, statesResponse] = await Promise.all([
@@ -311,7 +533,7 @@ async function notifyLowStock(env: Env) {
   if (!toNotify.length) return;
   const lines = toNotify.map((variant) => `• ${variant.products?.name || "商品"} · ${variant.name} (${variant.sku})：剩 ${variant.stock_on_hand} 件`);
   const eventKey = `low-stock:${new Date().toISOString().slice(0, 10)}:${toNotify.map((item) => `${item.id}-${item.stock_on_hand}`).join(",")}`;
-  const sent = await Promise.all(lineAdminRecipients(env).map((recipient) => notifyLine(env, eventKey, recipient, "low_stock", buildLowStockMessage(env.STORE_NAME, lines))));
+  const sent = await Promise.all(recipients.map((chatId) => notifyTelegram(env, eventKey, chatId, "low_stock", buildLowStockMessage(env.STORE_NAME, lines))));
   if (sent.some(Boolean)) {
     for (const variant of toNotify) {
       await fetch(`${base}/rest/v1/line_low_stock_states`, { method: "POST", headers: serviceHeaders(env, "resolution=merge-duplicates,return=minimal"), body: JSON.stringify({ variant_id: variant.id, last_notified_stock: variant.stock_on_hand, last_notified_at: new Date().toISOString(), updated_at: new Date().toISOString() }) });
@@ -330,12 +552,46 @@ async function notifyBirthdayCoupons(env: Env) {
   if (!response.ok) return;
   const coupons = await response.json() as Array<{ id: string; code: string; name: string; discount_amount: number; coupon_members?: Array<{ profiles?: { line_user_id?: string } }> }>;
   for (const coupon of coupons) for (const member of coupon.coupon_members || []) if (member.profiles?.line_user_id) {
-    await notifyLine(env, `birthday:${coupon.id}`, member.profiles.line_user_id, "birthday_coupon", buildBirthdayCouponMessage(env.STORE_NAME, { name: coupon.name, code: coupon.code, discountAmount: coupon.discount_amount }));
+    const couponData = { name: coupon.name, code: coupon.code, discountAmount: coupon.discount_amount };
+    const altText = buildBirthdayCouponMessage(env.STORE_NAME, couponData);
+    await notifyLine(env, `birthday:${coupon.id}`, member.profiles.line_user_id, "birthday_coupon", buildLineBirthdayFlexMessage(env.STORE_NAME, couponData, altText));
+  }
+}
+
+async function notifyRecentlyCancelledOrders(env: Env) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return;
+  // The state-machine claim is the de-duplication boundary. Walk the complete
+  // cancelled order set with a keyset cursor so an hourly run cannot silently
+  // lose orders older than a time window or beyond a fixed first page.
+  const headers = serviceHeaders(env);
+  const pageSize = 100;
+  let lastCancelledAt: string | null = null;
+  let lastId: string | null = null;
+  while (true) {
+    const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
+    url.searchParams.set("select", "id,cancelled_at");
+    url.searchParams.set("status", "eq.cancelled");
+    url.searchParams.set("cancelled_at", "not.is.null");
+    url.searchParams.set("order", "cancelled_at.asc,id.asc");
+    url.searchParams.set("limit", String(pageSize));
+    if (lastCancelledAt && lastId) {
+      url.searchParams.set("or", `(cancelled_at.gt.${lastCancelledAt},and(cancelled_at.eq.${lastCancelledAt},id.gt.${lastId}))`);
+    }
+    const response = await fetch(url, { headers });
+    if (!response.ok) return;
+    const rows = await response.json() as Array<{ id?: string; cancelled_at?: string | null }>;
+    const validRows = rows.filter((row): row is { id: string; cancelled_at: string } => typeof row.id === "string" && typeof row.cancelled_at === "string");
+    if (!validRows.length) return;
+    await Promise.allSettled(validRows.map((row) => notifyOrderEvent(env, row.id, "status_changed")));
+    if (validRows.length < pageSize) return;
+    const last = validRows[validRows.length - 1];
+    lastCancelledAt = last.cancelled_at;
+    lastId = last.id;
   }
 }
 
 async function runScheduledNotifications(env: Env) {
-  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY) await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/issue_birthday_coupons`, { method: "POST", headers: serviceHeaders(env), body: "{}" });
+  await notifyRecentlyCancelledOrders(env);
   await notifyBirthdayCoupons(env);
   await notifyLowStock(env);
 }
@@ -355,8 +611,15 @@ const databaseErrors: Record<string, string> = {
   EMPTY_CART: "購物車不可為空",
   BANK_ACCOUNT_REQUIRED: "請選擇收款帳戶",
   INVALID_PAYMENT_METHOD: "付款方式不正確",
-  STORE_PAYMENT_ONLY_STORE_PICKUP: "到店支付僅適用到店取貨",
+  STORE_PAYMENT_BANK_TRANSFER_ONLY: "本站到店取貨與宅配訂單僅接受匯款／轉帳",
+  STORE_PAYMENT_ONLY_STORE_PICKUP: "本站到店取貨與宅配訂單僅接受匯款／轉帳",
   STORE_PAYMENT_PREORDER_NOT_ALLOWED: "預購商品必須先匯款支付訂金",
+  SELLER_BANK_PREORDER_ONLY: "賣貨便匯款訂單僅適用預購商品",
+  MIXED_ORDER_NOT_ALLOWED: "現貨與預購需分開建立訂單，請回購物車分組結帳",
+  CART_TOO_LARGE: "購物車品項數量超過上限",
+  CART_ITEM_INVALID: "購物車商品資料不正確",
+  CART_DUPLICATE_ITEM: "購物車中不可重複相同商品規格",
+  CART_PRODUCT_NOT_FOUND: "購物車內有商品已下架，請重新整理",
   INVALID_BANK_ACCOUNT: "收款帳戶無效或已停用",
   INVALID_PAYMENT_LAST_FIVE: "匯款帳號末五碼格式不正確",
   INVALID_FINAL_PAYMENT_LAST_FIVE: "尾款匯款末五碼格式不正確",
@@ -391,6 +654,7 @@ const databaseErrors: Record<string, string> = {
   ORDER_NOT_FOUND: "找不到訂單",
   ORDER_STATUS_UNCHANGED: "訂單狀態沒有變更",
   INVALID_ORDER_TRANSITION: "此訂單目前不可切換到指定狀態",
+  SELLER_DELIVERY_SHIPPED_REQUIRES_REFUND: "賣貨便已進入出貨狀態，請走退款與退貨驗收流程",
   ORDER_NOTE_REQUIRED: "取消或退款相關操作必須填寫原因",
   PARTIAL_READY_REQUIRES_SPLIT: "只有分批取貨訂單可標記為部分可取貨",
   PAYMENT_REPORT_REQUIRED: "會員尚未回報匯款末五碼",
@@ -412,7 +676,30 @@ const databaseErrors: Record<string, string> = {
   INVALID_POINTS: "點數使用數量不正確",
   POINT_MINIMUM: "未達最低點數折抵門檻",
   POINT_LIMIT_EXCEEDED: "點數折抵超過本筆訂單上限",
-  INVALID_BIRTHDAY_SETTINGS: "生日券設定不正確"
+  INVALID_RETURN_QUANTITY: "退貨收到、可再售與報廢數量不正確",
+  RETURN_EXCEEDS_SOLD_QUANTITY: "退貨收到數量不可超過原購買數量",
+  RETURN_EXCEEDS_SALE_MOVEMENT: "退貨數量不可超過原扣庫存數量",
+  RETURN_REQUIRES_REFUNDED_ORDER: "訂單完成退款後才能確認實際退貨",
+  RETURN_ALREADY_CONFIRMED: "此商品退貨已確認，不可重複回補",
+  SALE_ALREADY_RESTOCKED: "此筆銷售庫存已回補，不可重複入庫",
+  SALE_MOVEMENT_NOT_FOUND: "找不到原始銷售庫存異動",
+  ORDER_ITEM_NOT_FOUND: "找不到訂單商品",
+  INVALID_BIRTHDAY_SETTINGS: "生日券設定不正確",
+  BANK_ACCOUNT_NOT_FOUND: "找不到收款帳戶",
+  CATEGORY_NOT_FOUND: "找不到商品分類",
+  CATEGORY_NAME_EXISTS: "分類名稱已存在",
+  INVALID_CATEGORY: "商品分類資料不正確",
+  INVALID_VARIANT: "商品規格資料不正確",
+  SKU_EXISTS: "SKU 已存在",
+  INVALID_PRODUCT: "商品資料不正確",
+  INVALID_COMPARE_AT_PRICE: "原價資料不正確",
+  AUDIT_LOG_IMMUTABLE: "稽核紀錄不可修改或刪除",
+  AUDIT_TARGET_REQUIRED: "稽核目標不可為空",
+  INVALID_IMAGE_PATH: "商品圖片資料不正確",
+  INVALID_ADMIN_ORDER_FILTER: "訂單篩選條件不正確",
+  INVALID_NOTIFICATION_STATUS: "通知狀態篩選條件不正確",
+  NOTIFICATION_NOT_FOUND: "找不到通知紀錄",
+  NOTIFICATION_REQUEUE_NOT_ALLOWED: "只有失敗通知可以重新排入"
 };
 
 async function databaseError(response: Response) {
@@ -425,7 +712,7 @@ async function databaseError(response: Response) {
 
 async function publicCatalog(env: Env): Promise<Product[]> {
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return demoProducts;
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=*&is_published=eq.true&order=display_order.asc`, {
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible&is_published=eq.true&order=display_order.asc`, {
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
   });
   if (!response.ok) throw new Error("Unable to load catalog");
@@ -446,13 +733,54 @@ const PRODUCT_IMAGE_TYPES: Record<string, string> = {
   "image/webp": "webp"
 };
 
+const PRODUCT_IMAGE_SIGNATURES: Record<string, number[]> = {
+  "image/jpeg": [0xff, 0xd8, 0xff],
+  "image/png": [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  "image/webp": [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]
+};
+
+type EdgeCache = {
+  match(request: Request): Promise<Response | undefined>;
+  put(request: Request, response: Response): Promise<void>;
+  delete(request: Request): Promise<boolean>;
+};
+
+async function hasImageSignature(image: File, mimeType: string) {
+  const signature = PRODUCT_IMAGE_SIGNATURES[mimeType];
+  if (!signature) return false;
+  const header = new Uint8Array(await image.slice(0, signature.length).arrayBuffer());
+  return header.length === signature.length && signature.every((byte, index) => byte === 0 || header[index] === byte);
+}
+
 function storageObjectUrl(env: Env, path: string) {
   const encodedPath = path.split("/").map(encodeURIComponent).join("/");
   return `${env.SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}/${encodedPath}`;
 }
 
-async function serveProductImage(env: Env, productId: string): Promise<Response> {
+function productImageCacheKey(request: Request, productId: string) {
+  const url = new URL(request.url);
+  url.pathname = `/api/product-images/${productId}`;
+  url.search = "";
+  url.hash = "";
+  return new Request(url.toString(), { method: "GET" });
+}
+
+function productImageEdgeCache() {
+  return (caches as unknown as { default: EdgeCache }).default;
+}
+
+async function purgeProductImageCache(request: Request, productId: string) {
+  await productImageEdgeCache().delete(productImageCacheKey(request, productId));
+}
+
+async function serveProductImage(request: Request, env: Env, productId: string, ctx: ExecutionContext): Promise<Response> {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "圖片服務尚未設定" }, { status: 503 });
+  // The edge key is deterministic and deliberately ignores the version query.
+  // Product mutations purge this key before a new request can reuse old bytes.
+  const cacheKey = productImageCacheKey(request, productId);
+  const edgeCache = productImageEdgeCache();
+  const cached = await edgeCache.match(cacheKey);
+  if (cached) return cached;
   // Unpublished product images must not be exposed by guessing an old UUID.
   const productResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/products?select=image_path&id=eq.${productId}&is_published=eq.true&limit=1`, {
     headers: serviceHeaders(env)
@@ -466,11 +794,16 @@ async function serveProductImage(env: Env, productId: string): Promise<Response>
   });
   if (!imageResponse.ok || !imageResponse.body) return json({ error: "圖片暫時無法載入" }, { status: imageResponse.status === 404 ? 404 : 503 });
   const imageHeaders = new Headers(SECURITY_HEADERS);
-  imageHeaders.set("Content-Type", imageResponse.headers.get("Content-Type") || "application/octet-stream");
+  const imageType = Object.keys(PRODUCT_IMAGE_TYPES).find((type) => imagePath.toLowerCase().endsWith(`.${PRODUCT_IMAGE_TYPES[type]}`));
+  imageHeaders.set("Content-Type", imageType || imageResponse.headers.get("Content-Type") || "application/octet-stream");
   imageHeaders.set("Cache-Control", "public, max-age=31536000, immutable");
-  return new Response(imageResponse.body, {
+  const response = new Response(imageResponse.body, {
     headers: imageHeaders
   });
+  // Only successful, already-authenticated image responses enter the public
+  // cache. The version query emitted by publicCatalog invalidates old images.
+  ctx.waitUntil(edgeCache.put(cacheKey, response.clone()));
+  return response;
 }
 
 async function uploadProductImage(request: Request, env: Env, productId: string): Promise<Response> {
@@ -488,6 +821,7 @@ async function uploadProductImage(request: Request, env: Env, productId: string)
   const extension = PRODUCT_IMAGE_TYPES[image.type];
   if (!extension) return json({ error: "照片僅支援 JPG、PNG 或 WebP" }, { status: 400 });
   if (!image.size || image.size > PRODUCT_IMAGE_MAX_BYTES) return json({ error: "商品照片必須小於 5MB" }, { status: 400 });
+  if (!(await hasImageSignature(image, image.type))) return json({ error: "照片格式與檔案內容不一致" }, { status: 400 });
 
   const productResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/products?select=id,image_path&id=eq.${productId}&limit=1`, { headers: serviceHeaders(env) });
   if (!productResponse.ok) return json({ error: "無法確認商品資料" }, { status: 503 });
@@ -509,12 +843,13 @@ async function uploadProductImage(request: Request, env: Env, productId: string)
   if (!uploadResponse.ok) return json({ error: "照片上傳失敗，請稍後重試" }, { status: 502 });
 
   const updatedAt = new Date().toISOString();
-  const updateResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/products?id=eq.${productId}`, {
-    method: "PATCH",
-    headers: serviceHeaders(env, "return=representation"),
-    body: JSON.stringify({ image_path: imagePath, image_updated_at: updatedAt, updated_at: updatedAt })
+  const updateResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_product_image`, {
+    method: "POST",
+    headers: serviceHeaders(env),
+    body: JSON.stringify({ p_actor_id: admin.user.id, p_product_id: productId, p_image_path: imagePath, p_image_updated_at: updatedAt })
   });
   if (!updateResponse.ok) return databaseError(updateResponse);
+  await purgeProductImageCache(request, productId);
   if (previousImagePath && previousImagePath !== imagePath) {
     await fetch(`${env.SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}`, {
       method: "DELETE",
@@ -535,6 +870,8 @@ async function runtimeConfig(env: Env) {
     supabaseAnonKey: env.SUPABASE_ANON_KEY ?? null,
     lineProvider: provider,
     authEnabled: lineEnabled,
+    liffId: env.LIFF_ID ?? null,
+    liffEnabled: Boolean(env.LIFF_ID && env.LINE_LOGIN_CHANNEL_ID),
     adminIdentityMode: "line_user_id+is_admin"
   };
 }
@@ -580,20 +917,71 @@ async function listOrders(request: Request, env: Env): Promise<Response> {
   return json({ orders: await response.json() });
 }
 
+type MemberCartRow = { variant_id: string; quantity: number; updated_at?: string };
+
+async function listMemberCart(request: Request, env: Env): Promise<Response> {
+  const authResult = await requireUser(request, env);
+  if (authResult instanceof Response) return authResult;
+  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `cart:${authResult.user.id}`);
+  if (rateLimitResponse) return rateLimitResponse;
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return json({ error: "購物車同步服務尚未設定" }, { status: 503 });
+  const url = new URL(`${env.SUPABASE_URL}/rest/v1/member_cart_items`);
+  url.searchParams.set("select", "variant_id,quantity,updated_at");
+  url.searchParams.set("member_id", `eq.${authResult.user.id}`);
+  url.searchParams.set("order", "updated_at.desc");
+  url.searchParams.set("limit", String(MAX_CART_ITEMS));
+  const response = await fetch(url, { headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authResult.authorization } });
+  if (!response.ok) return json({ error: "會員購物車暫時無法載入" }, { status: 503 });
+  const rows = await response.json() as MemberCartRow[];
+  return json({ items: rows.map((row) => ({ variant_id: row.variant_id, quantity: row.quantity })) });
+}
+
+async function replaceMemberCart(request: Request, env: Env): Promise<Response> {
+  const authResult = await requireUser(request, env);
+  if (authResult instanceof Response) return authResult;
+  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `cart:${authResult.user.id}`);
+  if (rateLimitResponse) return rateLimitResponse;
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return json({ error: "購物車同步服務尚未設定" }, { status: 503 });
+  let body: { items?: Array<{ variant_id?: string; quantity?: number }> };
+  try { body = await request.json(); } catch { return json({ error: "購物車資料格式錯誤" }, { status: 400 }); }
+  const items = body.items;
+  if (!Array.isArray(items) || items.length > MAX_CART_ITEMS) return json({ error: databaseErrors.CART_TOO_LARGE }, { status: 400 });
+  const ids = new Set<string>();
+  if (items.some((item) => {
+    const id = item.variant_id?.trim().toLowerCase();
+    if (!id || !/^[0-9a-f-]{36}$/.test(id) || !Number.isInteger(item.quantity) || (item.quantity as number) < 1 || (item.quantity as number) > MAX_ITEM_QUANTITY || ids.has(id)) return true;
+    ids.add(id);
+    return false;
+  })) return json({ error: databaseErrors.CART_ITEM_INVALID }, { status: 400 });
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/replace_member_cart`, {
+    method: "POST",
+    headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authResult.authorization, "Content-Type": "application/json" },
+    body: JSON.stringify({ p_items: items.map((item) => ({ variant_id: item.variant_id, quantity: item.quantity })) })
+  });
+  if (!response.ok) return databaseError(response);
+  return json({ ok: true, items: items.map((item) => ({ variant_id: item.variant_id, quantity: item.quantity })) });
+}
+
 async function memberPoints(request: Request, env: Env): Promise<Response> {
   const authResult = await requireUser(request, env);
   if (authResult instanceof Response) return authResult;
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "點數服務尚未設定" }, { status: 503 });
   const headers = serviceHeaders(env);
-  const [ledgerResponse, settingsResponse, couponsResponse] = await Promise.all([
+  const [balanceResponse, ledgerResponse, settingsResponse, couponsResponse] = await Promise.all([
+    fetch(`${env.SUPABASE_URL}/rest/v1/rpc/member_point_balance`, {
+      method: "POST",
+      headers: { apikey: env.SUPABASE_ANON_KEY as string, Authorization: authResult.authorization, "Content-Type": "application/json" },
+      body: "{}"
+    }),
     fetch(`${env.SUPABASE_URL}/rest/v1/point_ledger?select=id,kind,points,reason,created_at,orders(order_number)&member_id=eq.${authResult.user.id}&order=created_at.desc&limit=100`, { headers }),
     fetch(`${env.SUPABASE_URL}/rest/v1/point_settings?select=earn_amount_per_point,point_value,min_redeem_points,max_redeem_mode,max_redeem_value&id=eq.true`, { headers }),
     fetch(`${env.SUPABASE_URL}/rest/v1/rpc/member_available_coupons`, { method: "POST", headers: { apikey: env.SUPABASE_ANON_KEY as string, Authorization: authResult.authorization, "Content-Type": "application/json" }, body: "{}" })
   ]);
-  if (!ledgerResponse.ok || !settingsResponse.ok || !couponsResponse.ok) return json({ error: "點數與優惠券資料暫時無法載入" }, { status: 503 });
+  if (!balanceResponse.ok || !ledgerResponse.ok || !settingsResponse.ok || !couponsResponse.ok) return json({ error: "點數與優惠券資料暫時無法載入" }, { status: 503 });
+  const balance = Number(await balanceResponse.json());
   const ledger = await ledgerResponse.json() as Array<{ points: number }>;
   const settings = await settingsResponse.json() as unknown[];
-  return json({ balance: ledger.reduce((sum, entry) => sum + entry.points, 0), ledger, settings: settings[0] || null, coupons: await couponsResponse.json() });
+  return json({ balance: Number.isFinite(balance) ? balance : 0, ledger, settings: settings[0] || null, coupons: await couponsResponse.json() });
 }
 
 async function memberLineFriendship(request: Request, env: Env): Promise<Response> {
@@ -636,31 +1024,214 @@ async function memberLineFriendship(request: Request, env: Env): Promise<Respons
   return json({ error: "LINE 好友狀態暫時無法確認" }, { status: 503 });
 }
 
+type AdminDashboardSection = "overview" | "orders" | "members" | "products" | "inventory" | "discounts" | "settings";
+
+const ADMIN_DASHBOARD_SECTIONS: AdminDashboardSection[] = ["overview", "orders", "members", "products", "inventory", "discounts", "settings"];
+const ADMIN_PRODUCTS_SELECT = "id,name,description,image_path,image_updated_at,purchase_limit,points_eligible,is_published,display_order,category_id,categories(id,name,is_active),product_variants(id,name,sku,kind,price,compare_at_price,stock_on_hand,safety_stock,preorder_arrival,deposit_rate,seller_link,is_published,display_order,updated_at)";
+const ADMIN_ORDERS_SELECT = "id,member_id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,paid_amount,payment_deadline,payment_last_five,bank_account_id,admin_note,confirmed_at,payment_confirmed_at,completed_at,cancelled_at,created_at,profiles!orders_member_id_fkey(full_name,phone),bank_accounts(label,bank_name,account_name,account_number),order_items(id,product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)";
+const ADMIN_ORDER_HISTORY_SELECT = "id,order_id,from_status,to_status,note,created_at,profiles(full_name)";
+const ADMIN_RETURNS_SELECT = "id,order_id,order_item_id,sale_movement_id,received_quantity,restock_quantity,scrap_quantity,note,created_at";
+const ADMIN_MEMBER_SELECT = "id,full_name,phone,birthday,address,is_admin,created_at,point_balance,lifetime_spend,order_count";
+const ADMIN_POINT_ENTRIES_SELECT = "id,member_id,order_id,kind,points,reason,created_at,profiles!point_ledger_member_id_fkey(full_name),actor:profiles!point_ledger_actor_id_fkey(full_name),orders(order_number)";
+const ADMIN_COUPON_SELECT = "id,code,name,discount_amount,combinable_with_points,valid_from,valid_until,total_usage_limit,per_member_limit,is_active,is_birthday,created_at,coupon_products(product_id),coupon_members(member_id),coupon_redemptions(id)";
+
+function adminResourceUrl(base: string, resource: string, select: string, params: Record<string, string> = {}) {
+  const url = new URL(`${base}/rest/v1/${resource}`);
+  url.searchParams.set("select", select);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  return url;
+}
+
+async function fetchAdminRows(url: URL, headers: Record<string, string>) {
+  const response = await fetch(url, { headers });
+  if (!response.ok) throw new Error("管理資料暫時無法載入");
+  return await response.json() as unknown[];
+}
+
+function buildAdminStats(orders: unknown[], products: unknown[], members: unknown[]) {
+  const orderRows = orders as Array<{ status?: string; delivery_method?: string; bank_account_id?: string | null; order_items?: Array<{ kind?: string }> }>;
+  const productRows = products as Array<{ product_variants?: Array<{ stock_on_hand?: number; safety_stock?: number }> }>;
+  return {
+    pendingReview: orderRows.filter((order) => order.status === "pending_review").length,
+    sellerPending: orderRows.filter((order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id).length,
+    preorderSellerPending: orderRows.filter((order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment" && Boolean(order.bank_account_id)).length,
+    readyForPickup: orderRows.filter((order) => order.status === "ready_for_pickup" && (order.delivery_method === "home_delivery" || (order.delivery_method === "store_pickup" && order.order_items?.some((item) => item.kind === "preorder")))).length,
+    lowStock: productRows.flatMap((product) => product.product_variants || []).filter((variant) => Number(variant.stock_on_hand) <= Number(variant.safety_stock)).length,
+    memberCount: members.length
+  };
+}
+
+function adminPage(request: Request, defaultSize: number) {
+  const params = new URL(request.url).searchParams;
+  const page = Math.max(0, Math.min(Number(params.get("page") || 0) || 0, 100000));
+  const pageSize = Math.max(1, Math.min(Number(params.get("page_size") || defaultSize) || defaultSize, 500));
+  return { page, pageSize, offset: page * pageSize };
+}
+
+function pageRows(rows: unknown[], page: number, pageSize: number) {
+  return { items: rows.slice(0, pageSize), pagination: { page, pageSize, hasMore: rows.length > pageSize } };
+}
+
+function adminIdFilter(ids: string[]) {
+  return `in.(${ids.join(",")})`;
+}
+
+function orderRowsByIds(rows: unknown[], ids: string[]) {
+  const rowMap = new Map((rows as Array<{ id?: string }>).map((row) => [row.id, row]));
+  return ids.map((id) => rowMap.get(id)).filter((row): row is Record<string, unknown> => Boolean(row));
+}
+
+async function adminDashboardSection(request: Request, env: Env, section: AdminDashboardSection, actorId: string): Promise<Response> {
+  const base = env.SUPABASE_URL as string;
+  const headers = serviceHeaders(env);
+  const includeManagementOptions = new URL(request.url).searchParams.get("include_options") === "true";
+  const rows = (resource: string, select: string, params: Record<string, string> = {}) => fetchAdminRows(adminResourceUrl(base, resource, select, params), headers);
+  try {
+    if (section === "overview") {
+      const response = await fetch(`${base}/rest/v1/rpc/admin_dashboard_stats`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ p_actor_id: actorId })
+      });
+      if (!response.ok) return databaseError(response);
+      return json({ stats: await response.json() });
+    }
+    if (section === "orders") {
+      const page = adminPage(request, 100);
+      const params = new URL(request.url).searchParams;
+      const searchResponse = await fetch(`${base}/rest/v1/rpc/admin_search_order_ids`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          p_actor_id: actorId,
+          p_query: params.get("query")?.trim().slice(0, 100) || "",
+          p_status: params.get("status") || "all",
+          p_page: page.page,
+          p_page_size: page.pageSize
+        })
+      });
+      if (!searchResponse.ok) return databaseError(searchResponse);
+      const searchResult = await searchResponse.json() as { ids?: unknown; pagination?: Record<string, unknown> };
+      const ids = Array.isArray(searchResult.ids) ? searchResult.ids.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)) : [];
+      if (!ids.length) return json({ orders: [], orderHistory: [], returns: [], pagination: { orders: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, orderHistory: { page: page.page, pageSize: page.pageSize, hasMore: false }, returns: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+      const idFilter = adminIdFilter(ids);
+      const [orders, orderHistory, returns] = await Promise.all([
+        rows("orders", ADMIN_ORDERS_SELECT, { id: idFilter, order: "created_at.desc", limit: String(page.pageSize) }),
+        rows("order_status_history", ADMIN_ORDER_HISTORY_SELECT, { order_id: idFilter, order: "created_at.desc", limit: "500" }),
+        rows("inventory_return_confirmations", ADMIN_RETURNS_SELECT, { order_id: idFilter, order: "created_at.desc", limit: "500" })
+      ]);
+      return json({ orders: orderRowsByIds(orders, ids), orderHistory, returns, pagination: { orders: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, orderHistory: { page: page.page, pageSize: page.pageSize, hasMore: false }, returns: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+    }
+    if (section === "members") {
+      const page = adminPage(request, 100);
+      const params = new URL(request.url).searchParams;
+      const searchResponse = await fetch(`${base}/rest/v1/rpc/admin_search_member_ids`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ p_actor_id: actorId, p_query: params.get("query")?.trim().slice(0, 100) || "", p_page: page.page, p_page_size: page.pageSize })
+      });
+      if (!searchResponse.ok) return databaseError(searchResponse);
+      const searchResult = await searchResponse.json() as { ids?: unknown; pagination?: Record<string, unknown> };
+      const ids = Array.isArray(searchResult.ids) ? searchResult.ids.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)) : [];
+      if (!ids.length) return json({ members: [], pointEntries: [], pointSettings: null, orders: [], pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+      const idFilter = adminIdFilter(ids);
+      const [members, pointEntries, pointSettings, orders] = await Promise.all([
+        rows("admin_member_summary", ADMIN_MEMBER_SELECT, { id: idFilter, order: "created_at.desc", limit: String(page.pageSize) }),
+        rows("point_ledger", ADMIN_POINT_ENTRIES_SELECT, { member_id: idFilter, order: "created_at.desc", limit: "500" }),
+        rows("point_settings", "earn_amount_per_point,point_value,min_redeem_points,max_redeem_mode,max_redeem_value,updated_at", { id: "eq.true", limit: "1" }),
+        rows("orders", ADMIN_ORDERS_SELECT, { member_id: idFilter, order: "created_at.desc", limit: "500" })
+      ]);
+      return json({ members: orderRowsByIds(members, ids), pointEntries, pointSettings: pointSettings[0] || null, orders, pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+    }
+    if (section === "products") {
+      const page = adminPage(request, 100);
+      const params = new URL(request.url).searchParams;
+      const [searchResponse, optionsResponse] = await Promise.all([
+        fetch(`${base}/rest/v1/rpc/admin_search_product_ids`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId, p_query: params.get("query")?.trim().slice(0, 100) || "", p_status: params.get("status") || "all", p_page: page.page, p_page_size: page.pageSize }) }),
+        includeManagementOptions
+          ? fetch(`${base}/rest/v1/rpc/admin_management_options`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) })
+          : Promise.resolve(null)
+      ]);
+      if (!searchResponse.ok) return databaseError(searchResponse);
+      if (optionsResponse && !optionsResponse.ok) return databaseError(optionsResponse);
+      const searchResult = await searchResponse.json() as { ids?: unknown; pagination?: Record<string, unknown> };
+      const managementOptions = optionsResponse ? await optionsResponse.json() : null;
+      const ids = Array.isArray(searchResult.ids) ? searchResult.ids.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)) : [];
+      const products = ids.length ? await rows("products", ADMIN_PRODUCTS_SELECT, { id: adminIdFilter(ids), limit: String(page.pageSize) }) : [];
+      return json({ products: orderRowsByIds(products, ids), ...(managementOptions ? { managementOptions } : {}), pagination: { products: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+    }
+    if (section === "inventory") {
+      const page = adminPage(request, 100);
+      const [searchResponse, optionsResponse] = await Promise.all([
+        fetch(`${base}/rest/v1/rpc/admin_search_inventory_movement_ids`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId, p_variant_id: null, p_page: page.page, p_page_size: page.pageSize }) }),
+        includeManagementOptions
+          ? fetch(`${base}/rest/v1/rpc/admin_management_options`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) })
+          : Promise.resolve(null)
+      ]);
+      if (!searchResponse.ok) return databaseError(searchResponse);
+      if (optionsResponse && !optionsResponse.ok) return databaseError(optionsResponse);
+      const searchResult = await searchResponse.json() as { ids?: unknown; pagination?: Record<string, unknown> };
+      const managementOptions = optionsResponse ? await optionsResponse.json() : null;
+      const ids = Array.isArray(searchResult.ids) ? searchResult.ids.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)) : [];
+      const movements = ids.length ? await rows("inventory_movements", "id,variant_id,kind,quantity_delta,reason,created_at,product_variants(name,sku,products(name))", { id: adminIdFilter(ids), order: "created_at.desc", limit: String(page.pageSize) }) : [];
+      return json({ movements: orderRowsByIds(movements, ids), ...(managementOptions ? { managementOptions } : {}), pagination: { inventory: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+    }
+    if (section === "discounts") {
+      const page = adminPage(request, 100);
+      const [searchResponse, optionsResponse, birthdaySettings] = await Promise.all([
+        fetch(`${base}/rest/v1/rpc/admin_search_coupon_ids`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId, p_query: "", p_page: page.page, p_page_size: page.pageSize }) }),
+        includeManagementOptions
+          ? fetch(`${base}/rest/v1/rpc/admin_management_options`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) })
+          : Promise.resolve(null),
+        rows("birthday_coupon_settings", "enabled,discount_amount,issue_days_before,valid_days,combinable_with_points,updated_at", { id: "eq.true", limit: "1" })
+      ]);
+      if (!searchResponse.ok) return databaseError(searchResponse);
+      if (optionsResponse && !optionsResponse.ok) return databaseError(optionsResponse);
+      const searchResult = await searchResponse.json() as { ids?: unknown; pagination?: Record<string, unknown> };
+      const managementOptions = optionsResponse ? await optionsResponse.json() : null;
+      const ids = Array.isArray(searchResult.ids) ? searchResult.ids.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)) : [];
+      const coupons = ids.length ? await rows("coupons", ADMIN_COUPON_SELECT, { id: adminIdFilter(ids), limit: String(page.pageSize) }) : [];
+      return json({ ...(managementOptions ? { managementOptions } : {}), coupons: orderRowsByIds(coupons, ids), birthdaySettings: birthdaySettings[0] || null, pagination: { discounts: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+    }
+    const accounts = await rows("bank_accounts", "id,label,bank_name,account_name,account_number,is_active,display_order,created_at", { order: "display_order.asc", limit: "100" });
+    return json({ accounts });
+  } catch {
+    return json({ error: "管理資料暫時無法載入" }, { status: 503 });
+  }
+}
+
 async function adminDashboard(request: Request, env: Env): Promise<Response> {
   const admin = await requireAdmin(request, env);
   if (admin instanceof Response) return admin;
+  const sectionParam = new URL(request.url).searchParams.get("section");
+  if (sectionParam) {
+    if (!ADMIN_DASHBOARD_SECTIONS.includes(sectionParam as AdminDashboardSection)) return json({ error: "管理資料分區不正確" }, { status: 400 });
+    return adminDashboardSection(request, env, sectionParam as AdminDashboardSection, admin.user.id);
+  }
   const base = env.SUPABASE_URL as string;
   const headers = serviceHeaders(env);
-  const [productsResponse, accountsResponse, movementsResponse, ordersResponse, historyResponse, membersResponse, pointsResponse, pointSettingsResponse, couponsResponse, birthdaySettingsResponse] = await Promise.all([
-    fetch(`${base}/rest/v1/products?select=id,name,description,image_path,image_updated_at,purchase_limit,is_published,display_order,category_id,categories(name),product_variants(id,name,sku,kind,price,stock_on_hand,safety_stock,preorder_arrival,deposit_rate,seller_link,is_published,display_order,updated_at)&order=display_order.asc`, { headers }),
-    fetch(`${base}/rest/v1/bank_accounts?select=id,label,bank_name,account_name,account_number,is_active,display_order,created_at&order=display_order.asc`, { headers }),
+  const [productsResponse, accountsResponse, movementsResponse, ordersResponse, historyResponse, membersResponse, pointsResponse, pointSettingsResponse, couponsResponse, birthdaySettingsResponse, categoriesResponse] = await Promise.all([
+    fetch(`${base}/rest/v1/products?select=id,name,description,image_path,image_updated_at,purchase_limit,is_published,display_order,category_id,categories(id,name,is_active),product_variants(id,name,sku,kind,price,compare_at_price,stock_on_hand,safety_stock,preorder_arrival,deposit_rate,seller_link,is_published,display_order,updated_at)&order=display_order.asc&limit=500`, { headers }),
+    fetch(`${base}/rest/v1/bank_accounts?select=id,label,bank_name,account_name,account_number,is_active,display_order,created_at&order=display_order.asc&limit=100`, { headers }),
     fetch(`${base}/rest/v1/inventory_movements?select=id,variant_id,kind,quantity_delta,reason,created_at,product_variants(name,sku,products(name))&order=created_at.desc&limit=50`, { headers }),
     fetch(`${base}/rest/v1/orders?select=id,member_id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,paid_amount,payment_deadline,payment_last_five,bank_account_id,admin_note,confirmed_at,payment_confirmed_at,completed_at,cancelled_at,created_at,profiles!orders_member_id_fkey(full_name,phone),bank_accounts(label,bank_name,account_name,account_number),order_items(id,product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)&order=created_at.desc&limit=200`, { headers }),
     fetch(`${base}/rest/v1/order_status_history?select=id,order_id,from_status,to_status,note,created_at,profiles(full_name)&order=created_at.desc&limit=500`, { headers }),
-    fetch(`${base}/rest/v1/admin_member_summary?select=id,full_name,phone,birthday,address,is_admin,created_at,point_balance,lifetime_spend,order_count&order=created_at.desc`, { headers }),
+    fetch(`${base}/rest/v1/admin_member_summary?select=id,full_name,phone,birthday,address,is_admin,created_at,point_balance,lifetime_spend,order_count&order=created_at.desc&limit=500`, { headers }),
     fetch(`${base}/rest/v1/point_ledger?select=id,member_id,order_id,kind,points,reason,created_at,profiles!point_ledger_member_id_fkey(full_name),actor:profiles!point_ledger_actor_id_fkey(full_name),orders(order_number)&order=created_at.desc&limit=500`, { headers }),
     fetch(`${base}/rest/v1/point_settings?select=earn_amount_per_point,point_value,min_redeem_points,max_redeem_mode,max_redeem_value,updated_at&id=eq.true`, { headers }),
-    fetch(`${base}/rest/v1/coupons?select=id,code,name,discount_amount,combinable_with_points,valid_from,valid_until,total_usage_limit,per_member_limit,is_active,is_birthday,created_at,coupon_products(product_id),coupon_members(member_id),coupon_redemptions(id)&order=created_at.desc`, { headers }),
-    fetch(`${base}/rest/v1/birthday_coupon_settings?select=enabled,discount_amount,issue_days_before,valid_days,combinable_with_points,updated_at&id=eq.true`, { headers })
+    fetch(`${base}/rest/v1/coupons?select=id,code,name,discount_amount,combinable_with_points,valid_from,valid_until,total_usage_limit,per_member_limit,is_active,is_birthday,created_at,coupon_products(product_id),coupon_members(member_id),coupon_redemptions(id)&order=created_at.desc&limit=500`, { headers }),
+    fetch(`${base}/rest/v1/birthday_coupon_settings?select=enabled,discount_amount,issue_days_before,valid_days,combinable_with_points,updated_at&id=eq.true`, { headers }),
+    fetch(`${base}/rest/v1/categories?select=id,name,display_order,is_active&order=display_order.asc,name.asc&limit=500`, { headers })
   ]);
-  if (![productsResponse, accountsResponse, movementsResponse, ordersResponse, historyResponse, membersResponse, pointsResponse, pointSettingsResponse, couponsResponse, birthdaySettingsResponse].every((response) => response.ok)) {
+  if (![productsResponse, accountsResponse, movementsResponse, ordersResponse, historyResponse, membersResponse, pointsResponse, pointSettingsResponse, couponsResponse, birthdaySettingsResponse, categoriesResponse].every((response) => response.ok)) {
     return json({ error: "管理資料暫時無法載入" }, { status: 503 });
   }
-  const [products, accounts, movements, orders, orderHistory, members, pointEntries, pointSettings, coupons, birthdaySettings] = await Promise.all([
-    productsResponse.json(), accountsResponse.json(), movementsResponse.json(), ordersResponse.json() as Promise<Array<{ status: string; delivery_method?: string }>>, historyResponse.json(), membersResponse.json(), pointsResponse.json(), pointSettingsResponse.json() as Promise<unknown[]>, couponsResponse.json(), birthdaySettingsResponse.json() as Promise<unknown[]>
+  const [products, accounts, movements, orders, orderHistory, members, pointEntries, pointSettings, coupons, birthdaySettings, categories] = await Promise.all([
+    productsResponse.json(), accountsResponse.json(), movementsResponse.json(), ordersResponse.json() as Promise<Array<{ status: string; delivery_method?: string; bank_account_id?: string | null; order_items?: Array<{ kind?: string }> }>>, historyResponse.json(), membersResponse.json(), pointsResponse.json(), pointSettingsResponse.json() as Promise<unknown[]>, couponsResponse.json(), birthdaySettingsResponse.json() as Promise<unknown[]>, categoriesResponse.json()
   ]);
   return json({
     products,
+    categories,
     accounts,
     movements,
     orders,
@@ -672,8 +1243,11 @@ async function adminDashboard(request: Request, env: Env): Promise<Response> {
     birthdaySettings: birthdaySettings[0] || null,
     stats: {
       pendingReview: orders.filter((order) => order.status === "pending_review").length,
-      sellerPending: orders.filter((order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment").length,
-      readyForPickup: orders.filter((order) => ["partially_ready", "ready_for_pickup"].includes(order.status)).length,
+      sellerPending: orders.filter((order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id).length,
+      preorderSellerPending: orders.filter((order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment" && Boolean(order.bank_account_id)).length,
+      // 只把完整可處理的 ready_for_pickup 計入「待取貨」；部分到貨仍需等待
+      // 其餘商品，賣貨便的同一資料庫狀態則代表已出貨，不應混入此待辦數字。
+      readyForPickup: orders.filter((order) => order.status === "ready_for_pickup" && (order.delivery_method === "home_delivery" || (order.delivery_method === "store_pickup" && order.order_items?.some((item) => item.kind === "preorder")))).length,
       lowStock: (products as Array<{ product_variants?: Array<{ stock_on_hand: number; safety_stock: number }> }>).flatMap((product) => product.product_variants || []).filter((variant) => variant.stock_on_hand <= variant.safety_stock).length,
       memberCount: (members as unknown[]).length
     }
@@ -687,15 +1261,91 @@ async function transitionAdminOrder(request: Request, env: Env, orderId: string)
   if (admin instanceof Response) return admin;
   let body: { target_status?: string; note?: string };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
-  if (!adminOrderStatuses.includes(body.target_status as typeof adminOrderStatuses[number])) return json({ error: "訂單狀態不正確" }, { status: 400 });
+  const targetStatus = body.target_status;
+  if (!targetStatus || !adminOrderStatuses.includes(targetStatus as typeof adminOrderStatuses[number])) return json({ error: "訂單狀態不正確" }, { status: 400 });
   if ((body.note || "").length > 1000) return json({ error: "管理備註不可超過 1000 字" }, { status: 400 });
+  if (["partially_ready", "ready_for_pickup"].includes(targetStatus)) {
+    const orderUrl = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
+    orderUrl.searchParams.set("select", "delivery_method,pickup_plan,order_items(kind)");
+    orderUrl.searchParams.set("id", `eq.${orderId}`);
+    orderUrl.searchParams.set("limit", "1");
+    const orderResponse = await fetch(orderUrl, { headers: serviceHeaders(env) });
+    if (!orderResponse.ok) return json({ error: "訂單資料暫時無法讀取" }, { status: 503 });
+    const orderRows = await orderResponse.json() as Array<{ delivery_method?: string; pickup_plan?: string; order_items?: Array<{ kind?: string }> }>;
+    const order = orderRows[0];
+    if (!order) return json({ error: "找不到訂單" }, { status: 404 });
+    const hasPreorder = (order.order_items || []).some((item) => item.kind === "preorder");
+    const preorderStorePickup = order.delivery_method === "store_pickup" && hasPreorder;
+    if (targetStatus === "partially_ready" && (!preorderStorePickup || order.pickup_plan !== "split")) {
+      return json({ error: "只有預購到店且設定分批取貨的訂單可標記部分可取貨" }, { status: 400 });
+    }
+    if (targetStatus === "ready_for_pickup" && !preorderStorePickup && !["seller_delivery", "home_delivery"].includes(order.delivery_method || "")) {
+      return json({ error: "現貨到店取貨確認付款後可直接完成取貨，無需標記可取貨" }, { status: 400 });
+    }
+    if (targetStatus === "ready_for_pickup" && order.delivery_method === "home_delivery" && !hasPreorder) {
+      return json({ error: "現貨宅配付款確認後直接填寫尾款與運費，無需更新備貨狀態" }, { status: 400 });
+    }
+  }
   const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_transition_order`, {
     method: "POST",
     headers: serviceHeaders(env),
-    body: JSON.stringify({ p_actor_id: admin.user.id, p_order_id: orderId, p_target_status: body.target_status, p_note: body.note?.trim() || null })
+    body: JSON.stringify({ p_actor_id: admin.user.id, p_order_id: orderId, p_target_status: targetStatus, p_note: body.note?.trim() || null })
   });
   if (!response.ok) return databaseError(response);
   return json({ order: await response.json() });
+}
+
+async function adminAuditLogs(request: Request, env: Env): Promise<Response> {
+  const admin = await requireAdmin(request, env);
+  if (admin instanceof Response) return admin;
+  const url = new URL(request.url);
+  const page = adminPage(request, 100);
+  const resource = url.searchParams.get("resource") || "";
+  const action = url.searchParams.get("action") || "";
+  const allowedResources = new Set(["product", "product_variant", "category", "bank_account", "coupon", "birthday_coupon_settings", "point_settings", "member_points", "product_image"]);
+  const allowedActions = new Set(["create", "update", "adjust", "upload"]);
+  if ((resource && !allowedResources.has(resource)) || (action && !allowedActions.has(action))) return json({ error: "稽核篩選條件不正確" }, { status: 400 });
+  const query = new URL(`${env.SUPABASE_URL}/rest/v1/audit_logs`);
+  query.searchParams.set("select", "id,actor_id,action,resource,target,before_data,after_data,created_at,profiles!audit_logs_actor_id_fkey(full_name)");
+  query.searchParams.set("order", "created_at.desc,id.desc");
+  query.searchParams.set("limit", String(page.pageSize + 1));
+  query.searchParams.set("offset", String(page.offset));
+  if (resource) query.searchParams.set("resource", `eq.${resource}`);
+  if (action) query.searchParams.set("action", `eq.${action}`);
+  const response = await fetch(query, { headers: serviceHeaders(env) });
+  if (!response.ok) return databaseError(response);
+  const rows = await response.json() as unknown[];
+  return json({ logs: rows.slice(0, page.pageSize), pagination: { page: page.page, pageSize: page.pageSize, hasMore: rows.length > page.pageSize } });
+}
+
+async function adminNotificationDeliveries(request: Request, env: Env): Promise<Response> {
+  const admin = await requireAdmin(request, env);
+  if (admin instanceof Response) return admin;
+  const url = new URL(request.url);
+  const page = adminPage(request, 50);
+  const channel = url.searchParams.get("channel") || "all";
+  const status = url.searchParams.get("status") || "all";
+  if (!["all", "line", "telegram"].includes(channel) || !["all", "pending", "processing", "sent", "failed"].includes(status)) return json({ error: "通知篩選條件不正確" }, { status: 400 });
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_list_notification_deliveries`, {
+    method: "POST",
+    headers: serviceHeaders(env),
+    body: JSON.stringify({ p_actor_id: admin.user.id, p_channel: channel, p_status: status, p_page: page.page, p_page_size: page.pageSize })
+  });
+  if (!response.ok) return databaseError(response);
+  const result = await response.json() as { items?: unknown[]; pagination?: unknown };
+  return json({ notificationDeliveries: result.items || [], pagination: { notifications: result.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+}
+
+async function requeueAdminNotificationDelivery(request: Request, env: Env, channel: string, notificationId: string): Promise<Response> {
+  const admin = await requireAdmin(request, env);
+  if (admin instanceof Response) return admin;
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_requeue_notification_delivery`, {
+    method: "POST",
+    headers: serviceHeaders(env),
+    body: JSON.stringify({ p_actor_id: admin.user.id, p_channel: channel, p_id: notificationId })
+  });
+  if (!response.ok) return databaseError(response);
+  return json({ delivery: await response.json() });
 }
 
 async function updateAdminOrderFulfillment(request: Request, env: Env, orderId: string): Promise<Response> {
@@ -706,11 +1356,19 @@ async function updateAdminOrderFulfillment(request: Request, env: Env, orderId: 
   if (!Number.isInteger(body.shipping_fee) || (body.shipping_fee as number) < 0) return json({ error: "實際運費必須是 0 或正整數" }, { status: 400 });
   if (body.final_payment_last_five && !/^\d{5}$/.test(body.final_payment_last_five)) return json({ error: "尾款匯款末五碼須為 5 位數字" }, { status: 400 });
   if ((body.note || "").length > 1000) return json({ error: "管理備註不可超過 1000 字" }, { status: 400 });
-  const orderLookup = await fetch(`${env.SUPABASE_URL}/rest/v1/orders?select=delivery_method&id=eq.${orderId}&limit=1`, { headers: serviceHeaders(env) });
+  const orderLookup = await fetch(`${env.SUPABASE_URL}/rest/v1/orders?select=status,delivery_method,order_items(kind)&id=eq.${orderId}&limit=1`, { headers: serviceHeaders(env) });
   if (!orderLookup.ok) return json({ error: "訂單資料暫時無法讀取" }, { status: 503 });
-  const orderRows = await orderLookup.json() as Array<{ delivery_method?: string }>;
+  const orderRows = await orderLookup.json() as Array<{ status?: string; delivery_method?: string; order_items?: Array<{ kind?: string }> }>;
   if (!orderRows.length) return json({ error: "找不到訂單" }, { status: 404 });
-  const sellerDelivery = orderRows[0].delivery_method === "seller_delivery";
+  const order = orderRows[0];
+  const sellerDelivery = order.delivery_method === "seller_delivery";
+  const homeDelivery = order.delivery_method === "home_delivery";
+  const hasPreorder = (order.order_items || []).some((item) => item.kind === "preorder");
+  const fulfillmentReady = ["partially_ready", "ready_for_pickup"].includes(order.status || "")
+    || (homeDelivery && !hasPreorder && ["pending_review", "confirmed"].includes(order.status || ""));
+  if (homeDelivery && !fulfillmentReady) {
+    return json({ error: hasPreorder ? "請先將預購宅配更新為到貨狀態，再儲存尾款與運費" : "請先確認現貨宅配付款，再儲存尾款與運費" }, { status: 400 });
+  }
   if (sellerDelivery && body.shipping_fee !== 0) return json({ error: "賣貨便運費由 7-11 向客戶收取，不計入訂單" }, { status: 400 });
   if (sellerDelivery && body.final_payment_confirmed === true) return json({ error: "賣貨便付款由外部平台處理，不需在本站確認尾款" }, { status: 400 });
   const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_order_fulfillment`, {
@@ -727,6 +1385,42 @@ async function updateAdminOrderFulfillment(request: Request, env: Env, orderId: 
   });
   if (!response.ok) return databaseError(response);
   return json({ order: await response.json() });
+}
+
+/**
+ * Records the physical return after the refund is completed. The database
+ * restores only the quantity the admin marked as resellable.
+ */
+async function confirmAdminOrderReturn(request: Request, env: Env, orderItemId: string): Promise<Response> {
+  const admin = await requireAdmin(request, env);
+  if (admin instanceof Response) return admin;
+  let body: { received_quantity?: number; restock_quantity?: number; scrap_quantity?: number; note?: string };
+  try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
+  const received = body.received_quantity;
+  const restock = body.restock_quantity;
+  const scrap = body.scrap_quantity;
+  if (![received, restock, scrap].every(Number.isInteger)
+      || (received as number) <= 0
+      || (restock as number) < 0
+      || (scrap as number) < 0
+      || (restock as number) + (scrap as number) !== received) {
+    return json({ error: databaseErrors.INVALID_RETURN_QUANTITY }, { status: 400 });
+  }
+  if ((body.note || "").length > 1000) return json({ error: "退貨驗收備註不可超過 1000 字" }, { status: 400 });
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_confirm_order_return`, {
+    method: "POST",
+    headers: serviceHeaders(env),
+    body: JSON.stringify({
+      p_actor_id: admin.user.id,
+      p_order_item_id: orderItemId,
+      p_received_quantity: received,
+      p_restock_quantity: restock,
+      p_scrap_quantity: scrap,
+      p_note: body.note?.trim() || null
+    })
+  });
+  if (!response.ok) return databaseError(response);
+  return json({ return_confirmation: await response.json() });
 }
 
 async function updatePointSettings(request: Request, env: Env): Promise<Response> {
@@ -833,11 +1527,15 @@ async function createBankAccount(request: Request, env: Env): Promise<Response> 
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   const validated = validateBankAccount(body);
   if ("error" in validated) return json({ error: validated.error }, { status: 400 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/bank_accounts`, {
-    method: "POST", headers: serviceHeaders(env, "return=representation"), body: JSON.stringify(validated.value)
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_bank_account`, {
+    method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
+      p_actor_id: admin.user.id, p_label: validated.value.label, p_bank_name: validated.value.bank_name,
+      p_account_name: validated.value.account_name, p_account_number: validated.value.account_number,
+      p_is_active: validated.value.is_active, p_display_order: validated.value.display_order
+    })
   });
   if (!response.ok) return databaseError(response);
-  return json({ account: (await response.json() as unknown[])[0] }, { status: 201 });
+  return json({ account: await response.json() }, { status: 201 });
 }
 
 async function updateBankAccount(request: Request, env: Env, accountId: string): Promise<Response> {
@@ -847,19 +1545,64 @@ async function updateBankAccount(request: Request, env: Env, accountId: string):
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   const validated = validateBankAccount(body);
   if ("error" in validated) return json({ error: validated.error }, { status: 400 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/bank_accounts?id=eq.${accountId}`, {
-    method: "PATCH", headers: serviceHeaders(env, "return=representation"), body: JSON.stringify(validated.value)
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_bank_account`, {
+    method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
+      p_actor_id: admin.user.id, p_account_id: accountId, p_label: validated.value.label, p_bank_name: validated.value.bank_name,
+      p_account_name: validated.value.account_name, p_account_number: validated.value.account_number,
+      p_is_active: validated.value.is_active, p_display_order: validated.value.display_order
+    })
   });
   if (!response.ok) return databaseError(response);
-  const rows = await response.json() as unknown[];
-  if (!rows.length) return json({ error: "找不到收款帳戶" }, { status: 404 });
-  return json({ account: rows[0] });
+  return json({ account: await response.json() });
+}
+
+type CategoryInput = { name?: string; display_order?: number; is_active?: boolean };
+
+function validateCategory(body: CategoryInput) {
+  const name = body.name?.trim();
+  if (!name) return { error: "請填寫分類名稱" };
+  if (name.length > 50) return { error: "分類名稱不可超過 50 個字" };
+  if (body.display_order != null && (!Number.isInteger(body.display_order) || body.display_order < 0)) return { error: "分類排序須為 0 或正整數" };
+  return { value: { name, display_order: Number.isInteger(body.display_order) ? body.display_order : 0, is_active: body.is_active !== false } };
+}
+
+async function createAdminCategory(request: Request, env: Env): Promise<Response> {
+  const admin = await requireAdmin(request, env);
+  if (admin instanceof Response) return admin;
+  let body: CategoryInput;
+  try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
+  const validated = validateCategory(body);
+  if ("error" in validated) return json({ error: validated.error }, { status: 400 });
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_category`, {
+    method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
+      p_actor_id: admin.user.id, p_name: validated.value.name, p_display_order: validated.value.display_order, p_is_active: validated.value.is_active
+    })
+  });
+  if (!response.ok) return databaseError(response);
+  return json({ category: await response.json() }, { status: 201 });
+}
+
+async function updateAdminCategory(request: Request, env: Env, categoryId: string): Promise<Response> {
+  const admin = await requireAdmin(request, env);
+  if (admin instanceof Response) return admin;
+  let body: CategoryInput;
+  try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
+  const validated = validateCategory(body);
+  if ("error" in validated) return json({ error: validated.error }, { status: 400 });
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_category`, {
+    method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
+      p_actor_id: admin.user.id, p_category_id: categoryId, p_name: validated.value.name,
+      p_display_order: validated.value.display_order, p_is_active: validated.value.is_active
+    })
+  });
+  if (!response.ok) return databaseError(response);
+  return json({ category: await response.json() });
 }
 
 type ProductInput = {
-  category_name?: string; product_name?: string; description?: string; variant_name?: string; sku?: string;
+  category_id?: string; category_name?: string; product_name?: string; description?: string; variant_name?: string; sku?: string;
   kind?: "in_stock" | "preorder"; price?: number; stock?: number; preorder_arrival?: string;
-  deposit_rate?: number; seller_link?: string; purchase_limit?: number | null; is_published?: boolean;
+  deposit_rate?: number; seller_link?: string; purchase_limit?: number | null; points_eligible?: boolean; compare_at_price?: number | null; is_published?: boolean;
 };
 
 async function createAdminProduct(request: Request, env: Env): Promise<Response> {
@@ -867,15 +1610,29 @@ async function createAdminProduct(request: Request, env: Env): Promise<Response>
   if (admin instanceof Response) return admin;
   let body: ProductInput;
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
-  if (!body.category_name?.trim() || !body.product_name?.trim() || !body.sku?.trim()) return json({ error: "請填寫分類、商品名稱與 SKU" }, { status: 400 });
+  let categoryName = body.category_name?.trim() || "";
+  const categoryId = body.category_id?.trim() || "";
+  if (categoryId) {
+    if (!/^[0-9a-f-]{36}$/i.test(categoryId)) return json({ error: "商品分類資料不正確" }, { status: 400 });
+    const categoryResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/categories?select=id,name,is_active&id=eq.${categoryId}&limit=1`, { headers: serviceHeaders(env) });
+    if (!categoryResponse.ok) return json({ error: "無法確認商品分類" }, { status: 503 });
+    const categories = await categoryResponse.json() as Array<{ id: string; name: string; is_active?: boolean }>;
+    if (!categories[0]) return json({ error: "找不到商品分類" }, { status: 400 });
+    if (categories[0].is_active === false) return json({ error: "請選擇啟用中的商品分類" }, { status: 400 });
+    categoryName = categories[0].name;
+  }
+  if (!categoryName || !body.product_name?.trim() || !body.sku?.trim()) return json({ error: "請填寫分類、商品名稱與 SKU" }, { status: 400 });
   if (!Number.isInteger(body.price) || (body.price as number) < 0 || !Number.isInteger(body.stock) || (body.stock as number) < 0) return json({ error: "價格與庫存須為非負整數" }, { status: 400 });
+  const price = body.price as number;
+  const compareAtPrice = body.compare_at_price == null ? null : Number(body.compare_at_price);
+  if (compareAtPrice != null && (!Number.isInteger(compareAtPrice) || compareAtPrice < 0 || compareAtPrice < price)) return json({ error: "原價須為 0 或正整數，且不可低於售價" }, { status: 400 });
   if (body.purchase_limit != null && (!Number.isInteger(body.purchase_limit) || body.purchase_limit < 1)) return json({ error: "限購數量必須為正整數或不限購" }, { status: 400 });
   if (!['in_stock', 'preorder'].includes(body.kind || '')) return json({ error: "商品類型不正確" }, { status: 400 });
   const depositRate = body.kind === "preorder" ? 0.5 : Number(body.deposit_rate ?? 0);
   const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_product`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
       p_actor_id: admin.user.id,
-      p_category_name: body.category_name,
+      p_category_name: categoryName,
       p_product_name: body.product_name,
       p_description: body.description || "",
       p_variant_name: body.variant_name || "單一規格",
@@ -887,7 +1644,9 @@ async function createAdminProduct(request: Request, env: Env): Promise<Response>
       p_deposit_rate: depositRate,
       p_seller_link: body.seller_link || null,
       p_is_published: body.is_published === true,
-      p_purchase_limit: body.purchase_limit ?? null
+      p_purchase_limit: body.purchase_limit ?? null,
+      p_points_eligible: body.points_eligible !== false,
+      p_compare_at_price: compareAtPrice
     })
   });
   if (!response.ok) return databaseError(response);
@@ -897,7 +1656,7 @@ async function createAdminProduct(request: Request, env: Env): Promise<Response>
 
 type VariantInput = {
   product_id?: string; name?: string; sku?: string; kind?: "in_stock" | "preorder"; price?: number;
-  safety_stock?: number; preorder_arrival?: string; deposit_rate?: number; seller_link?: string;
+  safety_stock?: number; preorder_arrival?: string; deposit_rate?: number; seller_link?: string; compare_at_price?: number | null;
   is_published?: boolean; display_order?: number;
 };
 
@@ -907,9 +1666,12 @@ function normalizedVariant(body: VariantInput, includeProduct = false) {
   if (includeProduct && !body.product_id) return { error: "請選擇商品" };
   const depositRate = body.kind === "preorder" ? 0.5 : Number(body.deposit_rate ?? 0);
   if (!Number.isFinite(depositRate) || depositRate < 0 || depositRate > 1) return { error: "訂金比例須介於 0% 至 100%" };
+  const price = body.price as number;
+  const compareAtPrice = body.compare_at_price == null ? null : Number(body.compare_at_price);
+  if (compareAtPrice != null && (!Number.isInteger(compareAtPrice) || compareAtPrice < 0 || compareAtPrice < price)) return { error: "原價須為 0 或正整數，且不可低於售價" };
   return { value: {
     ...(includeProduct ? { product_id: body.product_id } : {}), name: body.name.trim(), sku: body.sku.trim().toUpperCase(), kind: body.kind,
-    price: body.price, safety_stock: Number.isInteger(body.safety_stock) ? body.safety_stock : 3,
+    price: body.price, compare_at_price: compareAtPrice, safety_stock: Number.isInteger(body.safety_stock) ? body.safety_stock : 3,
     preorder_arrival: body.preorder_arrival?.trim() || null, deposit_rate: depositRate,
     seller_link: body.seller_link?.trim() || null, is_published: body.is_published === true,
     display_order: Number.isInteger(body.display_order) ? body.display_order : 0, updated_at: new Date().toISOString()
@@ -923,12 +1685,18 @@ async function createVariant(request: Request, env: Env): Promise<Response> {
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   const validated = normalizedVariant(body, true);
   if ("error" in validated) return json({ error: validated.error }, { status: 400 });
-  const payload = { ...validated.value, stock_on_hand: 0 };
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/product_variants`, {
-    method: "POST", headers: serviceHeaders(env, "return=representation"), body: JSON.stringify(payload)
+  const payload = validated.value;
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_variant`, {
+    method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
+      p_actor_id: admin.user.id, p_product_id: payload.product_id, p_name: payload.name, p_sku: payload.sku,
+      p_kind: payload.kind, p_price: payload.price, p_compare_at_price: payload.compare_at_price,
+      p_safety_stock: payload.safety_stock, p_preorder_arrival: payload.preorder_arrival,
+      p_deposit_rate: payload.deposit_rate, p_seller_link: payload.seller_link,
+      p_is_published: payload.is_published, p_display_order: payload.display_order
+    })
   });
   if (!response.ok) return databaseError(response);
-  return json({ variant: (await response.json() as unknown[])[0] }, { status: 201 });
+  return json({ variant: await response.json() }, { status: 201 });
 }
 
 async function updateVariant(request: Request, env: Env, variantId: string): Promise<Response> {
@@ -938,30 +1706,40 @@ async function updateVariant(request: Request, env: Env, variantId: string): Pro
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   const validated = normalizedVariant(body);
   if ("error" in validated) return json({ error: validated.error }, { status: 400 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/product_variants?id=eq.${variantId}`, {
-    method: "PATCH", headers: serviceHeaders(env, "return=representation"), body: JSON.stringify(validated.value)
+  const payload = { ...validated.value };
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_variant`, {
+    method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
+      p_actor_id: admin.user.id, p_variant_id: variantId, p_name: payload.name, p_sku: payload.sku,
+      p_kind: payload.kind, p_price: payload.price, p_compare_at_price: payload.compare_at_price ?? null,
+      p_update_compare_at_price: body.compare_at_price !== undefined, p_safety_stock: payload.safety_stock,
+      p_preorder_arrival: payload.preorder_arrival, p_deposit_rate: payload.deposit_rate,
+      p_seller_link: payload.seller_link, p_is_published: payload.is_published, p_display_order: payload.display_order
+    })
   });
   if (!response.ok) return databaseError(response);
-  const rows = await response.json() as unknown[];
-  if (!rows.length) return json({ error: "找不到商品規格" }, { status: 404 });
-  return json({ variant: rows[0] });
+  return json({ variant: await response.json() });
 }
 
 async function updateProduct(request: Request, env: Env, productId: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
   if (admin instanceof Response) return admin;
-  let body: { name?: string; description?: string; category_id?: string; purchase_limit?: number | null; is_published?: boolean; display_order?: number };
+  let body: { name?: string; description?: string; category_id?: string; purchase_limit?: number | null; points_eligible?: boolean; is_published?: boolean; display_order?: number };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   if (!body.name?.trim()) return json({ error: "請填寫商品名稱" }, { status: 400 });
   if (body.purchase_limit != null && (!Number.isInteger(body.purchase_limit) || body.purchase_limit < 1)) return json({ error: "限購數量必須為正整數或不限購" }, { status: 400 });
-  const payload = { name: body.name.trim(), description: body.description || "", category_id: body.category_id || null, purchase_limit: body.purchase_limit ?? null, is_published: body.is_published === true, display_order: Number.isInteger(body.display_order) ? body.display_order : 0, updated_at: new Date().toISOString() };
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/products?id=eq.${productId}`, {
-    method: "PATCH", headers: serviceHeaders(env, "return=representation"), body: JSON.stringify(payload)
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_product`, {
+    method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
+      p_actor_id: admin.user.id, p_product_id: productId, p_name: body.name.trim(), p_description: body.description || "",
+      p_category_id: body.category_id || null, p_purchase_limit: body.purchase_limit ?? null,
+      p_points_eligible: typeof body.points_eligible === "boolean" ? body.points_eligible : null,
+      p_is_published: body.is_published === true, p_display_order: Number.isInteger(body.display_order) ? body.display_order : 0
+    })
   });
   if (!response.ok) return databaseError(response);
-  const rows = await response.json() as unknown[];
-  if (!rows.length) return json({ error: "找不到商品" }, { status: 404 });
-  return json({ product: rows[0] });
+  // This mutation includes is_published; purge the deterministic image key so
+  // an old version cannot remain publicly reachable after unpublishing.
+  await purgeProductImageCache(request, productId);
+  return json({ product: await response.json() });
 }
 
 async function adjustInventory(request: Request, env: Env, variantId: string): Promise<Response> {
@@ -989,6 +1767,7 @@ async function createOrder(request: Request, env: Env): Promise<Response> {
   let body: { items?: Array<{ variant_id: string; quantity: number }>; pickup_plan?: "together" | "split"; delivery_method?: "store_pickup" | "seller_delivery" | "home_delivery"; payment_method?: "bank_transfer" | "store_payment"; shipping_address?: string; shipping_recipient_name?: string; shipping_phone?: string; coupon_code?: string; points_to_redeem?: number; bank_account_id?: string; payment_last_five?: string };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   if (!Array.isArray(body.items) || body.items.length === 0) return json({ error: "購物車不可為空" }, { status: 400 });
+  if (body.pickup_plan && body.pickup_plan !== "together") return json({ error: "現貨與預購需分開結帳，不提供單筆分批取貨" }, { status: 400 });
   if (body.items.length > MAX_ORDER_ITEMS) return json({ error: "購物車品項數量超過上限" }, { status: 400 });
   const variantIds = new Set<string>();
   let duplicateVariant = false;
@@ -999,10 +1778,10 @@ async function createOrder(request: Request, env: Env): Promise<Response> {
     return false;
   })) return json({ error: duplicateVariant ? databaseErrors.DUPLICATE_ORDER_ITEM : "商品數量錯誤" }, { status: 400 });
   const deliveryMethod = body.delivery_method ?? "store_pickup";
-  const paymentMethod = body.payment_method ?? (body.bank_account_id ? "bank_transfer" : "store_payment");
+  const paymentMethod = body.payment_method ?? (deliveryMethod === "seller_delivery" ? "store_payment" : "bank_transfer");
   if (!['bank_transfer', 'store_payment'].includes(paymentMethod)) return json({ error: "付款方式不正確" }, { status: 400 });
-  if (paymentMethod === "store_payment" && !["store_pickup", "seller_delivery"].includes(deliveryMethod)) return json({ error: "到店支付僅適用到店取貨" }, { status: 400 });
-  if (deliveryMethod === "seller_delivery" && (paymentMethod !== "store_payment" || body.bank_account_id)) return json({ error: "賣貨便訂單請在賣貨便完成付款，本站不收取賣貨便款項" }, { status: 400 });
+  if (paymentMethod === "store_payment" && deliveryMethod !== "seller_delivery") return json({ error: databaseErrors.STORE_PAYMENT_BANK_TRANSFER_ONLY }, { status: 400 });
+  if (deliveryMethod === "seller_delivery" && paymentMethod === "store_payment" && body.bank_account_id) return json({ error: "賣貨便外部付款訂單不可指定本站收款帳戶" }, { status: 400 });
   if (paymentMethod === "bank_transfer" && !body.bank_account_id) return json({ error: "請選擇收款帳戶" }, { status: 400 });
   if (!Number.isInteger(body.points_to_redeem ?? 0) || (body.points_to_redeem ?? 0) < 0) return json({ error: "點數使用數量不正確" }, { status: 400 });
   const shippingRecipientName = body.shipping_recipient_name?.trim() || null;
@@ -1064,17 +1843,28 @@ export default {
       return json({ error: databaseErrors.REQUEST_BODY_TOO_LARGE }, { status: 413 });
     }
     if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, store: env.STORE_NAME, database: Boolean(env.SUPABASE_URL) });
-    if (request.method === "GET" && url.pathname === "/api/config") return json(await runtimeConfig(env));
+    if (request.method === "POST" && url.pathname === "/api/auth/liff/verify") return verifyLiffIdentity(request, env);
+    if (request.method === "POST" && url.pathname === "/api/auth/session/remember") return rememberLiffSession(request, env);
+    if (request.method === "POST" && url.pathname === "/api/auth/session/restore") return restoreLiffSession(request, env);
+    if (request.method === "POST" && url.pathname === "/api/auth/session/forget") return forgetLiffSession();
+    if (request.method === "GET" && url.pathname === "/api/config") {
+      // Runtime config only contains public, non-member-specific bootstrap data.
+      // Keep every other JSON response on the default no-store policy.
+      return json(await runtimeConfig(env), { headers: { "Cache-Control": "public, max-age=300, s-maxage=300" } });
+    }
     if (request.method === "GET" && url.pathname === "/api/catalog") {
       try { return json({ products: await publicCatalog(env) }); }
       catch { return json({ error: "商品暫時無法載入" }, { status: 503 }); }
     }
     const productImageMatch = url.pathname.match(/^\/api\/product-images\/([0-9a-f-]{36})$/i);
-    if (request.method === "GET" && productImageMatch) return serveProductImage(env, productImageMatch[1]);
+    if (request.method === "GET" && productImageMatch) return serveProductImage(request, env, productImageMatch[1], ctx);
     if (request.method === "GET" && url.pathname === "/api/bank-accounts") return listBankAccounts(request, env);
+    if (request.method === "GET" && url.pathname === "/api/cart") return listMemberCart(request, env);
+    if (request.method === "PUT" && url.pathname === "/api/cart") return replaceMemberCart(request, env);
     if (request.method === "GET" && url.pathname === "/api/orders") return listOrders(request, env);
     if (request.method === "GET" && url.pathname === "/api/member/points") return memberPoints(request, env);
     if (request.method === "GET" && url.pathname === "/api/member/line-friendship") return memberLineFriendship(request, env);
+    if (request.method === "POST" && url.pathname === "/api/member/identity-sync") return syncMemberIdentity(request, env);
     if (request.method === "POST" && url.pathname === "/api/orders") {
       const response = await createOrder(request, env);
       if (response.ok) {
@@ -1092,7 +1882,11 @@ export default {
       return response;
     }
     if (request.method === "GET" && url.pathname === "/api/admin/dashboard") return adminDashboard(request, env);
-    if (request.method === "POST" && url.pathname === "/api/admin/line-test") return testLineNotification(request, env);
+    if (request.method === "GET" && url.pathname === "/api/admin/audit-logs") return adminAuditLogs(request, env);
+    if (request.method === "GET" && url.pathname === "/api/admin/notification-deliveries") return adminNotificationDeliveries(request, env);
+    const notificationRequeueMatch = url.pathname.match(/^\/api\/admin\/notification-deliveries\/(line|telegram)\/([0-9a-f-]{36})\/requeue$/i);
+    if (request.method === "POST" && notificationRequeueMatch) return requeueAdminNotificationDelivery(request, env, notificationRequeueMatch[1], notificationRequeueMatch[2]);
+    if (request.method === "POST" && ["/api/admin/telegram-test", "/api/admin/line-test"].includes(url.pathname)) return testTelegramNotification(request, env);
     const orderTransitionMatch = url.pathname.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/transition$/i);
     if (request.method === "POST" && orderTransitionMatch) {
       const response = await transitionAdminOrder(request, env, orderTransitionMatch[1]);
@@ -1105,6 +1899,8 @@ export default {
       if (response.ok) ctx.waitUntil(notifyOrderEvent(env, orderFulfillmentMatch[1], "fulfillment_updated"));
       return response;
     }
+    const orderReturnMatch = url.pathname.match(/^\/api\/admin\/order-items\/([0-9a-f-]{36})\/return$/i);
+    if (request.method === "POST" && orderReturnMatch) return confirmAdminOrderReturn(request, env, orderReturnMatch[1]);
     if (request.method === "PUT" && url.pathname === "/api/admin/point-settings") return updatePointSettings(request, env);
     if (request.method === "POST" && url.pathname === "/api/admin/coupons") return saveCoupon(request, env, null);
     const couponMatch = url.pathname.match(/^\/api\/admin\/coupons\/([0-9a-f-]{36})$/i);
@@ -1116,6 +1912,9 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/admin/bank-accounts") return createBankAccount(request, env);
     const accountMatch = url.pathname.match(/^\/api\/admin\/bank-accounts\/([0-9a-f-]{36})$/i);
     if (request.method === "PATCH" && accountMatch) return updateBankAccount(request, env, accountMatch[1]);
+    if (request.method === "POST" && url.pathname === "/api/admin/categories") return createAdminCategory(request, env);
+    const categoryMatch = url.pathname.match(/^\/api\/admin\/categories\/([0-9a-f-]{36})$/i);
+    if (request.method === "PATCH" && categoryMatch) return updateAdminCategory(request, env, categoryMatch[1]);
     if (request.method === "POST" && url.pathname === "/api/admin/products") return createAdminProduct(request, env);
     const productMatch = url.pathname.match(/^\/api\/admin\/products\/([0-9a-f-]{36})$/i);
     const productImageUploadMatch = url.pathname.match(/^\/api\/admin\/products\/([0-9a-f-]{36})\/image$/i);
@@ -1135,6 +1934,9 @@ export default {
   },
 
   scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(runScheduledNotifications(env));
+    const task = _controller.cron === "*/5 * * * *"
+      ? retryDueNotificationDeliveries(env)
+      : Promise.all([retryDueNotificationDeliveries(env), runScheduledNotifications(env)]).then(() => undefined);
+    ctx.waitUntil(task);
   }
 } satisfies ExportedHandler<Env>;
