@@ -10,6 +10,7 @@ import { initAdminProductsTable, renderAdminProductsTable } from "./admin-produc
 import { initAdminShell } from "./admin-shell.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { handleSessionExpired, initAuthExpiry, watchSessionExpiry } from "./auth-expiry.js";
+import { initAdminTab, openAdminFromRoute, openAdminInNewTab } from "./admin-tab.js";
 
 let products = [
   { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", icon: "🌀", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" },
@@ -3439,7 +3440,7 @@ document.addEventListener("click", (event) => {
   const scopedCheckout = event.target.closest("[data-checkout-scope]");
   if (scopedCheckout) handleCartCheckout(scopedCheckout.dataset.checkoutScope);
   else if (event.target.closest("[data-checkout]")) handleCartCheckout();
-  if (event.target.closest("[data-admin-open]")) openAdmin();
+  if (event.target.closest("[data-admin-open]") && !openAdminInNewTab()) openAdmin();
   if (event.target.closest("[data-admin-close]")) closeDialog(document.querySelector("#admin-dialog"));
   const adminQuickFilter = event.target.closest("[data-admin-quick-filter]");
   if (adminQuickFilter) applyAdminQuickFilter(adminQuickFilter.dataset.adminQuickFilter);
@@ -3587,6 +3588,13 @@ initAdminProductGallery({
   showToast,
   getProduct: (id) => (adminData?.products || []).find((product) => product.id === id),
   fallbackMarkup: adminProductImageFallbackMarkup
+});
+initAdminTab({
+  isLiffClient: () => Boolean(liffState.isInClient),
+  isLoggedIn: () => Boolean(auth.user && auth.accessToken),
+  isAdmin: () => auth.profile?.is_admin === true,
+  openAdmin,
+  showToast
 });
 initAuthExpiry({
   getAccessToken: () => auth.accessToken,
@@ -3745,6 +3753,7 @@ async function bootstrapAuth() {
     // so a slow auth request cannot keep ordinary browsers behind the boot UI.
     await loadMember();
     await restoreAuthReturnState();
+    openAdminFromRoute();
   })();
   return authBootstrapInFlight;
 }

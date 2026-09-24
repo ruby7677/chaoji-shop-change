@@ -14,7 +14,7 @@
   - `API_MEMBER_RATE_LIMITER`：每會員好友驗證／付款 30 次／60 秒。
   - `API_ADMIN_RATE_LIMITER`：每位管理員 API 20 次／60 秒。
 - Worker 安全標頭：CSP、HSTS、X-Frame-Options、X-Content-Type-Options、Referrer-Policy、Permissions-Policy。
-- 最新 Worker：Version ID `f12d9aeb-0969-400a-834d-969974b565d3`（2026-09-24 部署：登入過期後頁首改回未登入並提示重新登入；之前 `d3241da1` 為畫面內確認視窗、`b62ef7b4` 為商品與規格頁改版與 iOS Safari 修正；歷次版本見 `ADMIN_REDESIGN_PLAN.md`、`PRODUCT_SHOWCASE_PLAN.md`）。
+- 最新 Worker：Version ID `4cee25b2-6a89-4588-a68e-6ca6e41ebfac`（2026-09-24 部署：電腦版「管理後台」另開 `/admin` 分頁，權限仍由伺服器檢查、登入資料未改存 localStorage；之前 `f12d9aeb` 為登入過期處理、`d3241da1` 為畫面內確認視窗、`b62ef7b4` 為商品與規格頁改版與 iOS Safari 修正，其間另有首頁輪播版面調整；歷次版本見 `ADMIN_REDESIGN_PLAN.md`、`PRODUCT_SHOWCASE_PLAN.md`）。
 - 商品積點 eligibility migration：`product_points_eligibility` 與 `product_points_admin_acl`；新版管理商品 RPC 僅保留 service_role execute，`search_path` 維持空值。
 
 ## 已套用 migration（2026-09-22～09-24）

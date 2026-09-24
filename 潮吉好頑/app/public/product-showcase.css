@@ -1,4 +1,4 @@
-/* 商品展示升級樣式：Hero 預購輪播、商品頁多圖、詳細介紹、推薦商品。
+@charset "UTF-8"; /* 商品展示升級樣式：Hero 預購輪播、商品頁多圖、詳細介紹、推薦商品。
    規劃見 app/PRODUCT_SHOWCASE_PLAN.md；載入順序在 styles.css 之後。 */
 
 /* ---------- 後台：商品多圖管理 ---------- */
@@ -467,10 +467,18 @@
   .hero-slide-media {
     width: calc(100vw - 20px);
     margin-left: calc(50% - 50vw + 10px);
-    height: min(130vw, 68svh);
     transform: translateX(-40px);
   }
-  .hero-slide-media img { border-radius: 12px; }
+  /* 業主要求（2026-09-24）：照片框跟照片同比例，不留上下空白。原本固定高度＋max-height:100%，
+     方形照上下留白；iOS Safari 也可能不縮放直式照（如 UX11）而切掉左右。改為依照片比例：
+     寬度撐滿，過高的直式照限制在 68svh 內等比縮小置中（不裁切、不變形）。 */
+  .hero-slide-media { height: auto; }
+  .hero-slide-media img {
+    width: auto;
+    max-width: 100%;
+    max-height: 68svh;
+    border-radius: 12px;
+  }
   .hero-slide--alt .hero-slide-media { transform: translateX(40px); }
   .hero-slide [data-stagger] { transform: translateY(32px); }
   .hero-slide-intro { font-size: .95rem; -webkit-line-clamp: 2; }

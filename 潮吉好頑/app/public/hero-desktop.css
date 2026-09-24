@@ -1,0 +1,82 @@
+/* 首頁 Hero 輪播桌機版面；在 product-showcase.css 之後載入以覆蓋其單欄設定。 */
+/* ---------- Hero 桌機左右版面 ----------
+   業主要求（2026-09-24）：寬螢幕改為左 2/3 照片、右 1/3 說明（參考站為左右分欄、兩側等高、文字垂直置中）。
+   商品照多為直式盒裝，照片區以白底完整呈現（contain 不裁切）；平板與手機維持上圖下文。 */
+/* 手機橫放（寬、矮）同樣左右分欄：上下排列時照片只剩約螢幕高度一半，與下方全寬說明框不成比例（業主回報） */
+@media (min-width: 1021px), (orientation: landscape) and (max-height: 540px) and (min-width: 640px) {
+  /* 業主要求：寬螢幕兩側不要留太多空白。取消 1180px 上限，左右內距改與頁首相同（max(5vw, 24px)），
+     輪播左右緣對齊頁首 Logo 與購物車 */
+  .hero { padding-inline: max(5vw, 24px); }
+  .hero > .hero-selection,
+  .hero > .hero-proof,
+  .hero-product-spotlight.hero-carousel { max-width: none; }
+  .hero-slide {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .hero-slide-link { height: 100%; }
+  .hero-slide-media {
+    /* 業主要求：輪播撐滿第一屏（輪播鈕可在折線下），照片區＝螢幕高度扣頁首 82px 與上下間距；照片在區內等比放到最大、不裁切 */
+    height: max(420px, calc(100svh - 108px));
+    padding: 20px;
+    overflow: hidden;
+    border: 1.5px solid rgba(21, 21, 21, .85);
+    border-right: 0;
+    border-radius: 18px 0 0 18px;
+    background: #fff;
+  }
+  /* 圖片等比放到照片區最大（原圖比照片區小時也放大）；照片區白底，contain 留下的邊與底色相連 */
+  .hero-slide-media img {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    object-fit: contain;
+  }
+  .hero-slide-info {
+    justify-content: center;
+    margin-top: 0;
+    padding: 36px 32px;
+    border-radius: 0 18px 18px 0;
+    background: rgba(255, 255, 255, .55);
+  }
+  /* 業主提醒：參考站左右換邊。偶數張改為左 1/3 說明、右 2/3 照片（照片同步由右側滑入，見 product-showcase.css） */
+  .hero-slide--alt { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+  .hero-slide--alt .hero-slide-link { order: 2; }
+  .hero-slide--alt .hero-slide-media {
+    border-right: 1.5px solid rgba(21, 21, 21, .85);
+    border-left: 0;
+    border-radius: 0 18px 18px 0;
+  }
+  .hero-slide--alt .hero-slide-info { border-radius: 18px 0 0 18px; }
+  /* 業主要求：放大後說明文字顯得太小，字級隨螢幕寬度放大（1030px 約同原尺寸、2000px 約 1.6 倍，有上限） */
+  .hero-slide-info { padding: clamp(32px, 3.2vw, 64px) clamp(28px, 3vw, 60px); }
+  .hero-slide-kicker { gap: 8px 12px; font-size: clamp(.84rem, .85vw, 1.1rem); }
+  .hero-slide-flag { padding: .2em .8em; font-size: clamp(.72rem, .72vw, .95rem); }
+  .hero-slide-name { margin-top: .45em; font-size: clamp(1.6rem, 2.6vw, 3.4rem); }
+  .hero-slide-intro { margin-top: .6em; font-size: clamp(1rem, 1.05vw, 1.35rem); -webkit-line-clamp: 5; }
+  .hero-slide-more { min-height: clamp(44px, 3vw, 58px); margin-top: clamp(22px, 2vw, 36px); padding: 0 1.1em 0 1.35em; font-size: clamp(.92rem, .95vw, 1.2rem); }
+  .hero-slide-more-arrow { width: 1.2em; height: 1.2em; }
+}
+
+/* 平板直向（上下排列）：原本照片區固定高 min(48vh, 440px)，方形照在 640px 寬的框內左右各留約 100px（業主回報）。
+   改同手機：照片區依照片比例、寬度撐滿；過高的直式照限制 70svh 內等比縮小置中。不含手機橫放（高度 ≤540 走左右分欄） */
+@media (min-width: 761px) and (max-width: 1020px) and (min-height: 541px) {
+  .hero-slide-media { height: auto; }
+  .hero-slide-media img { width: 100%; height: auto; max-height: 70svh; object-fit: contain; }
+}
+
+/* 手機橫放：照片區高度＝螢幕高度扣掉頁首與上下間距，文字縮小以放進 1/3 欄 */
+@media (orientation: landscape) and (max-height: 540px) and (min-width: 640px) {
+  .hero { padding-top: 12px; padding-bottom: 20px; }
+  /* 寬 ≤760 的橫放手機也會套到直式手機規則（照片撐滿螢幕寬、負左邊距、圖片上限 68svh），這裡還原 */
+  /* 用最小高度（非固定高度）讓照片欄與說明欄永遠等高；contain:size 讓圖片原始尺寸不會把照片欄撐高 */
+  .hero-slide-media { width: auto; margin-left: 0; height: 100%; min-height: max(220px, calc(100svh - 150px)); padding: 12px; contain: size; }
+  .hero-slide-media img { max-width: none; max-height: none; }
+  .hero-slide-info { padding: 18px 18px; }
+  .hero-slide-kicker { font-size: .78rem; }
+  .hero-slide-name { font-size: clamp(1.15rem, 2.6vw, 1.5rem); }
+  .hero-slide-intro { font-size: .9rem; -webkit-line-clamp: 3; }
+  .hero-slide-more { min-height: 40px; margin-top: 12px; }
+}

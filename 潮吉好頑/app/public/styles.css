@@ -1,4 +1,4 @@
-:root{--ink:#161616;--yellow:#f4cf57;--cream:#fffdf7;--paper:#f6f1e3;--line:#d9d1bf;--muted:#68645b;--font-ui:"Noto Sans TC","PingFang TC","Microsoft JhengHei",ui-sans-serif,system-ui,sans-serif;--leading-body:1.65}
+@charset "UTF-8"; :root{--ink:#161616;--yellow:#f4cf57;--cream:#fffdf7;--paper:#f6f1e3;--line:#d9d1bf;--muted:#68645b;--font-ui:"Noto Sans TC","PingFang TC","Microsoft JhengHei",ui-sans-serif,system-ui,sans-serif;--leading-body:1.65}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 html.is-scroll-locked,body.is-scroll-locked{overscroll-behavior:none}

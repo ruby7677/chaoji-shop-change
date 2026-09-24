@@ -3,7 +3,7 @@
 > 建立：2026-09-24。目標設計：`redesign-preview/admin.html`。
 > 範圍：**只改前端外觀與操作動線，不改 Worker、SQL、權限與交易邏輯**。
 > 部署：2026-09-24 經店主授權上線，Version ID `ded8db43-575b-4b8a-abcd-d7b19af626ad`（前一版 `7f55e55e-e876-42a9-a27c-fabaf3856b3a`）。
-> 現況（2026-09-24）：Stage 0–8 與上線後修正皆完成並經店主確認；第 9 節（畫面內確認）已部署。最新 Version ID `f12d9aeb-0969-400a-834d-969974b565d3`（第 10 節）。
+> 現況（2026-09-24）：Stage 0–8 與上線後修正皆完成並經店主確認；第 9 節（畫面內確認）已部署。最新 Version ID `4cee25b2-6a89-4588-a68e-6ca6e41ebfac`（第 11 節）。
 
 ## 1. 現況盤點（已核對程式碼）
 
@@ -149,3 +149,9 @@
 **修正**：新增 `public/auth-expiry.js`（`app.js` 只接線）：登入成功後依 token 的 `exp` 排程到期檢查；分頁從背景回到前景時補檢查（休眠時計時器會暫停）；後台 API 回 401 也觸發。到期時先嘗試恢復（LINE App 內用既有保存工作階段 `restorePersistentLiffSession`），失敗才清除登入資料、頁首改回「LINE 登入」並隱藏「我的訂單」「管理後台」、關閉後台與訂單視窗，提示「登入已過期，請重新登入」。
 **Status**：Complete（部署 `f12d9aeb-0969-400a-834d-969974b565d3`）。正式站以店主登入、開著後台時模擬時間超過 token 到期：頁首由會員名稱改為「LINE 登入」、兩個按鈕隱藏、後台自動關閉、顯示提示、`sessionStorage` 登入資料已清除。後台 API 回 401 的觸發路徑為同一函式，未另外實測。
 **未做（可另議）**：一般瀏覽器內到期前以 refresh token 自動換發，讓管理員不必每小時重新登入；涉及登入流程，需業主決定。
+
+## 11. 電腦版「管理後台」另開新分頁（2026-09-24，業主決定）
+
+**範圍**：只有電腦版（`(hover: hover) and (pointer: fine) and (min-width: 1024px)` 且不在 LINE App 內）另開分頁；手機 Safari、LINE App 與平板維持同頁全螢幕視窗。
+**做法**：新增 `public/admin-tab.js`（`app.js` 只接線）。按鈕以 `window.open('/admin', '_blank')` 開啟（不加 noopener：同源開啟會複製 `sessionStorage`，新分頁沿用登入）；已開過的後台分頁改為切換過去；快顯視窗被封鎖時改同頁開啟。開機流程在會員載入後呼叫 `openAdminFromRoute()`：`/admin` 已登入管理員自動開啟後台、未登入提示「請先以管理員的 LINE 帳號登入，登入後會自動開啟後台」（LINE 登入回跳 `location.pathname`，登入後回到 `/admin`）、非管理員提示並將網址改回首頁。`/admin` 由既有 SPA fallback 回傳 `index.html`，Worker 不需修改；權限仍由伺服器每次 API 檢查。登入資料不改存 `localStorage`。
+**Status**：Complete（部署 `4cee25b2-6a89-4588-a68e-6ca6e41ebfac`）。正式站實測：`/admin` 回 200 `index.html`；已登入直接開 `/admin` 自動開啟後台（概況）、分頁標題為「後台｜潮吉好頑…」；全新無登入分頁開 `/admin` 顯示登入提示、不空白；375px 觸控模擬按鈕仍同頁開啟；程式觸發（非使用者手勢）被快顯封鎖時確實改同頁開啟。內建瀏覽器不顯示由頁面 `window.open` 開出的分頁，實際另開分頁與登入帶入需店主以電腦版 Chrome 確認。
