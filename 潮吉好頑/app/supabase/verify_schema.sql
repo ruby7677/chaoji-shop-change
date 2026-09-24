@@ -199,4 +199,103 @@ select
       and table_name = 'orders'
       and column_name = 'cancellation_notified_at'
   ) as cancellation_notification_marker_exists,
-  to_regclass('public.orders_cancellation_notification_pending_idx') is not null as cancellation_notification_pending_index_exists;
+  to_regclass('public.orders_cancellation_notification_pending_idx') is not null as cancellation_notification_pending_index_exists,
+  -- 202609230003_liff_session_vault：僅 service_role 可讀寫加密 refresh token。
+  to_regclass('public.liff_session_vault') is not null as liff_session_vault_exists,
+  coalesce((select relrowsecurity from pg_class where oid = to_regclass('public.liff_session_vault')), false) as liff_session_vault_rls_enabled,
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'liff_session_vault' and policyname = 'deny api roles'
+  ) as liff_session_vault_deny_policy_exists,
+  not exists (
+    select 1
+    from (values ('anon'), ('authenticated')) r(role_name)
+    cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) p(privilege)
+    where to_regclass('public.liff_session_vault') is null
+       or has_table_privilege(r.role_name, 'public.liff_session_vault', p.privilege)
+  ) as liff_session_vault_api_roles_blocked,
+  to_regclass('public.liff_session_vault_user_id_idx') is not null as liff_session_vault_user_index_exists,
+  -- 202609240001_product_gallery_showcase：商品多圖、商品頁介紹與 Hero 輪播。
+  (
+    select count(*) = 3
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'products'
+      and column_name in ('details', 'hero_rank', 'hero_tagline')
+  ) as product_showcase_columns_exist,
+  (
+    select count(*) = 3
+    from pg_constraint
+    where conrelid = 'public.products'::regclass
+      and conname in ('products_details_length_check', 'products_hero_rank_check', 'products_hero_tagline_length_check')
+  ) as product_showcase_constraints_exist,
+  to_regclass('public.product_images') is not null as product_images_exists,
+  coalesce((select relrowsecurity from pg_class where oid = to_regclass('public.product_images')), false) as product_images_rls_enabled,
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'product_images' and policyname = 'deny api roles'
+  ) as product_images_deny_policy_exists,
+  not exists (
+    select 1
+    from (values ('anon'), ('authenticated')) r(role_name)
+    cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) p(privilege)
+    where to_regclass('public.product_images') is null
+       or has_table_privilege(r.role_name, 'public.product_images', p.privilege)
+  ) as product_images_api_roles_blocked,
+  exists (
+    select 1 from pg_constraint
+    where conrelid = to_regclass('public.product_images')
+      and conname = 'product_images_product_sort_key'
+      and condeferrable and condeferred
+  ) as product_images_sort_key_deferred,
+  exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.audit_logs'::regclass
+      and conname = 'audit_logs_action_check'
+      and pg_get_constraintdef(oid) like '%''retry''%'
+      and pg_get_constraintdef(oid) like '%''delete''%'
+  ) as audit_logs_action_allows_retry_and_delete,
+  (
+    select count(*) = 6
+      and bool_and(fn is not null)
+      and bool_and(fn is null or not has_function_privilege('anon', fn, 'EXECUTE'))
+      and bool_and(fn is null or not has_function_privilege('authenticated', fn, 'EXECUTE'))
+    from (values
+      (to_regprocedure('private.sync_product_primary_image(uuid)')),
+      (to_regprocedure('public.admin_update_product_image(uuid,uuid,text,timestamptz)')),
+      (to_regprocedure('public.admin_add_product_image(uuid,uuid,uuid,text,integer,integer,text)')),
+      (to_regprocedure('public.admin_reorder_product_images(uuid,uuid,uuid[])')),
+      (to_regprocedure('public.admin_delete_product_image(uuid,uuid,uuid)')),
+      (to_regprocedure('public.admin_update_product_showcase(uuid,uuid,text,integer,text)'))
+    ) f(fn)
+  ) as product_gallery_rpcs_exist_and_blocked_for_api_roles,
+  (
+    select bool_and(fn is not null and has_function_privilege('service_role', fn, 'EXECUTE'))
+    from (values
+      (to_regprocedure('public.admin_update_product_image(uuid,uuid,text,timestamptz)')),
+      (to_regprocedure('public.admin_add_product_image(uuid,uuid,uuid,text,integer,integer,text)')),
+      (to_regprocedure('public.admin_reorder_product_images(uuid,uuid,uuid[])')),
+      (to_regprocedure('public.admin_delete_product_image(uuid,uuid,uuid)')),
+      (to_regprocedure('public.admin_update_product_showcase(uuid,uuid,text,integer,text)'))
+    ) f(fn)
+  ) as product_gallery_rpcs_service_role_executable,
+  (
+    select count(*) = 2
+    from information_schema.columns
+    where table_schema = 'public' and table_name = 'storefront_variants'
+      and column_name in ('hero_rank', 'hero_tagline')
+  ) as storefront_hero_columns_exist,
+  coalesce((
+    select 'security_invoker=true' = any(reloptions)
+    from pg_class where oid = 'public.storefront_variants'::regclass
+  ), false) as storefront_view_security_invoker,
+  -- 資料一致性：products.image_path 必須等於多圖排序第一張。
+  to_regclass('public.product_images') is not null and not exists (
+    select 1
+    from public.products p
+    where p.image_path is distinct from (
+      select i.storage_path from public.product_images i
+      where i.product_id = p.id
+      order by i.sort_order, i.created_at
+      limit 1
+    )
+  ) as product_primary_image_in_sync;

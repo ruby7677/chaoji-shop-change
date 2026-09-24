@@ -29,13 +29,16 @@
 - `202609220007_notification_claim_found_fix.sql`：修正動態 notification claim 的 `ROW_COUNT` 判定；不改既有簽名、claim token fencing 或 service-role 權限。
 - `202609230001_notification_operations.sql`：通知紀錄 service-role-only list、failed-only requeue 與 retry audit；後台重排不會直接呼叫外部通知 API。
 - `202609230002_notification_display_context.sql`：通知列表補充遮罩收件人 context 與已知訂單編號；非訂單 event 不猜測關聯，仍不回傳 recipient_id、payload 或 token。
+- `202609230003_liff_session_vault.sql`：LIFF 持久登入以 LINE sub 為鍵保存加密 refresh token；RLS＋deny policy，anon／authenticated 無任何表權限，僅 Worker service_role 讀寫。
+- `202609240001_product_gallery_showcase.sql`：商品多圖 `product_images`（service-role-only、排序唯一鍵延後檢查）、商品頁介紹與 Hero 欄位、多圖管理 RPC 僅 service_role 可執行；`products.image_path` 由第一張圖同步。
+- `202609250001_cancellation_notification_marker.sql`：`orders.cancellation_notified_at` 與部分索引，讓每小時取消通知掃描只處理尚未交給通知狀態機的訂單；會員無此欄位 UPDATE 權限。
 
 套用後需以 `supabase/verify_schema.sql` 唯讀確認函式簽名、notification claim token、退貨驗收表與管理概況 count RPC，再執行 Supabase Security Advisors。不要把本機 dry-run 視為 migration 已套用或 production 已更新。
 
 **Security Advisors 結果（2026-09-24 唯讀執行）**：
 - `authenticated_security_definer_function_executable`（5 項）：`create_delivery_order`（10 參數版）、`submit_order_payment`、`member_point_balance`、`member_available_coupons`、`current_user_is_admin`。皆為會員前台功能刻意開放給 `authenticated`；已核對函式內皆以 `auth.uid()` 判斷呼叫者、`search_path` 為空、未授權 `anon`。舊 8 參數版 `create_delivery_order` 只剩 `service_role`／`postgres`。屬預期，不需處理；日後修改這些函式須維持以 `auth.uid()` 限定本人資料。
 - `auth_leaked_password_protection`：Free 方案無法開啟，見下方 A 節（Email provider 已關閉、只允許 LINE）。
-- `verify_schema.sql` 尚無執行紀錄；下次變更 schema 時一併執行並記錄於此。
+- `verify_schema.sql`（2026-09-24 唯讀執行於正式專案 `csiviervpnxdzyfcuamm`）：100 項檢查全部為 true。本次補上 `202609230003`、`202609240001`、`202609250001` 的檢查：LIFF vault 與 `product_images` 的 RLS／deny policy／API 角色無表權限、多圖 RPC 僅 service_role 可執行、`audit_logs_action_check` 同時允許 `retry` 與 `delete`、`storefront_variants` 維持 `security_invoker` 並含 Hero 欄位，以及資料一致性 `products.image_path` 等於第一張商品圖。之後每次變更 schema 都要重跑並更新此列。
 
 Audit 驗證方案：以隔離測試管理員執行商品／規格／分類／收款帳戶／優惠券／生日券／點數設定 mutation，確認每次資料變更與 audit row 同 transaction；一般會員、anon 與偽造 actor 應被 RPC 拒絕。對 `audit_logs` 執行 UPDATE、DELETE、TRUNCATE 應分別被權限或 `AUDIT_LOG_IMMUTABLE` 拒絕。若商品圖片 binary 上傳成功但後續 DB pointer 更新失敗，需依 storage 與 audit 結果人工補償；此跨服務操作不宣稱單一 transaction。
 
