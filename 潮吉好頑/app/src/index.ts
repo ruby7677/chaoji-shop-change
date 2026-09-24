@@ -26,7 +26,8 @@ import { IMAGE_CACHE_CONTROL, IMAGE_STALE_VERSION_CACHE_CONTROL, PRODUCT_IMAGE_B
 import {
   deliverLineNotification,
   deliverTelegramNotification,
-  retryDueNotificationDeliveries
+  retryDueNotificationDeliveries,
+  type DeliveryResult
 } from "./notification-delivery";
 
 interface Env {
@@ -428,14 +429,14 @@ function telegramNotificationEnabled(env: Env) {
   return env.TELEGRAM_NOTIFY_ENABLED !== "false" && Boolean(env.TELEGRAM_BOT_TOKEN);
 }
 
-async function notifyLine(env: Env, eventKey: string, recipientId: string, eventType: string, message: string | LinePushMessage) {
-  if (!lineNotificationEnabled(env) || !recipientId) return false;
+async function notifyLine(env: Env, eventKey: string, recipientId: string, eventType: string, message: string | LinePushMessage): Promise<DeliveryResult> {
+  if (!lineNotificationEnabled(env) || !recipientId) return { sent: false, handled: true };
   const payload = typeof message === "string" ? { type: "text", text: message.slice(0, 5000) } : message;
   return deliverLineNotification(env, eventKey, recipientId, eventType, payload);
 }
 
-async function notifyTelegram(env: Env, eventKey: string, chatId: string, eventType: string, message: string) {
-  if (!telegramNotificationEnabled(env) || !chatId) return false;
+async function notifyTelegram(env: Env, eventKey: string, chatId: string, eventType: string, message: string): Promise<DeliveryResult> {
+  if (!telegramNotificationEnabled(env) || !chatId) return { sent: false, handled: true };
   return deliverTelegramNotification(env, eventKey, chatId, eventType, message);
 }
 
@@ -450,7 +451,7 @@ async function testTelegramNotification(request: Request, env: Env): Promise<Res
   const timestamp = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(new Date());
   const message = buildTelegramTestMessage(env.STORE_NAME, timestamp);
   const results = await Promise.allSettled(recipients.map(async (chatId) => notifyTelegram(env, `${eventKey}:${chatId}`, chatId, "telegram_test", message)));
-  const sent = results.filter((result): result is PromiseFulfilledResult<boolean> => result.status === "fulfilled" && result.value).length;
+  const sent = results.filter((result) => result.status === "fulfilled" && result.value.sent).length;
   if (!sent) return json({ error: "Telegram 測試通知未送出，請確認 Bot token、管理員 chat ID，並先與 Bot 開始對話" }, { status: 502 });
   return json({ ok: true, sent, total: recipients.length, message: `Telegram 測試通知已送出 ${sent}/${recipients.length} 位管理員` });
 }
@@ -466,9 +467,10 @@ async function loadOrderNotification(env: Env, orderId: string) {
   return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; shipping_address?: string | null; shipping_recipient_name?: string | null; shipping_phone?: string | null; shipping_fee_notified_at?: string | null; paid_amount?: number; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string; is_admin?: boolean }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number; kind?: string }> };
 }
 
-async function notifyOrderEvent(env: Env, orderId: string, eventType: OrderNotificationEventType) {
+/** Resolves true once every recipient's notification is sent or owned by the delivery state machine. */
+async function notifyOrderEvent(env: Env, orderId: string, eventType: OrderNotificationEventType): Promise<boolean> {
   const order = await loadOrderNotification(env, orderId);
-  if (!order) return;
+  if (!order) return false;
   const items = (order.order_items || []).map((item) => `${item.product_name}${item.variant_name === "單一規格" ? "" : ` · ${item.variant_name}`} ×${item.quantity}`).join("、");
   const hasPreorder = (order.order_items || []).some((item) => item.kind === "preorder");
   const deliveryLabels: Record<string, string> = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配" };
@@ -494,7 +496,7 @@ async function notifyOrderEvent(env: Env, orderId: string, eventType: OrderNotif
     shippingAddress: order.shipping_address
   };
   const message = buildOrderNotificationMessage(orderMessageData);
-  if (!message) return;
+  if (!message) return true;
   const lineMessage = buildLineOrderFlexMessage(orderMessageData, message);
   const telegramMessage = buildTelegramOrderNotificationMessage(message, order.profiles?.full_name);
   const suppressAdminMemberLine = eventType === "status_changed"
@@ -508,10 +510,11 @@ async function notifyOrderEvent(env: Env, orderId: string, eventType: OrderNotif
       ? `${eventType}:${orderId}:${order.updated_at || "current"}`
       : `${eventType}:${orderId}`;
   const routing = routeOrderNotificationRecipients(eventType, order.profiles?.line_user_id, telegramAdminRecipients(env), suppressAdminMemberLine);
-  const tasks: Promise<boolean>[] = routing.telegramRecipients.map((chatId) => notifyTelegram(env, eventKey, chatId, `order_${eventType}`, telegramMessage));
+  const tasks: Promise<DeliveryResult>[] = routing.telegramRecipients.map((chatId) => notifyTelegram(env, eventKey, chatId, `order_${eventType}`, telegramMessage));
   // 會員回報匯款只通知 Telegram 管理員；一般會員狀態走 LINE，管理員本人賣貨便備貨確認只保留 Telegram。
   tasks.push(...routing.lineRecipients.map((recipientId) => notifyLine(env, eventKey, recipientId, `order_${eventType}`, lineMessage)));
-  await Promise.allSettled(tasks);
+  const results = await Promise.allSettled(tasks);
+  return results.every((result) => result.status === "fulfilled" && result.value.handled);
 }
 
 async function notifyLowStock(env: Env) {
@@ -539,7 +542,7 @@ async function notifyLowStock(env: Env) {
   const lines = toNotify.map((variant) => `• ${variant.products?.name || "商品"} · ${variant.name} (${variant.sku})：剩 ${variant.stock_on_hand} 件`);
   const eventKey = `low-stock:${new Date().toISOString().slice(0, 10)}:${toNotify.map((item) => `${item.id}-${item.stock_on_hand}`).join(",")}`;
   const sent = await Promise.all(recipients.map((chatId) => notifyTelegram(env, eventKey, chatId, "low_stock", buildLowStockMessage(env.STORE_NAME, lines))));
-  if (sent.some(Boolean)) {
+  if (sent.some((result) => result.sent)) {
     for (const variant of toNotify) {
       await fetch(`${base}/rest/v1/line_low_stock_states`, { method: "POST", headers: serviceHeaders(env, "resolution=merge-duplicates,return=minimal"), body: JSON.stringify({ variant_id: variant.id, last_notified_stock: variant.stock_on_hand, last_notified_at: new Date().toISOString(), updated_at: new Date().toISOString() }) });
     }
@@ -563,22 +566,28 @@ async function notifyBirthdayCoupons(env: Env) {
   }
 }
 
+const CANCELLED_ORDER_SWEEP_PAGE_SIZE = 50;
+const CANCELLED_ORDER_SWEEP_MAX_PAGES = 4;
+
 async function notifyRecentlyCancelledOrders(env: Env) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return;
-  // The state-machine claim is the de-duplication boundary. Walk the complete
-  // cancelled order set with a keyset cursor so an hourly run cannot silently
-  // lose orders older than a time window or beyond a fixed first page.
+  // Only cancelled orders not yet handed to the delivery state machine are
+  // walked; `cancellation_notified_at` is set once every recipient has a claim
+  // row, after which the 5-minute retry cron owns failures. Orders whose claims
+  // could not be recorded stay unmarked and are offered again next hour. The
+  // keyset cursor skips them within this run, and the page cap keeps a backlog
+  // from exhausting one invocation's subrequests.
   const headers = serviceHeaders(env);
-  const pageSize = 100;
   let lastCancelledAt: string | null = null;
   let lastId: string | null = null;
-  while (true) {
+  for (let page = 0; page < CANCELLED_ORDER_SWEEP_MAX_PAGES; page += 1) {
     const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
     url.searchParams.set("select", "id,cancelled_at");
     url.searchParams.set("status", "eq.cancelled");
     url.searchParams.set("cancelled_at", "not.is.null");
+    url.searchParams.set("cancellation_notified_at", "is.null");
     url.searchParams.set("order", "cancelled_at.asc,id.asc");
-    url.searchParams.set("limit", String(pageSize));
+    url.searchParams.set("limit", String(CANCELLED_ORDER_SWEEP_PAGE_SIZE));
     if (lastCancelledAt && lastId) {
       url.searchParams.set("or", `(cancelled_at.gt.${lastCancelledAt},and(cancelled_at.eq.${lastCancelledAt},id.gt.${lastId}))`);
     }
@@ -587,8 +596,25 @@ async function notifyRecentlyCancelledOrders(env: Env) {
     const rows = await response.json() as Array<{ id?: string; cancelled_at?: string | null }>;
     const validRows = rows.filter((row): row is { id: string; cancelled_at: string } => typeof row.id === "string" && typeof row.cancelled_at === "string");
     if (!validRows.length) return;
-    await Promise.allSettled(validRows.map((row) => notifyOrderEvent(env, row.id, "status_changed")));
-    if (validRows.length < pageSize) return;
+    const outcomes = await Promise.allSettled(validRows.map((row) => notifyOrderEvent(env, row.id, "status_changed")));
+    const handledIds = validRows
+      .filter((_row, index) => {
+        const outcome = outcomes[index];
+        return outcome.status === "fulfilled" && outcome.value;
+      })
+      .map((row) => row.id);
+    if (handledIds.length) {
+      const markUrl = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
+      markUrl.searchParams.set("id", `in.(${handledIds.join(",")})`);
+      markUrl.searchParams.set("status", "eq.cancelled");
+      markUrl.searchParams.set("cancellation_notified_at", "is.null");
+      await fetch(markUrl, {
+        method: "PATCH",
+        headers: serviceHeaders(env, "return=minimal"),
+        body: JSON.stringify({ cancellation_notified_at: new Date().toISOString() })
+      });
+    }
+    if (validRows.length < CANCELLED_ORDER_SWEEP_PAGE_SIZE) return;
     const last = validRows[validRows.length - 1];
     lastCancelledAt = last.cancelled_at;
     lastId = last.id;

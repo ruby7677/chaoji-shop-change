@@ -191,4 +191,12 @@ select
     from pg_trigger
     where tgname = 'reject_unverified_order_discounts'
       and not tgisinternal
-  ) as unverified_discount_guard_exists;
+  ) as unverified_discount_guard_exists,
+  exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'orders'
+      and column_name = 'cancellation_notified_at'
+  ) as cancellation_notification_marker_exists,
+  to_regclass('public.orders_cancellation_notification_pending_idx') is not null as cancellation_notification_pending_index_exists;
