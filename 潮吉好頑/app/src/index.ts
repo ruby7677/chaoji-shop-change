@@ -20,6 +20,9 @@ import {
   type SupabaseRefreshSession
 } from "./auth-session";
 import { deleteVaultedSession, readVaultedSession, storeVaultedSession } from "./liff-session-vault";
+import { createProductShowcase, isShowcaseImageUpload } from "./product-showcase";
+import { isShareMetaRequest, withShareMeta } from "./share-meta";
+import { IMAGE_CACHE_CONTROL, IMAGE_STALE_VERSION_CACHE_CONTROL, PRODUCT_IMAGE_BUCKET, PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_TYPES, hasImageSignature, imageContentType, productImageCacheKey, productImageEdgeCache, purgeProductImageCache, requestedImageVersion, storageObjectUrl } from "./product-image-storage";
 import {
   deliverLineNotification,
   deliverTelegramNotification,
@@ -64,6 +67,8 @@ type Product = {
   preorder_arrival?: string;
   seller_link?: string;
   image_url?: string;
+  hero_rank?: number | null;
+  hero_tagline?: string | null;
 };
 
 type AuthUser = {
@@ -696,6 +701,10 @@ const databaseErrors: Record<string, string> = {
   AUDIT_LOG_IMMUTABLE: "稽核紀錄不可修改或刪除",
   AUDIT_TARGET_REQUIRED: "稽核目標不可為空",
   INVALID_IMAGE_PATH: "商品圖片資料不正確",
+  PRODUCT_IMAGE_LIMIT: "每件商品最多 10 張照片",
+  PRODUCT_IMAGE_NOT_FOUND: "找不到這張商品照片",
+  INVALID_IMAGE_ORDER: "照片排序與目前照片不一致，請重新整理後再試",
+  INVALID_PRODUCT_SHOWCASE: "展示設定格式錯誤：介紹上限 8000 字、導購文上限 80 字、輪播排序 1–12",
   INVALID_ADMIN_ORDER_FILTER: "訂單篩選條件不正確",
   INVALID_NOTIFICATION_STATUS: "通知狀態篩選條件不正確",
   NOTIFICATION_NOT_FOUND: "找不到通知紀錄",
@@ -710,9 +719,11 @@ async function databaseError(response: Response) {
   return json({ error: matched ? databaseErrors[matched] : "訂單服務暫時無法處理" }, { status });
 }
 
+const productShowcase = createProductShowcase<Env>({ json, serviceHeaders, requireAdmin, databaseError, securityHeaders: SECURITY_HEADERS });
+
 async function publicCatalog(env: Env): Promise<Product[]> {
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return demoProducts;
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible&is_published=eq.true&order=display_order.asc`, {
+  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,hero_rank,hero_tagline&is_published=eq.true&order=display_order.asc`, {
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
   });
   if (!response.ok) throw new Error("Unable to load catalog");
@@ -725,84 +736,37 @@ async function publicCatalog(env: Env): Promise<Product[]> {
   }));
 }
 
-const PRODUCT_IMAGE_BUCKET = "product-images";
-const PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
-const PRODUCT_IMAGE_TYPES: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp"
-};
-
-const PRODUCT_IMAGE_SIGNATURES: Record<string, number[]> = {
-  "image/jpeg": [0xff, 0xd8, 0xff],
-  "image/png": [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
-  "image/webp": [0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]
-};
-
-type EdgeCache = {
-  match(request: Request): Promise<Response | undefined>;
-  put(request: Request, response: Response): Promise<void>;
-  delete(request: Request): Promise<boolean>;
-};
-
-async function hasImageSignature(image: File, mimeType: string) {
-  const signature = PRODUCT_IMAGE_SIGNATURES[mimeType];
-  if (!signature) return false;
-  const header = new Uint8Array(await image.slice(0, signature.length).arrayBuffer());
-  return header.length === signature.length && signature.every((byte, index) => byte === 0 || header[index] === byte);
-}
-
-function storageObjectUrl(env: Env, path: string) {
-  const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-  return `${env.SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}/${encodedPath}`;
-}
-
-function productImageCacheKey(request: Request, productId: string) {
-  const url = new URL(request.url);
-  url.pathname = `/api/product-images/${productId}`;
-  url.search = "";
-  url.hash = "";
-  return new Request(url.toString(), { method: "GET" });
-}
-
-function productImageEdgeCache() {
-  return (caches as unknown as { default: EdgeCache }).default;
-}
-
-async function purgeProductImageCache(request: Request, productId: string) {
-  await productImageEdgeCache().delete(productImageCacheKey(request, productId));
-}
-
 async function serveProductImage(request: Request, env: Env, productId: string, ctx: ExecutionContext): Promise<Response> {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "圖片服務尚未設定" }, { status: 503 });
-  // The edge key is deterministic and deliberately ignores the version query.
-  // Product mutations purge this key before a new request can reuse old bytes.
-  const cacheKey = productImageCacheKey(request, productId);
+  // The edge key includes the version query (see product-image-storage.ts), so
+  // a changed primary image is served under a new key in every data center.
+  const version = requestedImageVersion(request);
+  const cacheKey = productImageCacheKey(request, productId, undefined, version);
   const edgeCache = productImageEdgeCache();
   const cached = await edgeCache.match(cacheKey);
   if (cached) return cached;
   // Unpublished product images must not be exposed by guessing an old UUID.
-  const productResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/products?select=image_path&id=eq.${productId}&is_published=eq.true&limit=1`, {
+  const productResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/products?select=image_path,image_updated_at&id=eq.${productId}&is_published=eq.true&limit=1`, {
     headers: serviceHeaders(env)
   });
   if (!productResponse.ok) return json({ error: "圖片暫時無法載入" }, { status: 503 });
-  const products = await productResponse.json() as Array<{ image_path?: string }>;
+  const products = await productResponse.json() as Array<{ image_path?: string; image_updated_at?: string | null }>;
   const imagePath = products[0]?.image_path;
+  const isCurrentVersion = version === (products[0]?.image_updated_at || "1");
   if (!imagePath) return json({ error: "商品尚未上傳照片" }, { status: 404 });
   const imageResponse = await fetch(storageObjectUrl(env, imagePath), {
     headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` }
   });
   if (!imageResponse.ok || !imageResponse.body) return json({ error: "圖片暫時無法載入" }, { status: imageResponse.status === 404 ? 404 : 503 });
   const imageHeaders = new Headers(SECURITY_HEADERS);
-  const imageType = Object.keys(PRODUCT_IMAGE_TYPES).find((type) => imagePath.toLowerCase().endsWith(`.${PRODUCT_IMAGE_TYPES[type]}`));
-  imageHeaders.set("Content-Type", imageType || imageResponse.headers.get("Content-Type") || "application/octet-stream");
-  imageHeaders.set("Cache-Control", "public, max-age=31536000, immutable");
+  imageHeaders.set("Content-Type", imageContentType(imagePath, imageResponse.headers.get("Content-Type")));
+  imageHeaders.set("Cache-Control", isCurrentVersion ? IMAGE_CACHE_CONTROL : IMAGE_STALE_VERSION_CACHE_CONTROL);
   const response = new Response(imageResponse.body, {
     headers: imageHeaders
   });
-  // Only successful, already-authenticated image responses enter the public
-  // cache. The version query emitted by publicCatalog invalidates old images.
-  ctx.waitUntil(edgeCache.put(cacheKey, response.clone()));
+  // Only the current version enters the public cache; stale or made-up
+  // versions get the current bytes with a short browser TTL instead.
+  if (isCurrentVersion) ctx.waitUntil(edgeCache.put(cacheKey, response.clone()));
   return response;
 }
 
@@ -823,11 +787,12 @@ async function uploadProductImage(request: Request, env: Env, productId: string)
   if (!image.size || image.size > PRODUCT_IMAGE_MAX_BYTES) return json({ error: "商品照片必須小於 5MB" }, { status: 400 });
   if (!(await hasImageSignature(image, image.type))) return json({ error: "照片格式與檔案內容不一致" }, { status: 400 });
 
-  const productResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/products?select=id,image_path&id=eq.${productId}&limit=1`, { headers: serviceHeaders(env) });
+  const productResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/products?select=id,image_path,image_updated_at&id=eq.${productId}&limit=1`, { headers: serviceHeaders(env) });
   if (!productResponse.ok) return json({ error: "無法確認商品資料" }, { status: 503 });
-  const productRows = await productResponse.json() as Array<{ id: string; image_path?: string }>;
+  const productRows = await productResponse.json() as Array<{ id: string; image_path?: string; image_updated_at?: string | null }>;
   if (!productRows.length) return json({ error: "找不到商品" }, { status: 404 });
   const previousImagePath = productRows[0].image_path;
+  const previousVersion = productRows[0].image_updated_at || "1";
 
   const imagePath = `${productId}/primary.${extension}`;
   const uploadResponse = await fetch(storageObjectUrl(env, imagePath), {
@@ -849,7 +814,7 @@ async function uploadProductImage(request: Request, env: Env, productId: string)
     body: JSON.stringify({ p_actor_id: admin.user.id, p_product_id: productId, p_image_path: imagePath, p_image_updated_at: updatedAt })
   });
   if (!updateResponse.ok) return databaseError(updateResponse);
-  await purgeProductImageCache(request, productId);
+  await purgeProductImageCache(request, productId, undefined, previousVersion);
   if (previousImagePath && previousImagePath !== imagePath) {
     await fetch(`${env.SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}`, {
       method: "DELETE",
@@ -1027,7 +992,7 @@ async function memberLineFriendship(request: Request, env: Env): Promise<Respons
 type AdminDashboardSection = "overview" | "orders" | "members" | "products" | "inventory" | "discounts" | "settings";
 
 const ADMIN_DASHBOARD_SECTIONS: AdminDashboardSection[] = ["overview", "orders", "members", "products", "inventory", "discounts", "settings"];
-const ADMIN_PRODUCTS_SELECT = "id,name,description,image_path,image_updated_at,purchase_limit,points_eligible,is_published,display_order,category_id,categories(id,name,is_active),product_variants(id,name,sku,kind,price,compare_at_price,stock_on_hand,safety_stock,preorder_arrival,deposit_rate,seller_link,is_published,display_order,updated_at)";
+const ADMIN_PRODUCTS_SELECT = "id,name,description,image_path,image_updated_at,purchase_limit,points_eligible,is_published,display_order,category_id,details,hero_rank,hero_tagline,product_images(id,sort_order,updated_at,width,height),categories(id,name,is_active),product_variants(id,name,sku,kind,price,compare_at_price,stock_on_hand,safety_stock,preorder_arrival,deposit_rate,seller_link,is_published,display_order,updated_at)";
 const ADMIN_ORDERS_SELECT = "id,member_id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,paid_amount,payment_deadline,payment_last_five,bank_account_id,admin_note,confirmed_at,payment_confirmed_at,completed_at,cancelled_at,created_at,profiles!orders_member_id_fkey(full_name,phone),bank_accounts(label,bank_name,account_name,account_number),order_items(id,product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)";
 const ADMIN_ORDER_HISTORY_SELECT = "id,order_id,from_status,to_status,note,created_at,profiles(full_name)";
 const ADMIN_RETURNS_SELECT = "id,order_id,order_item_id,sale_movement_id,received_quantity,restock_quantity,scrap_quantity,note,created_at";
@@ -1211,7 +1176,7 @@ async function adminDashboard(request: Request, env: Env): Promise<Response> {
   const base = env.SUPABASE_URL as string;
   const headers = serviceHeaders(env);
   const [productsResponse, accountsResponse, movementsResponse, ordersResponse, historyResponse, membersResponse, pointsResponse, pointSettingsResponse, couponsResponse, birthdaySettingsResponse, categoriesResponse] = await Promise.all([
-    fetch(`${base}/rest/v1/products?select=id,name,description,image_path,image_updated_at,purchase_limit,is_published,display_order,category_id,categories(id,name,is_active),product_variants(id,name,sku,kind,price,compare_at_price,stock_on_hand,safety_stock,preorder_arrival,deposit_rate,seller_link,is_published,display_order,updated_at)&order=display_order.asc&limit=500`, { headers }),
+    fetch(`${base}/rest/v1/products?select=id,name,description,image_path,image_updated_at,purchase_limit,is_published,display_order,category_id,details,hero_rank,hero_tagline,product_images(id,sort_order,updated_at,width,height),categories(id,name,is_active),product_variants(id,name,sku,kind,price,compare_at_price,stock_on_hand,safety_stock,preorder_arrival,deposit_rate,seller_link,is_published,display_order,updated_at)&order=display_order.asc&limit=500`, { headers }),
     fetch(`${base}/rest/v1/bank_accounts?select=id,label,bank_name,account_name,account_number,is_active,display_order,created_at&order=display_order.asc&limit=100`, { headers }),
     fetch(`${base}/rest/v1/inventory_movements?select=id,variant_id,kind,quantity_delta,reason,created_at,product_variants(name,sku,products(name))&order=created_at.desc&limit=50`, { headers }),
     fetch(`${base}/rest/v1/orders?select=id,member_id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,paid_amount,payment_deadline,payment_last_five,bank_account_id,admin_note,confirmed_at,payment_confirmed_at,completed_at,cancelled_at,created_at,profiles!orders_member_id_fkey(full_name,phone),bank_accounts(label,bank_name,account_name,account_number),order_items(id,product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)&order=created_at.desc&limit=200`, { headers }),
@@ -1303,7 +1268,7 @@ async function adminAuditLogs(request: Request, env: Env): Promise<Response> {
   const resource = url.searchParams.get("resource") || "";
   const action = url.searchParams.get("action") || "";
   const allowedResources = new Set(["product", "product_variant", "category", "bank_account", "coupon", "birthday_coupon_settings", "point_settings", "member_points", "product_image"]);
-  const allowedActions = new Set(["create", "update", "adjust", "upload"]);
+  const allowedActions = new Set(["create", "update", "adjust", "upload", "delete"]);
   if ((resource && !allowedResources.has(resource)) || (action && !allowedActions.has(action))) return json({ error: "稽核篩選條件不正確" }, { status: 400 });
   const query = new URL(`${env.SUPABASE_URL}/rest/v1/audit_logs`);
   query.searchParams.set("select", "id,actor_id,action,resource,target,before_data,after_data,created_at,profiles!audit_logs_actor_id_fkey(full_name)");
@@ -1315,7 +1280,8 @@ async function adminAuditLogs(request: Request, env: Env): Promise<Response> {
   const response = await fetch(query, { headers: serviceHeaders(env) });
   if (!response.ok) return databaseError(response);
   const rows = await response.json() as unknown[];
-  return json({ logs: rows.slice(0, page.pageSize), pagination: { page: page.page, pageSize: page.pageSize, hasMore: rows.length > page.pageSize } });
+  // 前端 renderAdminAudit() 讀 auditLogs、分頁依區塊存在 pagination.audit（與通知紀錄 API 相同格式）。
+  return json({ auditLogs: rows.slice(0, page.pageSize), pagination: { audit: { page: page.page, pageSize: page.pageSize, hasMore: rows.length > page.pageSize } } });
 }
 
 async function adminNotificationDeliveries(request: Request, env: Env): Promise<Response> {
@@ -1736,10 +1702,11 @@ async function updateProduct(request: Request, env: Env, productId: string): Pro
     })
   });
   if (!response.ok) return databaseError(response);
-  // This mutation includes is_published; purge the deterministic image key so
-  // an old version cannot remain publicly reachable after unpublishing.
-  await purgeProductImageCache(request, productId);
-  return json({ product: await response.json() });
+  const product = await response.json() as { image_updated_at?: string | null };
+  // This mutation includes is_published; purge the current primary image here.
+  // Other data centers drop it within the edge TTL (s-maxage) after unpublishing.
+  await purgeProductImageCache(request, productId, undefined, product.image_updated_at || "1");
+  return json({ product });
 }
 
 async function adjustInventory(request: Request, env: Env, variantId: string): Promise<Response> {
@@ -1839,7 +1806,7 @@ export default {
     const url = new URL(request.url);
     const isProductImageUpload = request.method === "POST" && /^\/api\/admin\/products\/[0-9a-f-]{36}\/image$/i.test(url.pathname);
     const contentLength = Number(request.headers.get("Content-Length") || 0);
-    if (url.pathname.startsWith("/api/") && ["POST", "PUT", "PATCH"].includes(request.method) && !isProductImageUpload && Number.isFinite(contentLength) && contentLength > MAX_JSON_REQUEST_BYTES) {
+    if (url.pathname.startsWith("/api/") && ["POST", "PUT", "PATCH"].includes(request.method) && !isProductImageUpload && !isShowcaseImageUpload(request, url) && Number.isFinite(contentLength) && contentLength > MAX_JSON_REQUEST_BYTES) {
       return json({ error: databaseErrors.REQUEST_BODY_TOO_LARGE }, { status: 413 });
     }
     if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, store: env.STORE_NAME, database: Boolean(env.SUPABASE_URL) });
@@ -1929,7 +1896,10 @@ export default {
       if (response.ok) ctx.waitUntil(notifyLowStock(env));
       return response;
     }
+    const showcaseResponse = await productShowcase.route(request, env, url, ctx);
+    if (showcaseResponse) return showcaseResponse;
     if (url.pathname.startsWith("/api/")) return json({ error: "找不到 API" }, { status: 404 });
+    if (isShareMetaRequest(request, url)) return withSecurityHeaders(await withShareMeta(request, env, url));
     return withSecurityHeaders(await env.ASSETS.fetch(request));
   },
 

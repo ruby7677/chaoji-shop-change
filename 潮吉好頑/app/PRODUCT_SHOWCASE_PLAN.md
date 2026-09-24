@@ -245,34 +245,140 @@ alter table public.products
 **Goal**：migration、管理 RPC、`src/product-showcase.ts` 新路由、主圖回填。
 **Success Criteria**：`GET /api/products/:id` 回傳 images／details；未上架商品 404；舊 `/api/product-images/:productId` 仍可用；anon 直接 REST 讀 `product_images` 被拒。
 **Tests**：`npm run typecheck`；允許／拒絕案例（anon、會員、管理員、偽造 imageId、跨商品 imageId、超過 10 張、錯誤簽章檔）；`wrangler deploy --dry-run --minify`。
-**Status**：Not Started
+**Status**：Complete（2026-09-23 部署）
+**部署紀錄**：正式 DB（專案 `labubu`）套用 migration `product_gallery_showcase`，遠端版本號 `20260923145715`（本機檔名 `202609240001_product_gallery_showcase.sql`，內容相同、僅去掉 begin/commit）。Worker Version ID `d5eb0a43-9d4a-4450-a1ce-0232eb259b64`，100% 流量；前一版 `3cb5d417-1c4f-4268-a92e-fe57e348cf22` 可作回滾。
+**正式環境驗證**：DB 唯讀核對 4/4 主圖回填、0 筆不一致、anon／authenticated 對新表與 RPC 皆無權限、`retry` 保留；Node fetch smoke 20 項全過（health、config、型錄含 hero 欄位、商品頁 API、多圖與舊主圖讀取、不存在商品／圖片 404、4 個管理路由未登入 401、首頁與 `/products/:id` 深層連結、新前端資源與 marker）；正式首頁瀏覽器開啟無錯誤、無失敗請求。
+**未驗證**：管理員實際上傳／排序／刪除（需管理員 LINE 登入，第 3 階段後台 UI 完成時一併實測）。
+**實際結果**：
+- 新增 `supabase/migrations/202609240001_product_gallery_showcase.sql`、`src/product-showcase.ts`（商品頁 API、多圖代理、後台多圖／展示 RPC 路由）、`src/product-image-storage.ts`（自 `index.ts` 移出的圖片儲存／快取共用工具）。`index.ts` 1942 → 1905 行。
+- PGlite（WASM Postgres）以最小 schema 替身實測 migration：41 項全過，含可重複執行、主圖回填、非管理員／anon／authenticated 拒絕、路徑偽造、10 張上限、排序集合驗證、刪除後重排與主圖同步、舊版單張上傳相容、展示欄位長度／範圍、既有 `retry` 稽核動作保留。
+- 正式 DB 唯讀核對：遠端 migration 已套用至 `liff_session_vault`；`audit_logs_action_check` 已含 `retry`（已修正 migration 避免誤刪）；`product_images` 尚不存在；4 件商品有主圖將被回填。
+- `npm run typecheck`、`git diff --check`、`wrangler deploy --dry-run --minify` 通過；`wrangler dev` 路由實測：4 個管理路由未登入皆 401、非 UUID 路徑 404。
+- **部署順序限制**：`/api/catalog` 已改讀 `hero_rank,hero_tagline`，**必須先套用 migration 再部署 Worker**，否則首頁型錄 503。
+- **既有缺口（未修）**：`/api/admin/audit-logs` 的 action 篩選白名單沒有 `retry`，無法篩選通知重試紀錄；不在本案範圍。
 
 ### Stage 3：後台多圖與展示欄位
 **Goal**：後台上傳多張、拖曳或上下鍵排序、刪除、設定 `details`／`hero_rank`／`hero_tagline`。
 **Success Criteria**：排序後前台順序一致；刪除後 edge cache 失效；稽核紀錄可查。
 **Tests**：上傳 JPG／PNG／WebP、>5MB、偽造副檔名；手機後台操作；audit log 內容。
-**Status**：Not Started
+**Status**：Complete（2026-09-24 管理員實機驗收）
+**實機驗收**：以店主管理員登入於正式站對 UX20 實測：批量上傳 2 張（轉 WebP 800×800、主圖不變）、排序（後台與公開 API 順序一致）、詳細介紹儲存後商品頁正確顯示規格表／小標題／清單、刪除（資料列與 Storage 物件皆移除、已刪圖片 404）、全部復原至測試前狀態（1 張圖、介紹與輪播欄位為空）；稽核紀錄完整（2 上傳→排序→介紹→2 刪除→清除介紹）。
+**驗收時發現並修正（範圍外既有問題）**：`/api/admin/audit-logs` 回傳 `logs` 與扁平分頁，前端讀 `auditLogs` 與 `pagination.audit`，稽核頁一律空白。改為與通知紀錄 API 相同格式；經店主同意部署 Version ID `0eabe06a-f9cf-4671-83bf-1c59e13c0f6b`，實測全部 9 筆、「刪除」2 筆、「上傳」2 筆皆正確顯示。
+**部署紀錄**：Worker Version ID `e9ccd853-1f9e-4e03-ab00-7a79965e4338`，100% 流量；前一版 `d5eb0a43-9d4a-4450-a1ce-0232eb259b64` 可作回滾。部署前逐行比對線上資源：差異僅限本階段的 `app.js`、`index.html`、`product-showcase.css`、`admin-product-gallery.js` 與 Worker 後台商品查詢欄位；Wrangler 實際上傳 4 個資源檔。無資料庫變更。
+**正式環境驗證**：Node fetch smoke 11 項全過（health、型錄、商品頁 API、後台多圖／展示／dashboard 未登入 401、新模組以 JS 型別提供、app.js／CSS／index.html marker、深層連結）；正式首頁瀏覽器開啟無錯誤、無失敗請求。
+**實際結果**：
+- 新增 `public/admin-product-gallery.js`：批量上傳（前端多選、逐張轉 WebP 後依序送出，單張失敗不中斷整批，超過 10 張自動截斷並提示）、←／→ 排序（第 1 張即主圖）、刪除確認、商品詳細介紹（字數計數）、首頁輪播排序與導購文。後端沿用第 2 階段單張 API，未新增路由。
+- `app.js` 只加接線（3762 → 3770 行）；`prepareProductImage()` 另回傳寬高供前台排版避免版面跳動；後台說明文字與「更換主圖（第 1 張）」標籤更新；稽核篩選新增「刪除」。
+- Worker 兩處後台商品查詢加入 `details,hero_rank,hero_tagline,product_images(...)`；以唯讀查詢確認正式 schema 可解析（4 件商品、4 張圖）。
+- 暫時測試頁（已刪除）以 mock API 實測：批量 4 張含 1 張失敗、超額截斷、排序改主圖、刪除主圖遞補、展示設定送出與字數計數；手機寬度輸入 16px、無水平捲動。
+- **限制**：未上架商品的既有照片走公開圖片路由會 404，後台顯示「上架後可預覽」；本次工作階段上傳的照片以 data URL 直接預覽。
+- **未驗證**：真實管理員登入下的上傳／排序／刪除（需部署後由管理員操作）。
 
 ### Stage 4：Hero 預購輪播
 **Goal**：`hero-carousel.js`＋樣式，取代右側 spotlight。
 **Success Criteria**：分層淡入上移節奏符合 5.2；0／1／多張三種資料狀態正確；reduced-motion 無動畫；boot screen 正常結束；LCP 圖為首張 slide。
 **Tests**：375／768／1280 寬截圖；鍵盤操作；分頁切換暫停；Lighthouse LCP／CLS 與改版前比較。
-**Status**：Not Started
+**Status**：Complete（2026-09-23 部署）
+**部署紀錄**：Worker Version ID `f7e3bf64-bfed-411b-ab16-86c4548170a4`，100% 流量；前一版 `e9ccd853-1f9e-4e03-ab00-7a79965e4338` 可作回滾。部署前確認自上次部署後僅 5 個本階段檔案變動（無 `src/`），Wrangler 實際上傳 5 個資源檔。
+**正式環境驗證**：smoke 9 項全過（health、型錄、4 個新／改檔 marker、JS MIME、深層連結）；正式首頁輪播 2 張、首張為 BX35、無錯誤、無失敗請求；CLS 0；LCP 元素為首張輪播圖，重新整理實測 LCP 1.16s（FCP 0.22s、型錄 0.48s）。首次冷啟動測得 11.1s 為預覽窗格取 HTML 即耗 4.1s 且窗格未即時繪製所致，非本次改動造成。
+**決策變更（2026-09-23）**：店主將現貨商品（UX11）設入輪播，選品規則改為「有後台排序＋有照片＋有可售量即上輪播，不限預購／現貨」；全部未設定時才自動取最新 5 件有圖預購商品；再無則回到原單一 spotlight。後台提示文字同步修改。
+**實際結果**：
+- 新增 `public/hero-slides.js`（選品與標記）、`public/hero-carousel.js`（行為）；`app.js` 只改 `renderHeroSpotlight()` 分流與開機畫面等待的圖片 selector（改為 `#hero-product-spotlight img`）。
+- 動畫依參考站實測：交叉淡化 .45s、圖片 80px 滑入（奇偶張左右交錯）、文字 60px 分層淡入上移、每層間隔 .1s；手機位移減半；開機畫面結束後才播放第一張進場。
+- 自動輪播 5.5 秒；滑鼠停留、鍵盤焦點、分頁隱藏、按下暫停時停止；系統「減少動態」時預設不自動播放且關閉位移動畫；←／→ 鍵、左右滑動（垂直捲動不攔截）、圓點、暫停／播放鈕；非作用中 slide 設 `inert`。
+- 深色卡片上的特價紅字對比 2.78:1 未達 WCAG，輪播內改淺色（約 8:1）。
+- 驗證：Node 單元測試 9 項（排序、無庫存／無圖排除、預購 fallback、多規格「起」、上限 12、XSS 跳脫、單張無控制列、無 inline style）；本機 wrangler dev 以正式型錄實測切換、分層延遲、自動播放、暫停、鍵盤、滑動、CTA 開啟對應商品、兩張高度一致（無版面跳動）、首張 `fetchpriority=high`、無 CSP 違規、手機寬度無水平捲動。
+- LCP：舊版已被取代無法同條件對照；新版正式站 1.16s 在 Google「良好」標準（< 2.5s）內。
 
 ### Stage 5：商品頁（多圖、介紹、推薦）
 **Goal**：`product-router.js`、`product-page.js`、`product-gallery.js`、`product-details-format.js`、lightbox。
 **Success Criteria**：卡片點擊進入 `/products/:id`，返回鍵回到原捲動位置；多圖可滑動、計數正確；推薦 4 件不含本商品；加入購物車與既有購物車／會員同步一致；在商品頁 LINE 登入後回到同一商品頁。
 **Tests**：0／1／10 張圖；長文與空 details；下架商品網址（顯示「商品已下架」＋回首頁）；規格切換價格／庫存；手機 2 欄、桌機 4 欄推薦；lightbox 關閉鈕捲動可見；LIFF 內開啟商品頁。
-**Status**：Not Started
+**Status**：Complete（2026-09-24；店主已以手機從 LINE 內點商品連結實測，可正常開啟並登入）
+**登入回跳實測**：店主於商品頁完成 LINE 登入後回到同一商品頁（`/products/ff1d…`），已登入、網址 token 已清除。首次嘗試回到首頁的原因經查為該次登入由首頁發起（16:07）；商品頁發起的 16:04 那次未完成。Supabase 已接受 `/products/...` 作為回跳網址（`auth.flow_state.referrer` 佐證）。
+**部署紀錄**：Worker Version ID `217f31f2-97c2-4f0a-b732-3c14a3ebf508`，100% 流量；前一版 `f7e3bf64-bfed-411b-ab16-86c4548170a4` 可作回滾。僅 7 個本階段前端檔案變動、無 `src/`，Wrangler 實際上傳 7 個資源檔。
+**實際結果**：
+- 新增 `product-router.js`（History API）、`product-page.js`（視圖、購買欄、推薦、手機固定購買列、區塊進場）、`product-gallery.js`（scroll-snap 多圖＋全螢幕大圖）、`product-details-format.js`（安全格式化）、`product-page.css`；`index.html` 新增 `#product-page` 與 `#product-lightbox`。
+- `app.js`：加入購物車抽成 `addVariantQuantityToCart()`（對話框與商品頁共用，檢查邏輯不變）；`openProductDetail()` 有 `product_id` 時改進商品頁；首次渲染後同步路由。
+- 購物須知摘要依店主決定按類型自動顯示（預購：訂金 50%／2 小時付訂／海運集運；現貨：24 小時付款／取貨方式），附「完整購物須知」連結回首頁 #policy。
+- 修正過程發現並修正：全站 `scroll-behavior:smooth` 會讓換頁捲動變成動畫（改 instant）；手機固定購買列在快速滑過時不觸發（IntersectionObserver 門檻，改放大底部 rootMargin）；網址與時間被誤判成規格表（regex 排除 `//` 與純數字鍵）。
+- 驗證：格式化器 12 項、本機實測（卡片圖片／名稱／查看規格進入、數量加減、加入購物車、超量阻擋、上一頁還原首頁捲動位置、下一頁、頁首錨點回首頁、深層連結、預購／現貨須知、大圖開關與關閉鈕可見與捲動鎖、手機固定購買列、下架／非 UUID 商品提示與返回、桌機雙欄與 sticky 圖片、推薦 4 欄／手機 2 欄、無水平捲動）；正式站 smoke 與瀏覽器檢查無錯誤。
+- **待實測**：在商品頁 LINE 登入後回到同一商品頁；LIFF 內開啟商品頁；後台多圖實際上傳／排序／刪除（需管理員登入）。
 
 ### Stage 6（選配）：分享預覽與收尾
 **Goal**：Worker 對 `/products/:id` 以 HTMLRewriter 注入 OG title／image；移除舊 product-detail dialog；更新 README。
 **Success Criteria**：LINE 貼網址出現商品圖與名稱；無殘留死碼。
 **Tests**：LINE 分享預覽；`git diff --check`；正式部署後依 AGENTS.md smoke（含 `/products/<id>` 回 200、`/api/products/<id>` 回 JSON、`app.js`／`product-showcase.css` marker）。
-**Status**：Not Started
+**Status**：Complete（2026-09-24 部署；LINE 預覽待店主以新連結確認）
+**部署紀錄**：Worker Version ID `bcd0360e-430e-4e69-9cb3-01965c6964e0`，100% 流量；前一版 `0eabe06a-f9cf-4671-83bf-1c59e13c0f6b` 可作回滾。實際上傳 5 個前端資源檔。
+**店主追加（同批部署）**：
+- 商品卡「查看規格」改為「直接購買」：尚未在購物車才加入 1 件，再打開購物車抽屜（不直接跳結帳）；售完時兩顆按鈕停用並顯示「已售完」；商品頁改由圖片與名稱進入，名稱加淡底線提示。同時修正推薦卡按鈕仍顯示舊文字「加入選物盒」。
+- 大圖關閉鈕：原被 `dialog .dialog-close` 白底與 `!important` 覆蓋成白底白字，改以 `#product-lightbox` 選擇器設為深色圓底、白色 ×、白框並固定右上角。
+- LINE 預覽無圖：原因是第 6 階段當時尚未部署（抓到的是全站預設標題），非 JPG 問題。
+**正式環境驗證**：smoke 11 項全過（商品頁 og:title／title／https 絕對 og:image、og:image 200 image/jpeg、CSP、首頁 Logo、舊對話框已移除、直接購買／關閉鈕 marker）；正式首頁以管理員登入狀態載入無失敗請求。
+**實際結果**：
+- 新增 `src/share-meta.ts`：`/`、`/products/:id` 的 HTML 由 Worker 以 HTMLRewriter 寫入 `<title>`、meta description、Open Graph（type／site_name／locale／title／description／url／image）、twitter:card 與 canonical；商品資料只讀已上架（anon view），查詢失敗或不存在時退回全站預設（Logo.png）。取 index.html 時移除條件式標頭並刪 ETag，避免各商品共用 ETag 造成 304 沿用他頁標籤。
+- 移除舊商品詳情對話框：`app.js` 刪除 `renderProductDetail`／`addDetailToCart`／`detailVariants`／`activeDetailProductId` 與相關事件、登入回跳欄位（3803 → 3763 行）；`index.html` 刪除 `#product-detail-dialog`；`styles.css` 刪除 22 行專屬樣式，共用選擇器只去除舊類別。
+- 本機驗證：首頁／商品頁／不存在商品的標籤內容、帶 If-None-Match 仍回 200 與正確標籤、CSP 保留、og:image 可取得、非 HTML 資源不受影響；首頁開機、輪播、「查看規格」與輪播按鈕進入商品頁皆正常、無 console 錯誤。
+- **風險**：新上傳照片為 WebP，LINE 預覽對 WebP 的支援需以實際分享驗證；舊主圖為 JPG 不受影響。
 
 ---
 
+### 上線後調整（2026-09-24，業主要求）
+**Status**：Complete（2026-09-24 部署 Version ID `96826616-4578-4ace-9fc8-b41274b01d76`；前一版 `bcd0360e-430e-4e69-9cb3-01965c6964e0`）
+- 店主追加：手機圖片放大至離螢幕左右各 10px（圖片框寬 `calc(100vw - 20px)`、以 `margin-left: calc(50% - 50vw + 10px)` 突破首頁內距，高度上限 `min(130vw, 68svh)`）；375／414／600px 實測左右皆 10px、無水平捲動。
+- 正式站 smoke 8 項全過；正式首頁輪播 2 張、圖片離邊 10px。
+- 首頁左側移除「今天，開哪一盒？」標語與說明段落；`<h1>` 改為「潮吉好頑｜玩具、公仔、戰鬥陀螺選物」並以 `.visually-hidden` 保留給搜尋引擎與螢幕報讀器。
+- 輪播拿掉黑色外框與旋轉，商品圖直接放在黃底上：固定高度框內保持原比例、依最大寬度或最大高度放大（桌機 `min(48vh,500px)`、平板 `min(48vh,440px)`、手機 `min(112vw,60svh)`），圓角＋柔和陰影；圖片可點進商品頁（僅滑鼠／觸控）。隱藏原卡片後方圓環裝飾。
+- 文字依業主「文字由設計師設計」重新排版於圖片下方，保留分層淡入上移：類型徽章（預購黑底／現貨白底）＋分類＋到貨日或庫存 → 商品名稱 → 導購文 → 分隔線＋價格＋黑色圓角按鈕；控制列改黃底用深色線條。
+- 桌機右欄加寬（.8fr / 1.2fr）並縮小上下留白：1280×860 視窗內圖、文字、控制列全在第一屏。
+- 修正：圖片框改用 flex（grid auto 列高使 `max-height:100%` 失效導致圖片溢出）。
+- 驗證：單元測試 7 項；本機手機／桌機尺寸、分層延遲、下一張、滑動、點圖與按鈕進商品頁、無 console 錯誤、無水平捲動。
+
+### 上線後調整第二輪（2026-09-24，業主要求）
+**Status**：Complete（部署 Version ID `1898b0f1-7e31-4e1c-a250-af8e4ea1dfdc`；前一版 `96826616-4578-4ace-9fc8-b41274b01d76`）。正式站 smoke 全過，手機輪播距導航列 12px、圖片離邊 10px、無失敗請求。
+- 首頁：移除「先看現貨／先看下單規則」；輪播直接接在導航列下方（手機間距 12px），「現貨／預購／到貨」三格移到輪播下方；全尺寸單欄置中（桌機輪播與三格皆 640px）。
+- 購物須知：移除「預購／付款／退換貨」三張說明卡；標題改為「下單前，請先讀完購物須知。」，說明文字重寫並保留「不接受任何原因退換貨」條款（依店主指示不保留「送出訂單先保留庫存、確認付款後扣除」）；流程列與規則接在標題下方；規則由 `<details>` 改為直接顯示的 `<section>`，標題「代購與退換貨規則」。
+- 驗證：手機 375 與桌機 1280 版面量測、HTML 標籤配對、無水平捲動。
+
+### 上線後調整第三輪（2026-09-24）
+**Status**：Complete（部署 Version ID `0efea723-9c54-4255-8304-5cee986c86aa`；前一版 `1898b0f1-7e31-4e1c-a250-af8e4ea1dfdc`）
+- 「我已閱讀，回商品區」原本指向 `#products`，固定導航列會蓋住區塊標題，畫面停在「從現貨快選開始…」。改指向搜尋列 `#product-search-bar`，並以 `scroll-margin-top`（手機 128px、桌機 100px）預留導航列高度；本機實測搜尋列停在導航列下方 20px（手機）／18px（桌機）。導航列「商品」連結維持 `#products`。
+
+### 上線後調整第四輪（2026-09-24）
+**Status**：Complete（部署 Version ID `e74dd6f6-32e3-47bd-b5c7-c2e23e04d311`；前一版 `0efea723-9c54-4255-8304-5cee986c86aa`）
+- 導航列「購物須知」與商品頁「完整購物須知」原指向 `#policy`，標題第一行被固定導航列蓋住；改指向 `#policy-title`，沿用 `scroll-margin-top`（手機 128px、桌機 100px）。本機實測標題停在導航列下方 20px（手機）／18px（桌機），兩個入口一致。
+
+### 上線後調整第五輪（2026-09-24）
+**Status**：Complete（部署 Version ID `a18dcc3b-fd26-43d2-8953-b02a6c01860b`；前一版 `e74dd6f6-32e3-47bd-b5c7-c2e23e04d311`）
+- 所有「回商品區」入口統一落在搜尋列 `#product-search-bar`：導航列「商品」、購物須知「我已閱讀，回商品區」、我的訂單「去逛逛」、商品頁麵包屑分類與「回到商品列表」。店主回報仍看到「從現貨快選開始」是點了導航列「商品」（仍指向 `#products`）。
+- 點 Logo（`#top`）改捲到頁面最頂端：`#top { scroll-margin-top: 100vh }`，避免 main 被固定導航列蓋住輪播上緣。
+- 輪播文字區加圓角細框（1.5px 深色、16px 圓角、半透明白底），並以 overflow 讓分層文字在框內浮上。
+- 本機 390×844 實測：各回商品入口搜尋列皆在導航列下方 20px、Logo 後 scrollY=0 且輪播圖完整露出；正式站 marker 5 項全過。
+
+### 上線後調整第六輪（2026-09-24）
+**Status**：Complete（部署 Version ID `7f55e55e-e876-42a9-a27c-fabaf3856b3a`；前一版 `a18dcc3b-fd26-43d2-8953-b02a6c01860b`）
+- 店主 iPhone 回報導航列「商品」仍未停在搜尋列；Chromium 實測正確，研判為 iOS Safari 錨點跳轉處理差異或手機仍開著舊版頁面。改為不依賴 CSS `scroll-margin-top`：新增 `public/anchor-scroll.js`，攔截頁內 `a[href^="#"]` 點擊，依導航列實際高度計算落點（導航列下方 20px），並以 pushState 保留上一頁行為；商品頁回首頁、我的訂單「去逛逛」改用同一函式。`scroll-margin-top` 保留作為直接開啟帶 hash 網址時的後備。
+- 本機 390×844 實測：導航列商品／購物須知、回商品區、上一頁、Logo、商品頁麵包屑與完整購物須知，全部落在導航列下方 20px（Logo 為頂端）；無 console 錯誤。
+
+### 上線後調整第七輪（2026-09-24，業主要求）
+**Status**：Complete（部署 Version ID `4ac77490-da40-42a7-82a5-5da6f040a431`；前一版 `ded8db43-575b-4b8a-abcd-d7b19af626ad`）
+- 輪播下方文字區改為「介紹新品／熱款」：移除價格、庫存與到貨時間；保留品名與介紹。標籤依類型：預購＝`NEW 新品預購`、現貨＝`HOT 熱門推薦`（資料庫無新品／熱款欄位，輪播商品本身為業主挑選）。介紹文字優先用後台「輪播短語」，否則用商品說明（超過 90 字截斷、桌機最多 3 行、手機 2 行），兩者皆無時顯示預設句。保留「看介紹 →」文字按鈕（44px 觸控高度；圖片連結僅供滑鼠／觸控，鍵盤與報讀器靠此按鈕進商品頁）。
+- 檔案：`public/hero-slides.js`、`public/product-showcase.css`。正式站驗證：輪播 2 張皆顯示新文字區、無價格／庫存、無 console 錯誤。
+### 上線後調整第八輪（2026-09-24，業主要求）
+**Status**：Complete（部署 Version ID `ef5bcb11-b742-49bc-84d4-537a312de4f7`；前一版 `4ac77490-da40-42a7-82a5-5da6f040a431`）
+- 輪播文字卡的連結改為右下角圓角外框按鈕，文字改回「查看商品 →」（箭頭改為 SVG 線條圖示；報讀器讀作「查看商品：商品名稱」）。白色半透明底＋1.5px 墨黑框，hover 反白為墨黑底黃字；高 44px。按鈕與進場動畫共用 transition（進場屬性保留分層延遲、hover 顏色不延遲），並列入減少動態清單。
+- 量測：295／375／1440 寬度皆位於卡片右下角（距右、下 19px＝卡片內距＋框線）。檔案：`public/hero-slides.js`、`public/product-showcase.css`。
+- 設計檢測器另回報既有的輪播圓點以 `width` 做過渡（非本次修改），未處理。
+### 上線後調整第九輪（2026-09-24，業主回報）
+**Status**：Complete（部署 Version ID `b43ecda6-3309-40e8-9ee9-13b46121ae25`、`c97ff2bc-d61f-495c-b79d-643ac21d8a41`；前一版 `ef5bcb11-b742-49bc-84d4-537a312de4f7`）
+- 後台照片「刪除」無作用：正式站稽核紀錄在業主操作期間（BX35，09-24 11:27 上傳 2 張、排序 4 次）無任何 delete，確認請求未送出；正式站以管理員登入實測，按刪除不出現確認框、無 DELETE 請求。改為畫面內兩段式確認（第一次按變紅色「確定刪除？」、3 秒內再按才刪除，逾時自動恢復），不再使用 `window.confirm`（`admin-product-gallery.js`、`product-showcase.css`）。正式站實測刪除 BX35 第 3 張（09-15 舊主圖 `primary.jpg`，業主同意）：DB 剩 2 張、主圖不變、稽核新增 delete（11:51:30）。
+- 移除「編輯商品」的「更換主圖（第 1 張）」欄位（與照片區重複；舊版上傳會覆寫照片區第 1 張）。「新增商品」保留主圖欄位（建立前照片區尚不存在）。
+- 快取修正（業主同意，2026-09-24 部署 `a8595f2d-c72b-4f64-8ccc-208286b2faa6`）：原本 Cache API 快取一年且快取鍵去除 `?v=`，`cache.delete` 只清處理請求的機房，其他機房仍回傳已刪除照片（實測 TPE `HIT`）。改為：
+  - 快取鍵含版本；只有 `v` 與資料庫版本一致才寫入邊緣快取，`Cache-Control: public, max-age=31536000, immutable, s-maxage=86400`（邊緣最多 1 天，瀏覽器沿用一年）。
+  - 舊版或亂填的 `v` 回傳目前圖片、`max-age=60`，不寫入快取，避免被灌爆快取。
+  - 刪除照片、編輯商品（含下架）時清除本機房對應版本；其他機房最遲 1 天失效。新增／排序照片會更新版本，不再 purge。
+  - 正式站實測：正確版本第 2 次 `HIT` 且帶 `s-maxage=86400`；錯誤版本兩次皆未進快取；不存在的圖片 404。
 ## 7. 風險與待確認事項
 
 | # | 風險／問題 | 處理 |

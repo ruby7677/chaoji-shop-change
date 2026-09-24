@@ -1,6 +1,12 @@
 import { liffState, initializeLiffClient, preloadLiffSdk, canRequestLineFriendship, requestLineFriendship } from "./liff-auth.js";
 import { escapeHtml, hasProductDiscount, isPreorderItem, money, productAvailability, productMark, productPriceMarkup } from "./product-format.js";
 import { productCardMarkup } from "./product-card.js";
+import { mountHeroCarousel } from "./hero-carousel.js";
+import { createProductPage } from "./product-page.js";
+import { initAnchorScroll, scrollToAnchor } from "./anchor-scroll.js";
+import { selectHeroSlides } from "./hero-slides.js";
+import { adminProductGalleryMarkup, adminProductShowcaseMarkup, initAdminProductGallery } from "./admin-product-gallery.js";
+import { initAdminShell } from "./admin-shell.js";
 
 let products = [
   { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", icon: "🌀", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" },
@@ -47,7 +53,6 @@ let activeCategory = "all";
 let bankAccounts = [];
 let currentOrders = [];
 let activePaymentOrder = null;
-let activeDetailProductId = null;
 let adminData = null;
 let adminDataActorId = null;
 let adminManagementOptionsActorId = null;
@@ -250,7 +255,19 @@ function showToast(message, kind = "neutral") {
 }
 function selectedDeliveryMethod() { return document.querySelector("input[name='delivery_method']:checked")?.value || "store_pickup"; }
 function selectedPaymentMethod() { return document.querySelector("input[name='payment_method']:checked")?.value || "bank_transfer"; }
+let heroCarousel = null;
 function renderHeroSpotlight() {
+  const spotlight = document.querySelector("#hero-product-spotlight");
+  if (!spotlight) return;
+  const slides = selectHeroSlides(products);
+  if (slides.length) {
+    heroCarousel?.destroy();
+    heroCarousel = mountHeroCarousel(spotlight, slides);
+    return;
+  }
+  renderSingleHeroSpotlight();
+}
+function renderSingleHeroSpotlight() {
   const visual = document.querySelector("#hero-product-visual");
   if (!visual) return;
   const product = products.find((item) => item.type === "現貨" && Number(item.stock || 0) > 0) || products.find((item) => Number(item.stock || 0) > 0) || products[0];
@@ -287,7 +304,6 @@ function renderProducts() {
   const keyword = search.value.trim().toLowerCase();
   const visible = products.filter((product) => (activeCategory === "all" || product.category === activeCategory || product.type === activeCategory) && `${product.category}${product.name}`.toLowerCase().includes(keyword));
   grid.innerHTML = visible.length ? visible.map(productCardMarkup).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
-  grid.querySelectorAll("[data-add]").forEach((button) => { button.textContent = "加入購物車"; });
 }
 function cartItemMarkup(item) {
   return `<div class="cart-item"><div><h3>${escapeHtml(item.name)}</h3><small>${money(item.price)} · ${escapeHtml(item.category)} · ${isPreorderItem(item) ? "預購" : "現貨"}</small><div class="quantity"><button type="button" data-quantity="${escapeHtml(item.id)}" data-delta="-1">−</button><b>${item.quantity}</b><button type="button" data-quantity="${escapeHtml(item.id)}" data-delta="1">＋</button></div></div><div><strong>${money(item.price * item.quantity)}</strong><button class="remove" type="button" data-remove="${escapeHtml(item.id)}">移除</button></div></div>`;
@@ -671,49 +687,38 @@ function removeLegacySellerCheckoutOption() {
   sellerInput?.closest("label")?.classList.add("hidden");
 }
 
-function detailVariants(product) {
-  if (!product?.product_id) return [product].filter(Boolean);
-  return products.filter((item) => item.product_id === product.product_id);
-}
-
-function renderProductDetail() {
-  const container = document.querySelector("#product-detail-content");
-  const product = products.find((item) => item.id === activeDetailProductId);
-  if (!container || !product) return;
-  const variants = detailVariants(product);
-  const purchaseLimit = Number.isInteger(Number(product.purchase_limit)) && Number(product.purchase_limit) > 0 ? Number(product.purchase_limit) : null;
-  const maxQuantity = purchaseLimit ? Math.min(product.stock, purchaseLimit) : product.stock;
-  const variantOptions = variants.length > 1 ? `<label class="product-detail-field">選擇規格<select id="product-detail-variant">${variants.map((variant) => `<option value="${escapeHtml(variant.id)}" ${variant.id === product.id ? "selected" : ""}>${escapeHtml(variant.variant_name || variant.name)} · ${money(variant.price)} · ${variant.type === "現貨" ? `庫存 ${variant.stock}` : "預購"}</option>`).join("")}</select></label>` : `<p class="product-detail-variant"><strong>規格</strong>${escapeHtml(product.variant_name || "單一規格")}</p>`;
-  const stockText = product.type === "現貨" ? `現貨庫存 ${product.stock} 件` : `預購${product.preorder_arrival ? `，預計 ${escapeHtml(product.preorder_arrival)} 到貨` : "，訂金 50%"}`;
-  container.innerHTML = `<div class="product-detail-layout"><div class="product-detail-image">${product.image_url ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" />` : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`}</div><div class="product-detail-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h2>${escapeHtml(product.product_name || product.name)}</h2><p class="product-detail-description">${escapeHtml(product.description || "尚未填寫商品說明")}</p>${variantOptions}<div class="product-detail-meta"><span>${escapeHtml(stockText)}</span><div class="product-detail-price${hasProductDiscount(product) ? " price-discounted" : ""}">${productPriceMarkup(product)}</div></div>${purchaseLimit ? `<small class="product-detail-limit">每位會員限購 ${purchaseLimit} 件</small>` : ""}<label class="product-detail-field">數量<input id="product-detail-quantity" type="number" min="1" max="${Math.max(maxQuantity, 1)}" step="1" value="${maxQuantity > 0 ? 1 : 0}" ${maxQuantity > 0 ? "" : "disabled"} /></label><button class="primary-button product-detail-add" type="button" data-detail-add ${maxQuantity > 0 ? "" : "disabled"}>${maxQuantity > 0 ? "加入購物車" : "目前無可售庫存"}</button></div></div>`;
-}
-
+// 商品卡、推薦卡與輪播按鈕都以規格 ID 進入獨立商品頁。
 function openProductDetail(id) {
   const product = products.find((item) => item.id === id);
   if (!product) return;
-  activeDetailProductId = product.id;
-  renderProductDetail();
-  const dialog = document.querySelector("#product-detail-dialog");
-  showDialog(dialog);
+  if (!product.product_id) return showToast("商品資料載入中，請稍後再試");
+  productPage.open(product.product_id, product.id);
 }
 
-function addDetailToCart() {
-  const variantSelect = document.querySelector("#product-detail-variant");
-  const quantityInput = document.querySelector("#product-detail-quantity");
-  const variant = products.find((item) => item.id === (variantSelect?.value || activeDetailProductId));
-  if (!variant || !quantityInput) return;
+// 商品頁加入購物車：依庫存與限購檢查後加入指定數量。伺服器建單時仍會重新驗證。
+function addVariantQuantityToCart(variantId, quantity) {
+  const variant = products.find((item) => item.id === variantId);
+  if (!variant) return { ok: false, message: "找不到這個規格，請重新整理頁面" };
   const purchaseLimit = Number.isInteger(Number(variant.purchase_limit)) && Number(variant.purchase_limit) > 0 ? Number(variant.purchase_limit) : null;
   const maxQuantity = purchaseLimit ? Math.min(variant.stock, purchaseLimit) : variant.stock;
-  const quantity = Number(quantityInput.value);
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > maxQuantity) return showToast(`數量需介於 1 至 ${Math.max(maxQuantity, 1)} 件`);
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > maxQuantity) return { ok: false, message: `數量需介於 1 至 ${Math.max(maxQuantity, 1)} 件` };
   const existing = cart.find((item) => item.id === variant.id);
-  if (existing && existing.quantity + quantity > maxQuantity) return showToast("已達可選購庫存或限購上限");
+  if (existing && existing.quantity + quantity > maxQuantity) return { ok: false, message: "已達可選購庫存或限購上限" };
   if (existing) existing.quantity += quantity;
   else cart.push({ ...variant, quantity });
   saveCart();
   renderCart();
-  closeDialog(document.querySelector("#product-detail-dialog"));
-  showToast(`${variant.name} 已加入購物車`);
+  return { ok: true, message: `${variant.name} 已加入購物車` };
+}
+
+// 商品卡「直接購買」：尚未在購物車才加入 1 件（避免連點變 2 件），再打開購物車抽屜；
+// 取貨方式、預購與現貨分開結帳、登入都在購物車內處理，不直接跳過到結帳頁。
+function buyNowFromCard(variantId) {
+  if (!cart.some((item) => item.id === variantId)) {
+    const result = addVariantQuantityToCart(variantId, 1);
+    if (!result.ok) return showToast(result.message, "warning");
+  }
+  if (!document.querySelector("#cart-drawer")?.classList.contains("open")) toggleCart();
 }
 
 function readAuthReturnState() {
@@ -744,7 +749,6 @@ function saveAuthReturnState() {
     scrollX: Number.isFinite(window.scrollX) ? window.scrollX : 0,
     scrollY: Number.isFinite(window.scrollY) ? window.scrollY : 0,
     cartOpen: Boolean(drawer?.classList.contains("open")),
-    detailProductId: activeDetailProductId || null,
     checkout: checkoutOpen ? {
       scope: activeCheckoutScope || null,
       stage: document.querySelector("#checkout-form")?.dataset.checkoutStage || "details",
@@ -810,8 +814,6 @@ async function restoreAuthReturnState() {
     activeCheckoutScope = state.checkout.scope || activeCheckoutScope;
     activeCheckoutItems = cartItemsForScope(activeCheckoutScope);
     if (!document.querySelector("#cart-drawer")?.classList.contains("open")) toggleCart();
-  } else if (state.detailProductId && products.some((product) => product.id === state.detailProductId)) {
-    openProductDetail(state.detailProductId);
   } else if (state.cartOpen && !document.querySelector("#cart-drawer")?.classList.contains("open")) {
     toggleCart();
   }
@@ -2393,7 +2395,7 @@ function auditJsonSummary(value) {
 function renderAdminAudit() {
   const container = document.querySelector("#admin-audit-list");
   if (!container) return;
-  const actionLabels = { create: "新增", update: "更新", adjust: "調整", upload: "上傳" };
+  const actionLabels = { create: "新增", update: "更新", adjust: "調整", upload: "上傳", delete: "刪除" };
   const resourceLabels = { product: "商品", product_variant: "規格", category: "分類", bank_account: "收款帳戶", coupon: "優惠券", birthday_coupon_settings: "生日券設定", point_settings: "點數設定", member_points: "會員點數", product_image: "商品圖片" };
   const logs = Array.isArray(adminData?.auditLogs) ? adminData.auditLogs : [];
   container.innerHTML = logs.length ? logs.map((entry) => {
@@ -2485,7 +2487,7 @@ function removeLegacyShippingUI() {
   const checkoutTerms = document.querySelector("#checkout-form > .terms");
   if (checkoutTerms) checkoutTerms.textContent = "送出後將立即保留本組商品庫存；預購須於 2 小時內、現貨須於 24 小時內完成匯款，逾期未回報付款將自動取消並釋放保留量，確認付款後才扣除庫存。付款完成視同同意代購規則；賣貨便運費由 7-11 於取貨時收取，宅配現貨付款確認後由客服確認尾款與運費，預購商品到貨後通知，確認入帳後才安排寄出，任何原因不接受退換貨。";
   const productCopy = document.querySelector("[data-admin-panel='products'] > .dialog-copy");
-  if (productCopy) productCopy.textContent = "每件商品可上傳 1 張主圖；JPG、PNG、WebP 會優先保留比例、縮放並轉成 WebP，若瀏覽器不支援轉換則保留原始格式；單張上限 5MB。";
+  if (productCopy) productCopy.textContent = "新增商品時可先上傳 1 張主圖；建立後可在商品卡「編輯商品資料與照片」批量上傳，最多 10 張。JPG、PNG、WebP 會優先保留比例、縮放並轉成 WebP，若瀏覽器不支援轉換則保留原始格式；單張上限 5MB。";
   const orderCopy = document.querySelector("[data-admin-panel='orders'] > .dialog-copy");
   if (orderCopy) orderCopy.textContent = "建立訂單會先保留庫存；確認訂金／付款後才會扣除庫存。未扣庫存的取消會釋放保留量；已扣庫存且尚未完成交付的取消會反轉原銷售異動。賣貨便運費由 7-11 向客戶收取，不計入訂單；現貨宅配付款確認後即可填寫實際運費，預購宅配則於到貨後更新狀態，再確認尾款與運費入帳後安排寄出。";
   const ordersCopy = document.querySelector("#orders-dialog .dialog-copy");
@@ -3070,7 +3072,7 @@ function renderAdminProducts() {
       const lowStock = variant.stock_on_hand <= variant.safety_stock;
       return `<details class="admin-variant-card"><summary><span class="variant-identity"><b>${escapeHtml(variant.name)}</b><small>SKU ${escapeHtml(variant.sku)}</small></span><span class="variant-summary"><em class="admin-chip ${variant.kind === "preorder" ? "chip-preorder" : ""}">${variant.kind === "preorder" ? "預購" : "現貨"}</em><em class="admin-chip ${lowStock ? "chip-warning" : ""}">庫存 ${variant.stock_on_hand}</em>${adminPriceMarkup(variant)}${variant.is_published ? "" : '<em class="admin-chip chip-muted">未上架</em>'}</span></summary><form class="admin-form" data-edit-variant-form="${variant.id}"><div class="form-grid"><label>規格名稱<input name="name" required value="${escapeHtml(variant.name)}" /></label><label>SKU<input name="sku" required value="${escapeHtml(variant.sku)}" /></label><label>類型<select name="kind"><option value="in_stock" ${variant.kind === "in_stock" ? "selected" : ""}>現貨</option><option value="preorder" ${variant.kind === "preorder" ? "selected" : ""}>預購</option></select></label><label>售價<input name="price" type="number" min="0" step="1" required value="${variant.price}" /></label><label>安全庫存<input name="safety_stock" type="number" min="0" step="1" value="${variant.safety_stock}" /></label><label>訂金比例（%）<input name="deposit_rate" type="number" min="0" max="100" value="${Math.round(Number(variant.deposit_rate) * 100)}" /></label><fieldset class="wide date-range-field"><legend>預計到貨區間（選填）</legend><div class="date-range-grid"><label>開始日期<input name="preorder_arrival_from" type="date" value="${arrival.from}" /></label><label>結束日期<input name="preorder_arrival_until" type="date" value="${arrival.until}" /></label></div>${arrival.raw ? `<small class="date-range-legacy">目前文字：${escapeHtml(arrival.raw)}；若選日期後儲存，會改為日期區間。</small>` : "<small>可只選一天；預購實際到貨時間仍以海外物流進度為準。</small>"}<input type="hidden" name="preorder_arrival_raw" value="${escapeHtml(arrival.raw)}" /></fieldset><label>排序<input name="display_order" type="number" value="${variant.display_order}" /></label><label class="wide">賣貨便連結<input name="seller_link" type="url" value="${escapeHtml(variant.seller_link || "")}" /></label><label class="check-field"><input name="is_published" type="checkbox" ${variant.is_published ? "checked" : ""} /> 上架此規格</label></div><button class="primary-button" type="submit">儲存規格</button></form></details>`;
     }).join("");
-    return `<article class="admin-product-card" data-tone="${index % 4}"><header class="admin-product-head"><div class="admin-product-thumbnail">${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(product.name)}" loading="lazy" />` : adminProductImageFallbackMarkup()}</div><div class="admin-product-title"><div class="admin-product-labels"><span class="admin-product-number">#${String(index + 1).padStart(2, "0")}</span><span class="admin-chip">${escapeHtml(category)}</span><span class="admin-chip ${product.is_published ? "chip-live" : "chip-muted"}">${product.is_published ? "已上架" : "未上架"}</span></div><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(product.description || "尚未填寫商品說明")}</p></div><div class="admin-product-metrics"><span>規格<b>${publishedVariants}/${productVariants.length}</b></span><span>總庫存<b>${totalStock}</b></span><span>售價<b>${priceRange}</b></span></div></header><details class="admin-product-edit"><summary>編輯商品資料與照片</summary><form class="admin-form" data-edit-product-form="${product.id}" data-category-id="${escapeHtml(product.category_id || "")}"><div class="form-grid"><label>商品名稱<input name="name" required value="${escapeHtml(product.name)}" /></label><label>商品分類<select name="category_id">${adminCategoryOptions(product.category_id || relationOne(product.categories)?.id || "", { includeInactiveSelected: true })}</select><small>分類位於商品層級，所有規格共用。</small></label><label>排序<input name="display_order" type="number" value="${product.display_order}" /></label><label class="wide">商品說明<textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea></label><label>每位會員限購數量<input name="purchase_limit" type="number" min="1" step="1" value="${product.purchase_limit ?? ""}" placeholder="留空代表不限購" /></label><label class="wide image-upload-field">更換商品主圖<input name="image" type="file" accept="image/jpeg,image/png,image/webp" /><small>${imageUrl ? "已有主圖；選擇新檔案後會取代現有照片。" : "目前尚無主圖。"} 上限 5MB。</small></label><label class="check-field"><input name="is_published" type="checkbox" ${product.is_published ? "checked" : ""} /> 上架商品</label></div><button class="primary-button" type="submit">儲存商品</button></form></details><section class="admin-variant-group"><h4>商品規格 <span>${productVariants.length}</span></h4>${variants || '<div class="empty-state">此商品尚無規格。</div>'}</section></article>`;
+    return `<article class="admin-product-card" data-tone="${index % 4}"><header class="admin-product-head"><div class="admin-product-thumbnail">${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(product.name)}" loading="lazy" />` : adminProductImageFallbackMarkup()}</div><div class="admin-product-title"><div class="admin-product-labels"><span class="admin-product-number">#${String(index + 1).padStart(2, "0")}</span><span class="admin-chip">${escapeHtml(category)}</span><span class="admin-chip ${product.is_published ? "chip-live" : "chip-muted"}">${product.is_published ? "已上架" : "未上架"}</span></div><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(product.description || "尚未填寫商品說明")}</p></div><div class="admin-product-metrics"><span>規格<b>${publishedVariants}/${productVariants.length}</b></span><span>總庫存<b>${totalStock}</b></span><span>售價<b>${priceRange}</b></span></div></header><details class="admin-product-edit"><summary>編輯商品資料與照片</summary><form class="admin-form" data-edit-product-form="${product.id}" data-category-id="${escapeHtml(product.category_id || "")}"><div class="form-grid"><label>商品名稱<input name="name" required value="${escapeHtml(product.name)}" /></label><label>商品分類<select name="category_id">${adminCategoryOptions(product.category_id || relationOne(product.categories)?.id || "", { includeInactiveSelected: true })}</select><small>分類位於商品層級，所有規格共用。</small></label><label>排序<input name="display_order" type="number" value="${product.display_order}" /></label><label class="wide">商品說明<textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea></label><label>每位會員限購數量<input name="purchase_limit" type="number" min="1" step="1" value="${product.purchase_limit ?? ""}" placeholder="留空代表不限購" /></label><label class="check-field"><input name="is_published" type="checkbox" ${product.is_published ? "checked" : ""} /> 上架商品</label></div><button class="primary-button" type="submit">儲存商品</button></form>${adminProductGalleryMarkup(product)}${adminProductShowcaseMarkup(product)}</details><section class="admin-variant-group"><h4>商品規格 <span>${productVariants.length}</span></h4>${variants || '<div class="empty-state">此商品尚無規格。</div>'}</section></article>`;
   }).join("");
   container.querySelectorAll("[data-edit-product-form]").forEach((form) => {
     const product = (adminData.products || []).find((item) => item.id === form.dataset.editProductForm);
@@ -3280,25 +3282,25 @@ async function prepareProductImage(file) {
     canvas.width = width;
     canvas.height = height;
     const context = canvas.getContext("2d");
-    if (!context) return { file, converted: false };
+    if (!context) return { file, converted: false, width: decoded.width, height: decoded.height };
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
     try {
       context.drawImage(decoded.source, 0, 0, width, height);
     } catch {
-      return { file, converted: false };
+      return { file, converted: false, width: decoded.width, height: decoded.height };
     }
     let blob;
     try {
       blob = await new Promise((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("目前瀏覽器不支援 WebP 轉換")), "image/webp", PRODUCT_IMAGE_WEBP_QUALITY));
     } catch {
-      return { file, converted: false };
+      return { file, converted: false, width: decoded.width, height: decoded.height };
     }
-    if (!(blob instanceof Blob) || blob.type !== "image/webp" || blob.size > 5 * 1024 * 1024) return { file, converted: false };
+    if (!(blob instanceof Blob) || blob.type !== "image/webp" || blob.size > 5 * 1024 * 1024) return { file, converted: false, width: decoded.width, height: decoded.height };
     try {
-      return { file: new File([blob], productImageWebpName(file.name), { type: "image/webp", lastModified: Date.now() }), converted: true };
+      return { file: new File([blob], productImageWebpName(file.name), { type: "image/webp", lastModified: Date.now() }), converted: true, width, height };
     } catch {
-      return { file, converted: false };
+      return { file, converted: false, width: decoded.width, height: decoded.height };
     }
   } finally {
     decoded.close();
@@ -3470,7 +3472,7 @@ document.addEventListener("click", (event) => {
   const change = event.target.closest("[data-quantity]"); if (change) { const item = cart.find((entry) => entry.id === change.dataset.quantity); const delta = Number(change.dataset.delta); const max = products.find((product) => product.id === item.id).stock; item.quantity = Math.min(max, item.quantity + delta); if (item.quantity <= 0) cart.splice(cart.indexOf(item), 1); saveCart(); renderCart(); }
   const remove = event.target.closest("[data-remove]"); if (remove) { const item = cart.find((entry) => entry.id === remove.dataset.remove); cart.splice(cart.indexOf(item), 1); saveCart(); renderCart(); }
   const detail = event.target.closest("[data-detail]"); if (detail) openProductDetail(detail.dataset.detail);
-  if (event.target.closest("[data-detail-add]")) addDetailToCart();
+  const buyNow = event.target.closest("[data-buy-now]"); if (buyNow && !buyNow.disabled) buyNowFromCard(buyNow.dataset.buyNow);
   if (event.target.closest("[data-cart-toggle]")) toggleCart();
   const scopedCheckout = event.target.closest("[data-checkout-scope]");
   if (scopedCheckout) handleCartCheckout(scopedCheckout.dataset.checkoutScope);
@@ -3492,7 +3494,7 @@ document.addEventListener("click", (event) => {
   if (event.target.closest("[data-profile-close]")) closeDialog(document.querySelector("#profile-dialog"));
   if (event.target.closest("[data-orders-open]")) openOrders();
   if (event.target.closest("[data-orders-close]")) closeDialog(document.querySelector("#orders-dialog"));
-  if (event.target.closest("[data-orders-shop]")) { closeDialog(document.querySelector("#orders-dialog")); document.querySelector("#products")?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  if (event.target.closest("[data-orders-shop]")) { closeDialog(document.querySelector("#orders-dialog")); scrollToAnchor("product-search-bar"); }
   const lineFriendRequest = event.target.closest("[data-line-friend-request]");
   if (lineFriendRequest && canRequestLineFriendship()) {
     event.preventDefault();
@@ -3566,10 +3568,6 @@ document.addEventListener("change", (event) => {
   if (event.target.matches("input[name='cart_delivery_method']")) setCartDeliveryMethod(event.target.value);
   if (event.target.matches("input[data-group-delivery]")) setCartGroupDeliveryMethod(event.target.dataset.groupDelivery, event.target.value);
   if (event.target.matches("input[name='payment_method']")) syncPaymentFields();
-  if (event.target.matches("#product-detail-variant")) {
-    activeDetailProductId = event.target.value;
-    renderProductDetail();
-  }
 });
 document.addEventListener("input", (event) => {
   if (event.target.matches("#admin-order-search")) reloadAdminList("orders");
@@ -3612,6 +3610,30 @@ document.addEventListener("submit", async (event) => {
   if (!event.target.matches("[data-edit-product-form], [data-edit-variant-form]")) return;
   try { await submitDynamicAdminForm(event); }
   catch (error) { showToast(error.message, "error"); }
+});
+initAnchorScroll();
+const productPage = createProductPage({
+  getProducts: () => products,
+  addToCart: addVariantQuantityToCart,
+  showToast,
+  showDialog,
+  closeDialog
+});
+initAdminProductGallery({
+  adminFetch,
+  prepareProductImage,
+  showToast,
+  getProduct: (id) => (adminData?.products || []).find((product) => product.id === id),
+  fallbackMarkup: adminProductImageFallbackMarkup
+});
+initAdminShell({
+  getStats: () => (adminData?.stats && Object.keys(adminData.stats).length ? adminData.stats : null),
+  switchAdminTab,
+  reloadAdminList,
+  loadAdminSection,
+  adminFetch,
+  formatDateTime,
+  orderStatusLabel: (order) => adminOrderStatusLabel(order)
 });
 document.querySelectorAll(".filter").forEach((button) => button.addEventListener("click", () => { activeCategory = button.dataset.category; document.querySelectorAll(".filter").forEach((item) => item.classList.toggle("active", item === button)); renderProducts(); }));
 search.addEventListener("input", renderProducts);
@@ -3659,7 +3681,7 @@ async function loadProducts() {
 }
 
 function waitForHeroImageDecode(timeoutMs = HERO_IMAGE_DECODE_TIMEOUT_MS) {
-  const image = document.querySelector("#hero-product-visual img");
+  const image = document.querySelector("#hero-product-spotlight img");
   if (!image || !image.getAttribute("src")) return Promise.resolve(false);
   return new Promise((resolve) => {
     let settled = false;
@@ -3703,6 +3725,7 @@ function renderInitialPageOnce() {
   renderHeroSpotlight();
   renderProducts();
   renderCart();
+  productPage.sync();
 }
 
 async function bootstrapAuth() {
