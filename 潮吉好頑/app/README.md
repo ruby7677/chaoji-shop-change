@@ -13,7 +13,7 @@
 
 1. 建立 Supabase 專案並依檔名順序在 SQL Editor 執行 `supabase/migrations/` 內的 migration；本機原始碼最新為 `202609250001_cancellation_notification_marker.sql`（2026-09-24 核對正式 DB 已全部套用，遠端版本號 `20260924142713`），production 套用前請先核對 migration history，已有 migration 時不要重跑。
 2. 在 Cloudflare Workers 設定 `SUPABASE_URL`、`SUPABASE_ANON_KEY` 與 `SUPABASE_SERVICE_ROLE_KEY` 為 secrets。
-3. 為 LINE Login 建立 callback 路徑，例如 `https://你的網域/auth/line/callback`；密鑰只放入 Cloudflare secrets。
+3. LINE Login 的 Callback URL 填 Supabase 自訂登入提供者畫面顯示的網址（`https://<project>.supabase.co/auth/v1/callback`，步驟見 `SUPABASE_SETUP.md` 第 2 節），不是本站網域；密鑰只放入 Cloudflare secrets。
 4. 先以管理端建立商品、照片、規格、庫存與賣貨便連結後再開啟商品上架。每件商品最多 10 張照片（第 1 張為主圖），可選 JPG、PNG、WebP，瀏覽器會優先保留比例、縮放並轉成 WebP；若瀏覽器不支援轉換則保留原始格式，Worker 仍會驗證格式且每張上限 5MB。
 5. 會員 LINE 通知需設定 `LINE_MESSAGING_CHANNEL_ACCESS_TOKEN` 與 `LINE_NOTIFY_ENABLED=true`；管理員通知改由 Telegram，需設定 `TELEGRAM_BOT_TOKEN`、`TELEGRAM_ADMIN_CHAT_IDS`（逗號分隔）與 `TELEGRAM_NOTIFY_ENABLED=true`。訂單建立／狀態更新會以 LINE 通知會員、以 Telegram 通知管理員；會員回報匯款、低庫存與後台測試只通知 Telegram 管理員，生日券只通知 LINE 會員。會員結帳前仍使用 LINE Login provider token 檢查好友狀態。
 

@@ -21,7 +21,7 @@
 
 使用者最新明確決策決定目標；程式、已套用 migration 與實際設定決定目前行為。文件描述不等於已完成或已部署。涉及衝突先確認差異，不能以舊文件覆蓋新決策。
 
-長文僅按任務讀取：後台 UI 查 `app/ADMIN_REDESIGN_PLAN.md`、前台商品展示查 `app/PRODUCT_SHOWCASE_PLAN.md`（`app/CODEX_UI_UX_HANDOFF.md` 為初版改版交接，基準版本已過時，僅作背景）；Auth 設定查 `app/SUPABASE_SETUP.md`；安全作業查 `app/SECURITY_OPERATIONS_CHECKLIST.md`。`PRODUCT.md`、初期需求與交接書含歷史資訊，版本號、店址、運費與登入狀態需核對。
+長文僅按任務讀取：後台 UI 查 `app/ADMIN_REDESIGN_PLAN.md`、前台商品展示查 `app/PRODUCT_SHOWCASE_PLAN.md`（已完成的交接、提案、Supabase 審查與階段報告在 `app/docs/history/`，內容以當時為準，僅作背景）；Auth 設定查 `app/SUPABASE_SETUP.md`；安全作業查 `app/SECURITY_OPERATIONS_CHECKLIST.md`。`PRODUCT.md`、初期需求與交接書含歷史資訊，版本號、店址、運費與登入狀態需核對。
 
 ## chaoji-shop-change Skill 載入規則
 

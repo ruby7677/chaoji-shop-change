@@ -156,6 +156,8 @@ alter table public.products
 
 ### 5.1 新增檔案（皆 < 500 行）
 
+（規劃時的名稱；實作後的對照：路由為 `product-router.js` 的 `createProductRouter()`／`productIdFromLocation()`，後台多圖為 `admin-product-gallery.js`。）
+
 | 檔案 | 職責 |
 | --- | --- |
 | `public/hero-carousel.js` | `createHeroCarousel(root, slides, { interval })`：切換、autoplay、暫停、箭頭／圓點、指標拖曳、鍵盤、reduced-motion |
@@ -303,7 +305,7 @@ alter table public.products
 - 購物須知摘要依店主決定按類型自動顯示（預購：訂金 50%／2 小時付訂／海運集運；現貨：24 小時付款／取貨方式），附「完整購物須知」連結回首頁 #policy。
 - 修正過程發現並修正：全站 `scroll-behavior:smooth` 會讓換頁捲動變成動畫（改 instant）；手機固定購買列在快速滑過時不觸發（IntersectionObserver 門檻，改放大底部 rootMargin）；網址與時間被誤判成規格表（regex 排除 `//` 與純數字鍵）。
 - 驗證：格式化器 12 項、本機實測（卡片圖片／名稱／查看規格進入、數量加減、加入購物車、超量阻擋、上一頁還原首頁捲動位置、下一頁、頁首錨點回首頁、深層連結、預購／現貨須知、大圖開關與關閉鈕可見與捲動鎖、手機固定購買列、下架／非 UUID 商品提示與返回、桌機雙欄與 sticky 圖片、推薦 4 欄／手機 2 欄、無水平捲動）；正式站 smoke 與瀏覽器檢查無錯誤。
-- **待實測**：在商品頁 LINE 登入後回到同一商品頁；LIFF 內開啟商品頁；後台多圖實際上傳／排序／刪除（需管理員登入）。
+- **原列待實測，已全部完成**：商品頁 LINE 登入後回到同一商品頁、LIFF 內開啟商品頁（皆見上方「登入回跳實測」與 Status）；後台多圖上傳／排序／刪除已在正式站使用，`audit_logs` 2026-09-24 有 `product_image` 的 upload 8、update 6、delete 6 筆紀錄。
 
 ### Stage 6（選配）：分享預覽與收尾
 **Goal**：Worker 對 `/products/:id` 以 HTMLRewriter 注入 OG title／image；移除舊 product-detail dialog；更新 README。
@@ -417,7 +419,7 @@ alter table public.products
 | 2 | LIFF endpoint 子路徑、`liff.state` 與 History 路由互動 | Stage 5 於 LINE 內實機測試 | 已解決：店主從 LINE 內開商品連結可正常開啟並登入（Stage 5） |
 | 3 | 多圖增加 Storage／流量用量 | 上傳時轉 WebP、限制長邊 1600px、每商品 ≤10 張 | 持續：邊緣快取已改為含版本的 key、`s-maxage` 1 天（第九輪） |
 | 4 | 修改 `auth-boot-critical` inline style 會使 CSP hash 失效 | 盡量不動；若必須修改，同步重算 `SECURITY_HEADERS` hash | 持續注意 |
-| 5 | `app.js` 過大（規劃時 3797 行） | 本案只抽出不擴張；長期拆分另立計畫 | 持續：2026-09-24 為 3752 行，拆分計畫尚未建立 |
+| 5 | `app.js` 過大（規劃時 3797 行） | 本案只抽出不擴張；長期拆分另立計畫 | 已處理（2026-09-24）：前台、後台與共用程式拆成獨立模組，`app.js` 剩約 1,100 行（登入／LIFF／回跳層，見 AGENTS.md） |
 | 6 | Hero 選品權 | 預設由後台 `hero_rank` 控制 | 已實作：全部未設定排序時自動輪播最新預購商品（`hero-slides.js`） |
 | 7 | 現有 `.claude/launch.json` 是 `python -m http.server 8082`，沒有 SPA fallback 與 `/api/*` | 已新增 launch 設定 `worker-dev`（`npx wrangler dev --port 8082`）；5714 在此機器被 Windows 保留，不能使用 | 已處理 |
 | 8 | 參考站素材與文案 | 只參考互動與版面模式，不複製其圖片、文案或品牌元素 | 持續遵守 |

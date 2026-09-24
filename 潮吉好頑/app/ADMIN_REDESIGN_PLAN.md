@@ -84,7 +84,7 @@
 
 ### Stage 5：商品列表精簡（G9，選配）
 **Goal**：商品卡改精簡列樣式、顯示限時優惠標籤；「優惠價」直接展開對應規格表單並聚焦原價欄。
-**Status**：Complete（2026-09-24）— `public/admin-products-ui.js`：有優惠的商品卡紅色左框＋「限時優惠」標籤、規格列顯示「限時優惠 −x%」、每個規格「優惠價」捷徑（展開該規格表單並聚焦原價欄，仍由原表單儲存）、「只看限時優惠（本頁 n）」篩選。**已由 Stage 8 取代**：`admin-products-ui.js` 已刪除，改為 `admin-products-table.js`。
+**Status**：Complete（2026-09-24）— `public/admin-products-ui.js`（Stage 8 已刪除，由 `admin-products-table.js` 取代）：有優惠的商品卡紅色左框＋「限時優惠」標籤、規格列顯示「限時優惠 −x%」、每個規格「優惠價」捷徑（展開該規格表單並聚焦原價欄，仍由原表單儲存）、「只看限時優惠（本頁 n）」篩選。**已由 Stage 8 取代**：`admin-products-ui.js` 已刪除，改為 `admin-products-table.js`。
 
 ### Stage 7：滑出面板、說明收合、其餘頁面統一樣式（G10 與第二輪待辦）
 **Goal**：新增／設定類表單改為右側滑出面板；面板頂部長說明收合；會員、優惠券、帳戶、庫存、稽核、通知頁卡片與表單統一。

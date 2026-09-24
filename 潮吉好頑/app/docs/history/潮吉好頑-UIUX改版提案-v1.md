@@ -1,4 +1,6 @@
-# 潮吉好頑｜UI/UX 改版提案（審查＋設計方向，尚未動工）
+# 潮吉好頑｜UI/UX 改版提案（審查＋設計方向）
+
+> **已歸檔（2026-09-24）**：標題原註「尚未動工」為提案當時狀態；改版已由 `ADMIN_REDESIGN_PLAN.md`（後台）與 `PRODUCT_SHOWCASE_PLAN.md`（商品頁、首頁輪播）實作並上線。文中的檔案行數與現況描述以提案當時為準。
 
 依據：`PRODUCT.md`、`需求規格書-v1.md`、`CODEX_UI_UX_HANDOFF.md`，以及實際檔案 `app/public/index.html`、`app/public/styles.css`、`app/public/app.js`、`app/src/index.ts`、`app/src/line-notification-messages.ts`（由你上傳的 `潮吉好頑.rar` 解壓讀取，非憑記憶臆測）。
 

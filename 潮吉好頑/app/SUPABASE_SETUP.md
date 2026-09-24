@@ -2,32 +2,37 @@
 
 ## 1. 套用資料庫
 
-1. 開啟 Supabase Dashboard → SQL Editor → New query。
-2. 貼上並執行 `supabase/migrations/202609080001_initial_schema.sql`。
-3. 另開一個 query，貼上並執行 `supabase/seed.sql`。
-4. 若既有專案已完成前述 migration，接著只執行尚未套用的 migration；目前通知 migration 為 `202609100007_line_notifications.sql`，訂單確認補強 migration 為 `202609110001_admin_order_completion.sql`，取貨方式 migration 為 `202609110002_delivery_methods.sql`，運費改由客服到貨後通知 migration 為 `202609110003_remove_shipping_calculation.sql`，到店支付流程為 `202609110004_store_payment.sql`，到貨後尾款／實際運費確認為 `202609110005_final_payment_workflow.sql`，函式權限加固為 `202609110006_harden_function_privileges.sql`，前台商品詳情／規格欄位為 `202609110007_storefront_product_details.sql`，商品限購設定為 `202609110008_purchase_limit_management.sql`，無 MFA 管理員 identity guard 為 `202609140004_no_mfa_identity_guard.sql`。不要重跑已成功執行的 migration。
-5. 本站到店取貨／宅配僅匯款限制請另執行 `supabase/migrations/202609140006_bank_transfer_only_store_pickup.sql`；賣貨便仍保留外部付款流程。
-6. 預購訂單付款期限請另執行 `supabase/migrations/202609150001_preorder_payment_deadline.sql`；預購 2 小時、現貨 24 小時。
-7. 若要開啟預購賣貨便，請執行 `supabase/migrations/202609150002_preorder_seller_delivery_bank_transfer.sql`；預購先在本站匯款付訂，到貨後由客服開立賣貨便。
-8. 現貨與預購分單防護請執行 `supabase/migrations/202609150003_split_mixed_order_guard.sql`；API 也會拒絕混合類型訂單。
-9. 單筆分批取貨防護請執行 `supabase/migrations/202609150004_single_order_pickup_plan.sql`；新訂單固定以本組商品一併處理。
-10. 會員購物車資料表請執行 `supabase/migrations/202609150005_member_cart_sync.sql`，再執行 `supabase/migrations/202609150006_member_cart_replace_rpc.sql`；兩份 migration 會啟用 RLS 與會員 JWT 原子同步。
-11. Telegram 管理員通知紀錄請執行 `supabase/migrations/202609150007_telegram_notification_logs.sql`；管理員與公開角色不可讀取此表。
-12. Telegram 通知紀錄 deny policy 請執行 `supabase/migrations/202609150008_telegram_notification_deny_policy.sql`。
-13. 瀏覽器不支援 WebP 轉檔時允許保留原始 JPG／PNG，請執行 `supabase/migrations/202609150009_product_images_original_fallback.sql`；bucket 仍為私有，Worker 仍驗證格式並限制 5MB。
-14. 商品分類管理請執行 `supabase/migrations/202609150010_category_management.sql`；分類新增／改名／排序／停用由管理後台處理，停用不會影響既有商品。
-15. 點數退款／取消沖回請執行 `supabase/migrations/202609210001_points_reversal_refund_and_cancel_repair.sql`；此 migration 只補點數帳本邏輯，不會自行改動現有訂單。
-16. 完整點數餘額請執行 `supabase/migrations/202609220001_member_point_balance_rpc.sql`；前台歷程仍只載入最近 100 筆，餘額由資料庫完整加總。
-17. 通知送達狀態機請執行 `supabase/migrations/202609220002_notification_delivery_state_machine.sql`；它會加入原子 claim、lease、fencing token 與重試欄位，並將 RPC execute 限定為 `service_role`。外部通知 API 無法提供 exactly-once，只能以 at-least-once 搭配人工查核處理逾時。
-18. 取消／退貨庫存流程請執行 `supabase/migrations/202609220003_inventory_cancellation_returns.sql`；未扣庫存取消只釋放 reservation，已扣庫存且尚未完成交付的取消反轉 sale；賣貨便已出貨狀態須走退款與實物驗收，驗收後才按可再售數量回補，報廢只留紀錄。此 migration 也提供管理概況 count RPC 與退款驗收 RPC。
-19. 管理員 audit 與後台搜尋請依序執行 `supabase/migrations/202609220004_audit_logs_admin_search.sql`、`supabase/migrations/202609220005_audit_existing_admin_rpcs.sql`、`supabase/migrations/202609220006_admin_catalog_coupon_inventory_search.sql`；前兩者建立 service-role-only、不可更新／刪除的 `audit_logs` 與白名單管理／搜尋 RPC，後者補上商品、優惠券、庫存清單分頁與完整 options payload。不要直接對商品、規格、分類或收款帳戶使用 service-role REST PATCH。
-20. `audit_logs` 只允許 service_role 讀取／插入；更新、刪除與 API 角色存取都會被拒絕。可由管理 Worker 的 `GET /api/admin/audit-logs` 唯讀分頁查看，正式後台「稽核紀錄」tab 支援 resource/action 篩選與分頁；部署前先用 `supabase/verify_schema.sql` 確認表、trigger、policy 與函式簽名。
-21. 通知 claim 修復請執行 `supabase/migrations/202609220007_notification_claim_found_fix.sql`；它不改變既有函式簽名或 claim token fencing，只將動態 UPDATE 的 claim 判定改為 `GET DIAGNOSTICS ROW_COUNT`，避免回傳 `claimed=false` 但實際已進入 processing 的狀態。
-22. 通知營運後台請執行 `supabase/migrations/202609230001_notification_operations.sql`；它提供 service-role-only 的通知 list／failed requeue RPC，requeue 會與 `audit_logs` 同 transaction 記錄，且不會立即呼叫 LINE／Telegram。
-23. 通知顯示 context 請執行 `supabase/migrations/202609230002_notification_display_context.sql`；通知列表只對已知訂單事件前綴中的 canonical UUID 回查訂單編號，LINE 對應會員姓名，Telegram 固定顯示管理員 Telegram；生日券、低庫存與測試事件保持訂單編號空白。
-24. 重新啟動網站後，`GET /api/catalog` 應回傳 Supabase 內的兩筆示範商品。
+1. **新專案**：依檔名順序執行 `supabase/migrations/` 內全部 migration（SQL Editor 逐檔貼上、Supabase CLI 或資料庫連線皆可），再執行 `supabase/seed.sql` 建立兩筆示範商品。全部 migration 可在空資料庫從頭套用，`npm run test:db` 會實際驗證這件事；seed 也已確認可在全部 migration 之後執行。
+2. **既有專案**：先比對遠端 migration history 與本機檔名，只執行尚未套用的 migration，不要重跑已套用的檔案（遠端版本號與本機檔名可能不同，需比對內容）。
+3. 套用後執行 `supabase/verify_schema.sql`（唯讀，應全部回傳 true），再執行 Supabase Security Advisors；結果記錄於 `SECURITY_OPERATIONS_CHECKLIST.md`。
+4. 重新啟動網站後，`GET /api/catalog` 應回傳 Supabase 內的兩筆示範商品。
 
 僅有 Project URL、anon key、service role key 無法從外部執行任意 SQL；因此初次 migration 必須使用 SQL Editor、Supabase CLI 或資料庫連線密碼完成。
+
+### 各 migration 用途（節錄）
+
+- 本站到店取貨／宅配僅匯款限制請另執行 `supabase/migrations/202609140006_bank_transfer_only_store_pickup.sql`；賣貨便仍保留外部付款流程。
+- 預購訂單付款期限請另執行 `supabase/migrations/202609150001_preorder_payment_deadline.sql`；預購 2 小時、現貨 24 小時。
+- 若要開啟預購賣貨便，請執行 `supabase/migrations/202609150002_preorder_seller_delivery_bank_transfer.sql`；預購先在本站匯款付訂，到貨後由客服開立賣貨便。
+- 現貨與預購分單防護請執行 `supabase/migrations/202609150003_split_mixed_order_guard.sql`；API 也會拒絕混合類型訂單。
+- 單筆分批取貨防護請執行 `supabase/migrations/202609150004_single_order_pickup_plan.sql`；新訂單固定以本組商品一併處理。
+- 會員購物車資料表請執行 `supabase/migrations/202609150005_member_cart_sync.sql`，再執行 `supabase/migrations/202609150006_member_cart_replace_rpc.sql`；兩份 migration 會啟用 RLS 與會員 JWT 原子同步。
+- Telegram 管理員通知紀錄請執行 `supabase/migrations/202609150007_telegram_notification_logs.sql`；管理員與公開角色不可讀取此表。
+- Telegram 通知紀錄 deny policy 請執行 `supabase/migrations/202609150008_telegram_notification_deny_policy.sql`。
+- 瀏覽器不支援 WebP 轉檔時允許保留原始 JPG／PNG，請執行 `supabase/migrations/202609150009_product_images_original_fallback.sql`；bucket 仍為私有，Worker 仍驗證格式並限制 5MB。
+- 商品分類管理請執行 `supabase/migrations/202609150010_category_management.sql`；分類新增／改名／排序／停用由管理後台處理，停用不會影響既有商品。
+- 點數退款／取消沖回請執行 `supabase/migrations/202609210001_points_reversal_refund_and_cancel_repair.sql`；此 migration 只補點數帳本邏輯，不會自行改動現有訂單。
+- 完整點數餘額請執行 `supabase/migrations/202609220001_member_point_balance_rpc.sql`；前台歷程仍只載入最近 100 筆，餘額由資料庫完整加總。
+- 通知送達狀態機請執行 `supabase/migrations/202609220002_notification_delivery_state_machine.sql`；它會加入原子 claim、lease、fencing token 與重試欄位，並將 RPC execute 限定為 `service_role`。外部通知 API 無法提供 exactly-once，只能以 at-least-once 搭配人工查核處理逾時。
+- 取消／退貨庫存流程請執行 `supabase/migrations/202609220003_inventory_cancellation_returns.sql`；未扣庫存取消只釋放 reservation，已扣庫存且尚未完成交付的取消反轉 sale；賣貨便已出貨狀態須走退款與實物驗收，驗收後才按可再售數量回補，報廢只留紀錄。此 migration 也提供管理概況 count RPC 與退款驗收 RPC。
+- 管理員 audit 與後台搜尋請依序執行 `supabase/migrations/202609220004_audit_logs_admin_search.sql`、`supabase/migrations/202609220005_audit_existing_admin_rpcs.sql`、`supabase/migrations/202609220006_admin_catalog_coupon_inventory_search.sql`；前兩者建立 service-role-only、不可更新／刪除的 `audit_logs` 與白名單管理／搜尋 RPC，後者補上商品、優惠券、庫存清單分頁與完整 options payload。不要直接對商品、規格、分類或收款帳戶使用 service-role REST PATCH。
+- `audit_logs` 只允許 service_role 讀取／插入；更新、刪除與 API 角色存取都會被拒絕。可由管理 Worker 的 `GET /api/admin/audit-logs` 唯讀分頁查看，正式後台「稽核紀錄」tab 支援 resource/action 篩選與分頁；部署前先用 `supabase/verify_schema.sql` 確認表、trigger、policy 與函式簽名。
+- 通知 claim 修復請執行 `supabase/migrations/202609220007_notification_claim_found_fix.sql`；它不改變既有函式簽名或 claim token fencing，只將動態 UPDATE 的 claim 判定改為 `GET DIAGNOSTICS ROW_COUNT`，避免回傳 `claimed=false` 但實際已進入 processing 的狀態。
+- 通知營運後台請執行 `supabase/migrations/202609230001_notification_operations.sql`；它提供 service-role-only 的通知 list／failed requeue RPC，requeue 會與 `audit_logs` 同 transaction 記錄，且不會立即呼叫 LINE／Telegram。
+- 通知顯示 context 請執行 `supabase/migrations/202609230002_notification_display_context.sql`；通知列表只對已知訂單事件前綴中的 canonical UUID 回查訂單編號，LINE 對應會員姓名，Telegram 固定顯示管理員 Telegram；生日券、低庫存與測試事件保持訂單編號空白。
+- `202609230003_liff_session_vault.sql`：LIFF 持久登入以 LINE `sub` 為鍵保存加密 refresh token，僅 Worker service_role 讀寫（見第 2 節第 19 點）。
+- `202609240001_product_gallery_showcase.sql`：商品多圖 `product_images`、商品頁介紹與 Hero 輪播欄位、多圖管理 RPC。
+- `202609250001_cancellation_notification_marker.sql`：`orders.cancellation_notified_at`，讓每小時取消通知掃描只處理尚未交給通知狀態機的訂單。
 
 ## 2. 建立 LINE 自訂登入提供者
 
