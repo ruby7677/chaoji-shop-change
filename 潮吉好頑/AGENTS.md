@@ -78,7 +78,7 @@ Cloudflare production deployment 必須由單一 deployment owner 統籌，並�
 - Windows managed sandbox 常因 Wrangler 寫入 `C:\Users\user\AppData\Roaming\xdg.config\.wrangler\logs` 觸發 `EPERM`。每次 Wrangler 指令前先設定 task-specific `$env:WRANGLER_WRITE_LOGS='0'`（Wrangler v4.130 的 `shouldLogToDisk` 支援 `false/0`）。禁止用重試同一命令解決；禁止改動 `HOME`／`CODEX_HOME`，也禁止關閉 sandbox／TLS。必要時可將 `WRANGLER_LOG_PATH` 指到 workspace 可寫目錄，但優先關閉 disk logs。
 - Windows `Invoke-WebRequest`／`curl` 使用 Schannel 可能出現 `SEC_E_NO_CREDENTIALS`。post-deploy smoke 固定使用 Node.js 標準 `fetch`；不得關閉 TLS 驗證，同一個 Schannel 命令失敗後不要重試。
 - Wrangler 4.130 的 `wrangler check` 不是一般 config validation（僅有 startup profile）；不可把它當 deployment gate。固定 gate 為：`npm run check:js`（所有前端 module 的 `node --check`）、`npm run typecheck`、`npm test`、`git diff --check`，以及 `npx wrangler deploy --dry-run --minify`。
-- dry-run 前確認 cwd 是 `app/`、`wrangler.jsonc` 的 `name` 為 `chaoji-haowan-shop`、`main` 為 `src/index.ts`，且沒有誤用 `wrangler.preview.jsonc`；同時確認本次關鍵 route／marker 存在於 source。dry-run 完成後到正式 deploy 前若工作樹相關檔案有變更，必須重新跑完整 gate。
+- dry-run 前確認 cwd 是 `app/`、`wrangler.jsonc` 的 `name` 為 `chaoji-haowan-shop`、`main` 為 `src/index.ts`（`wrangler.jsonc` 是唯一的部署設定，不要另建指向正式 secrets 或共用 rate limit namespace 的預覽設定）；同時確認本次關鍵 route／marker 存在於 source。dry-run 完成後到正式 deploy 前若工作樹相關檔案有變更，必須重新跑完整 gate。
 - 正式部署固定使用 `$env:WRANGLER_WRITE_LOGS='0'; npx wrangler deploy --minify`。只有 exit code 為 0 且輸出 `Current Version ID` 時，才可回報部署成功。
 - deploy 後執行 `npx wrangler deployments list --json`，確認最新版本流量為 100%；再用 Node `fetch` 驗證 health、config、catalog、首頁及本次特定 route。受保護 route 未登入應回 401／403；若回 404，視為漏部署。另須 fetch 正式 `app.js`／`styles.css` 檢查本次 marker。
 - post-deploy smoke 失敗時先分類為 build、auth、upload、API route 或 client TLS 問題，禁止無差別重 deploy；只有確認 production 版本未更新或 bundle 錯誤時，才可修正後重新部署。
