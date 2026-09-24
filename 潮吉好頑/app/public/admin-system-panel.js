@@ -2,7 +2,7 @@
 import { escapeHtml } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { formatDateTime, showToast } from "./app-core.js";
-import { invalidateBankAccounts } from "./app.js";
+import { invalidateBankAccounts } from "./checkout-form.js";
 import { adminData, adminFetch, loadAdminSection, refreshAdminSections, relationOne, switchAdminTab } from "./admin-app.js";
 
 function auditMaskedValue(value) {

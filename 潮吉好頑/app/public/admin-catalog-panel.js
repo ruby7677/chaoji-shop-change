@@ -2,7 +2,7 @@
 import { escapeHtml } from "./product-format.js";
 import { renderAdminProductsTable } from "./admin-products-table.js";
 import { formatDateTime, showToast } from "./app-core.js";
-import { products } from "./app.js";
+import { products } from "./storefront-catalog.js";
 import { adminData, adminFetch, invalidateAdminManagementOptions, refreshAdminSections, relationOne, switchAdminTab } from "./admin-app.js";
 import { renderAdminDiscountOptionBoxes } from "./admin-members-panel.js";
 import { prepareProductImage, uploadAdminProductImage, validateProductImage } from "./admin-product-image.js";

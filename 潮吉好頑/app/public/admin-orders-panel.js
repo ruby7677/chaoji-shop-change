@@ -2,7 +2,7 @@
 import { escapeHtml, money } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { adminOrderStatusLabel, deliveryMethodLabels, formatDateTime, orderIncludesPreorder, orderInventoryTypeLabel, showToast } from "./app-core.js";
-import { loadProducts, renderProducts } from "./app.js";
+import { loadProducts, renderProducts } from "./storefront-catalog.js";
 import { adminData, adminFetch, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
 
 const adminOrderTransitions = {

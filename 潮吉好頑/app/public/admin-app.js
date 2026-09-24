@@ -2,7 +2,7 @@
 // 各分頁的渲染與表單在 admin-*-panel.js、admin-product-image.js；外框、概況、商品表格等 UI 模組見其他 admin-*.js。
 import { handleSessionExpired } from "./auth-expiry.js";
 import { auth, showDialog, showToast } from "./app-core.js";
-import { products } from "./app.js";
+import { products } from "./storefront-catalog.js";
 import { refreshAdminManagementOptionControls, removeLegacyShippingUI, renderAdminCategories, renderAdminLowStock, renderAdminMovements, renderAdminProducts, renderAdminSelects } from "./admin-catalog-panel.js";
 import { renderAdminOrderStatusFilter, renderAdminOrders } from "./admin-orders-panel.js";
 import { ensureDiscountAdminUI, renderAdminDiscounts, renderAdminMembers } from "./admin-members-panel.js";

@@ -2,7 +2,7 @@
 import { escapeHtml, money } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { formatDateTime, orderStatusLabel, showToast } from "./app-core.js";
-import { products } from "./app.js";
+import { products } from "./storefront-catalog.js";
 import { adminData, adminFetch, localDateTime, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
 
 export function ensureDiscountAdminUI() {
