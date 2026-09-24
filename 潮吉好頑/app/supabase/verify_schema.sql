@@ -156,6 +156,18 @@ select
   to_regclass('public.inventory_return_confirmations') is not null as inventory_return_confirmations_exists,
   to_regprocedure('public.admin_confirm_order_return(uuid,uuid,integer,integer,integer,text)') is not null as admin_confirm_order_return_exists,
   to_regprocedure('public.admin_dashboard_stats(uuid)') is not null as admin_dashboard_stats_exists,
+  -- 202609250007_unified_low_stock：低庫存唯一定義，後台統計共用。
+  coalesce((
+    select has_function_privilege('service_role', fn, 'EXECUTE')
+       and not has_function_privilege('anon', fn, 'EXECUTE')
+       and not has_function_privilege('authenticated', fn, 'EXECUTE')
+    from (select to_regprocedure('public.low_stock_variants(integer)') as fn) f
+    where fn is not null
+  ), false) as low_stock_variants_exists_for_service_role_only,
+  exists (
+    select 1 from pg_proc
+    where oid = to_regprocedure('public.admin_dashboard_stats(uuid)') and prosrc like '%public.low_stock_variants()%'
+  ) as dashboard_low_stock_uses_shared_definition,
   to_regclass('public.audit_logs') is not null as audit_logs_exists,
   to_regprocedure('public.append_audit_log(uuid,text,text,text,jsonb,jsonb)') is not null as append_audit_log_exists,
   to_regprocedure('public.admin_search_order_ids(uuid,text,text,integer,integer)') is not null as admin_search_order_ids_exists,

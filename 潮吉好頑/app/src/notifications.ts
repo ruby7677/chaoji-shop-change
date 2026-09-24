@@ -117,24 +117,27 @@ export async function notifyLowStock(env: Env) {
   if (!telegramNotificationEnabled(env) || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !recipients.length) return;
   const base = env.SUPABASE_URL;
   const headers = serviceHeaders(env);
-  const [variantsResponse, statesResponse] = await Promise.all([
-    fetch(`${base}/rest/v1/product_variants?select=id,name,sku,stock_on_hand,safety_stock,is_published,products(name)&is_published=eq.true&order=stock_on_hand.asc`, { headers }),
+  // 低庫存唯一定義在資料庫 low_stock_variants（商品與規格都上架、庫存 ≤ 安全庫存），與後台統計、清單一致。
+  const [lowResponse, statesResponse] = await Promise.all([
+    fetch(`${base}/rest/v1/rpc/low_stock_variants`, { method: "POST", headers, body: "{}" }),
     fetch(`${base}/rest/v1/line_low_stock_states?select=variant_id,last_notified_stock,last_notified_at`, { headers })
   ]);
-  if (!variantsResponse.ok || !statesResponse.ok) return;
-  const variants = await variantsResponse.json() as Array<{ id: string; name: string; sku: string; stock_on_hand: number; safety_stock: number; products?: { name?: string } }>;
+  if (!lowResponse.ok || !statesResponse.ok) return;
+  const low = await lowResponse.json() as Array<{ id: string; name: string; sku: string; product_name: string | null; stock_on_hand: number; safety_stock: number }>;
   const states = await statesResponse.json() as Array<{ variant_id: string; last_notified_stock: number | null }>;
   const stateMap = new Map(states.map((state) => [state.variant_id, state]));
-  const low = variants.filter((variant) => variant.stock_on_hand <= variant.safety_stock);
+  const lowIds = new Set(low.map((variant) => variant.id));
   const toNotify = low.filter((variant) => {
     const previous = stateMap.get(variant.id)?.last_notified_stock;
     return previous == null || variant.stock_on_hand < previous;
   });
-  for (const variant of variants.filter((item) => item.stock_on_hand > item.safety_stock && stateMap.has(item.id))) {
-    await fetch(`${base}/rest/v1/line_low_stock_states?variant_id=eq.${variant.id}`, { method: "PATCH", headers: serviceHeaders(env, "return=minimal"), body: JSON.stringify({ last_notified_stock: null, last_notified_at: null, updated_at: new Date().toISOString() }) });
+  // 已通知過、但現在不在低庫存名單（補貨或下架）的規格重設狀態，之後再低於門檻會重新通知。
+  const recovered = states.filter((state) => state.last_notified_stock != null && !lowIds.has(state.variant_id)).map((state) => state.variant_id);
+  if (recovered.length) {
+    await fetch(`${base}/rest/v1/line_low_stock_states?variant_id=in.(${recovered.join(",")})`, { method: "PATCH", headers: serviceHeaders(env, "return=minimal"), body: JSON.stringify({ last_notified_stock: null, last_notified_at: null, updated_at: new Date().toISOString() }) });
   }
   if (!toNotify.length) return;
-  const lines = toNotify.map((variant) => `• ${variant.products?.name || "商品"} · ${variant.name} (${variant.sku})：剩 ${variant.stock_on_hand} 件`);
+  const lines = toNotify.map((variant) => `• ${variant.product_name || "商品"} · ${variant.name} (${variant.sku})：剩 ${variant.stock_on_hand} 件`);
   // 以台灣日期去重：同一台灣日內相同庫存狀態只通知一次（原本用 UTC 日期，台灣早上 8 點才換日）。
   const eventKey = `low-stock:${taipeiDate(new Date())}:${toNotify.map((item) => `${item.id}-${item.stock_on_hand}`).join(",")}`;
   const sent = await Promise.all(recipients.map((chatId) => notifyTelegram(env, eventKey, chatId, "low_stock", buildLowStockMessage(env.STORE_NAME, lines))));

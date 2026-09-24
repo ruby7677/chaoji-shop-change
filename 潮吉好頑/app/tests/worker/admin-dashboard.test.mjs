@@ -10,24 +10,24 @@ let restoreFetch = () => {};
 afterEach(() => restoreFetch());
 
 function fakeSupabase({ isAdmin = true, todoCount = 2 } = {}) {
-  const seen = { restPaths: [], queries: [] };
-  restoreFetch = stubFetch((url, init) => {
+  const seen = { restPaths: [], queries: [], bodies: {} };
+  restoreFetch = stubFetch((url, init, body) => {
     if (url.pathname === "/auth/v1/user") {
       return jsonResponse({ id: ADMIN_ID, identities: [{ provider: "custom:line-web", identity_data: { sub: LINE_ID } }] });
     }
     if (url.pathname === "/rest/v1/profiles") return jsonResponse([{ is_admin: isAdmin, line_user_id: LINE_ID }]);
     seen.restPaths.push(`${init.method || "GET"} ${url.pathname}`);
     seen.queries.push(url);
+    seen.bodies[url.pathname] = body;
     if (url.pathname === "/rest/v1/rpc/admin_dashboard_stats") return jsonResponse({ pendingReview: 1, lowStock: 3, memberCount: 9 });
     if (url.pathname === "/rest/v1/orders" && url.searchParams.has("or")) {
       return jsonResponse(Array.from({ length: todoCount }, (_, index) => ({ id: `todo-${index}`, order_number: `CJ-${index}`, status: "pending_review" })));
     }
     if (url.pathname === "/rest/v1/orders") return jsonResponse([{ id: "recent-1", order_number: "CJ-R1", status: "confirmed" }]);
-    if (url.pathname === "/rest/v1/product_variants") {
+    if (url.pathname === "/rest/v1/rpc/low_stock_variants") {
       return jsonResponse([
-        { id: "v-out", name: "A", stock_on_hand: 0, safety_stock: 1, products: { name: "缺貨商品" } },
-        { id: "v-low", name: "B", stock_on_hand: 2, safety_stock: 2, products: { name: "低庫存商品" } },
-        { id: "v-ok", name: "C", stock_on_hand: 9, safety_stock: 2, products: { name: "正常商品" } }
+        { id: "v-out", name: "A", sku: "A-1", product_name: "缺貨商品", stock_on_hand: 0, safety_stock: 1 },
+        { id: "v-low", name: "B", sku: "B-1", product_name: "低庫存商品", stock_on_hand: 2, safety_stock: 2 }
       ]);
     }
     throw new Error(`unexpected request ${url}`);
@@ -52,7 +52,8 @@ test("overview returns stats, todo orders, recent orders and low stock in one re
     { id: "v-out", name: "A", product_name: "缺貨商品", stock_on_hand: 0, safety_stock: 1 },
     { id: "v-low", name: "B", product_name: "低庫存商品", stock_on_hand: 2, safety_stock: 2 }
   ]);
-  assert.deepEqual(seen.restPaths.sort(), ["GET /rest/v1/orders", "GET /rest/v1/orders", "GET /rest/v1/product_variants", "POST /rest/v1/rpc/admin_dashboard_stats"]);
+  assert.deepEqual(seen.restPaths.sort(), ["GET /rest/v1/orders", "GET /rest/v1/orders", "POST /rest/v1/rpc/admin_dashboard_stats", "POST /rest/v1/rpc/low_stock_variants"]);
+  assert.deepEqual(seen.bodies["/rest/v1/rpc/low_stock_variants"], { p_limit: 20 }, "low stock comes from the shared database definition, capped at 20");
 });
 
 test("todo orders are filtered by the database with the four manual-work rules", async () => {

@@ -1,5 +1,5 @@
 // 後台概況（/api/admin/dashboard?section=overview）一次回傳統計、待辦訂單、最新訂單與低庫存規格。
-// 待辦與低庫存由資料庫條件精準篩選，不再依「最近 100 筆訂單／前 100 個商品」推算，
+// 待辦與低庫存由資料庫精準篩選（低庫存用與統計、通知相同的 low_stock_variants），不再依「最近 100 筆訂單／前 100 個商品」推算，
 // 開啟後台只需這一個請求（原本需要 overview、orders、products 三個）。
 
 // 概況只需要列表與狀態文字用得到的欄位；order_items(kind) 供前端判斷預購狀態文字。
@@ -9,10 +9,9 @@ const TODO_FILTER = "(status.eq.pending_review,status.eq.refund_pending,and(deli
 const TODO_LIMIT = 50;
 const RECENT_LIMIT = 6;
 const LOW_STOCK_LIMIT = 20;
-// PostgREST 無法比較兩個欄位，低庫存由 Worker 篩選；規格數量遠低於此上限。
-const VARIANT_SCAN_LIMIT = 5000;
 
-type VariantRow = { id: string; name: string; stock_on_hand: number; safety_stock: number; products?: { name?: string } | null };
+// 低庫存唯一定義在資料庫 low_stock_variants（商品與規格都上架、庫存 ≤ 安全庫存），與統計數字、通知一致。
+type LowStockRow = { id: string; name: string; product_name: string | null; stock_on_hand: number; safety_stock: number };
 
 export type AdminOverviewResult =
   | { ok: true; stats: unknown; overview: Record<string, unknown> }
@@ -29,24 +28,22 @@ export async function loadAdminOverview(
     Object.entries(params).forEach(([key, value]) => target.searchParams.set(key, value));
     return target;
   };
-  const [statsResponse, todoRows, recentOrders, variants] = await Promise.all([
+  const [statsResponse, todoRows, recentOrders, lowStockResponse] = await Promise.all([
     // admin_dashboard_stats 也會再次確認 actor 是管理員
     fetch(`${base}/rest/v1/rpc/admin_dashboard_stats`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) }),
     fetchRows(url("orders", { select: OVERVIEW_ORDER_SELECT, or: TODO_FILTER, order: "created_at.desc", limit: String(TODO_LIMIT + 1) })),
     fetchRows(url("orders", { select: OVERVIEW_ORDER_SELECT, order: "created_at.desc", limit: String(RECENT_LIMIT) })),
-    fetchRows(url("product_variants", { select: "id,name,stock_on_hand,safety_stock,products(name)", order: "stock_on_hand.asc,id.asc", limit: String(VARIANT_SCAN_LIMIT) }))
+    fetch(`${base}/rest/v1/rpc/low_stock_variants`, { method: "POST", headers, body: JSON.stringify({ p_limit: LOW_STOCK_LIMIT }) })
   ]);
   if (!statsResponse.ok) return { ok: false, response: statsResponse };
-  const lowStock = (variants as VariantRow[])
-    .filter((variant) => Number(variant.stock_on_hand) <= Number(variant.safety_stock))
-    .slice(0, LOW_STOCK_LIMIT)
-    .map((variant) => ({
-      id: variant.id,
-      name: variant.name,
-      product_name: variant.products?.name || "商品",
-      stock_on_hand: variant.stock_on_hand,
-      safety_stock: variant.safety_stock
-    }));
+  if (!lowStockResponse.ok) return { ok: false, response: lowStockResponse };
+  const lowStock = (await lowStockResponse.json() as LowStockRow[]).map((variant) => ({
+    id: variant.id,
+    name: variant.name,
+    product_name: variant.product_name || "商品",
+    stock_on_hand: variant.stock_on_hand,
+    safety_stock: variant.safety_stock
+  }));
   return {
     ok: true,
     stats: await statsResponse.json(),
