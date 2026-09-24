@@ -237,7 +237,7 @@ function flexRow(label: string, value: string) {
     type: "box",
     layout: "horizontal",
     spacing: "sm",
-    alignItems: "start",
+    alignItems: "flex-start",
     contents: [
       { type: "text", text: label, color: "#8A8A8A", size: "sm", flex: 3, wrap: true },
       { type: "text", text: value || "-", color: "#3D3D3D", size: "sm", weight: "bold", flex: 7, wrap: true }
@@ -367,7 +367,7 @@ export function buildLineBirthdayFlexMessage(
     type: "box",
     layout: "horizontal",
     spacing: "sm",
-    alignItems: "start",
+    alignItems: "flex-start",
     contents: [
       { type: "text", text: label, color: "#8A8A8A", size: "sm", flex: 3, wrap: true },
       { type: "text", text: value || "-", color: "#3D3D3D", size: "sm", weight: "bold", flex: 7, wrap: true }

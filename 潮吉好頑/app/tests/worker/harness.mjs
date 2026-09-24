@@ -7,14 +7,15 @@ import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const appRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-let workerPromise = null;
+const bundles = new Map();
 
-export function loadWorker() {
-  workerPromise ||= (async () => {
+/** 以 esbuild 打包 src/ 下的模組（預設為 Worker 入口 index.ts）後動態載入；同一模組只打包一次。 */
+export function loadSourceModule(relativePath = "index.ts") {
+  if (!bundles.has(relativePath)) bundles.set(relativePath, (async () => {
     const dir = await mkdtemp(join(tmpdir(), "cj-worker-test-"));
-    const outfile = join(dir, "worker.mjs");
+    const outfile = join(dir, "module.mjs");
     await build({
-      entryPoints: [join(appRoot, "src", "index.ts")],
+      entryPoints: [join(appRoot, "src", relativePath)],
       bundle: true,
       format: "esm",
       platform: "neutral",
@@ -23,9 +24,13 @@ export function loadWorker() {
     });
     const module = await import(pathToFileURL(outfile).href);
     await rm(dir, { recursive: true, force: true });
-    return module.default;
-  })();
-  return workerPromise;
+    return module;
+  })());
+  return bundles.get(relativePath);
+}
+
+export async function loadWorker() {
+  return (await loadSourceModule()).default;
 }
 
 export const baseEnv = Object.freeze({

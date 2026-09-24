@@ -95,6 +95,7 @@ Cloudflare production deployment 必須由單一 deployment owner 統籌，並�
 - 賣貨便費用不加進本站訂單；宅配結帳不預收未知運費，到貨後客服通知尾款與實際運費。
 - 本站到店取貨與宅配一律匯款／轉帳；賣貨便仍由 7-11 外部收款，不能把賣貨便的 `store_payment` 內部標記誤當成到店現金支付。
 - 會員回報匯款只透過 Telegram 通知管理員；管理員確認款項與到貨狀態依事件以 LINE 通知會員、以 Telegram 通知管理員。
+- 日期時間一律以台灣時間（Asia/Taipei，UTC+8）顯示、輸入與判斷「今天」：資料庫存 `timestamptz`，前端用 `app-core.js` 的 `formatDateTime`／`formatDate`／`taipeiDateTimeInput*`，Worker 用 `taipeiDate`，訂單編號由 `create_delivery_order` 的函式層級 `timezone` 設定產生；pg_cron 排程時間以 UTC 撰寫並註明台灣時間。
 - 店主已選擇 LINE Login＋伺服器端 `is_admin` 管理模式；不因舊 MFA 文件自行重新啟用 MFA。該決策不代表移除工作已部署，需核對現況。
 
 ## 驗證與交付

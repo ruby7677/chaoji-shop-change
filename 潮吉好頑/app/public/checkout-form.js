@@ -1,6 +1,6 @@
 // 結帳表單：摘要、取貨／付款方式欄位、收件資料驗證、點數與優惠券、收款帳戶。
 import { escapeHtml, isPreorderItem, money } from "./product-format.js";
-import { auth, customerServiceLineUrl, deliveryMethodLabels, deliveryMethodNotes } from "./app-core.js";
+import { auth, customerServiceLineUrl, deliveryMethodLabels, deliveryMethodNotes, formatDate } from "./app-core.js";
 import { checkoutCartItems, selectedDeliveryMethod, selectedPaymentMethod } from "./cart.js";
 import { activeCheckoutScope, showCheckoutError } from "./app.js";
 
@@ -278,7 +278,7 @@ export function renderCheckoutBenefits() {
   const pointsInput = document.querySelector("#checkout-points");
   pointsInput.max = String(balance);
   document.querySelector("#checkout-point-help").textContent = settings ? `可用 ${balance} 點；最低 ${settings.min_redeem_points} 點，每點折 ${money(settings.point_value)}` : "點數資料載入中";
-  document.querySelector("#member-coupon-options").innerHTML = (auth.points?.coupons || []).map((coupon) => `<option value="${escapeHtml(coupon.code)}">${escapeHtml(coupon.name)} · 折 ${money(coupon.discount_amount)} · 至 ${new Date(coupon.valid_until).toLocaleDateString("zh-TW")}</option>`).join("");
+  document.querySelector("#member-coupon-options").innerHTML = (auth.points?.coupons || []).map((coupon) => `<option value="${escapeHtml(coupon.code)}">${escapeHtml(coupon.name)} · 折 ${money(coupon.discount_amount)} · 至 ${formatDate(coupon.valid_until)}</option>`).join("");
 }
 
 // 後台修改收款帳戶後清空快取，下次結帳重新讀取（後台模組不能直接重新指定這個 let）

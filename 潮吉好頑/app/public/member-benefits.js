@@ -1,7 +1,7 @@
 // 會員點數與優惠券資料、LINE 好友狀態檢查（結帳前需加入官方帳號）。
 import { liffState, canRequestLineFriendship, requestLineFriendship } from "./liff-auth.js";
 import { escapeHtml, money } from "./product-format.js";
-import { auth, closeDialog, showDialog } from "./app-core.js";
+import { auth, closeDialog, formatDate, showDialog } from "./app-core.js";
 import { resetMemberCartSyncState } from "./cart.js";
 import { activeCheckoutScope, liffSessionMatches, openCheckout } from "./app.js";
 
@@ -75,7 +75,7 @@ export function renderMemberPoints() {
     couponList = document.querySelector("#member-coupon-list");
   }
   const coupons = auth.points.coupons || [];
-  couponList.innerHTML = coupons.length ? coupons.map((coupon) => `<div class="member-point-entry"><span><b>${escapeHtml(coupon.code)}</b> · ${escapeHtml(coupon.name)}<br /><small>至 ${new Date(coupon.valid_until).toLocaleDateString("zh-TW")}</small></span><strong>-${money(coupon.discount_amount)}</strong></div>`).join("") : '<p class="dialog-copy">目前沒有已發送的優惠券。</p>';
+  couponList.innerHTML = coupons.length ? coupons.map((coupon) => `<div class="member-point-entry"><span><b>${escapeHtml(coupon.code)}</b> · ${escapeHtml(coupon.name)}<br /><small>至 ${formatDate(coupon.valid_until)}</small></span><strong>-${money(coupon.discount_amount)}</strong></div>`).join("") : '<p class="dialog-copy">目前沒有已發送的優惠券。</p>';
 }
 
 export function showLineFriendDialog(message = "請先加入潮吉好頑官方 LINE，才能建立訂單並收到訂單狀態通知。") {

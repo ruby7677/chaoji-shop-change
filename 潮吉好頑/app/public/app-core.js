@@ -53,7 +53,18 @@ export function adminOrderStatusLabel(order, status = order?.status) {
   if (status === "confirmed") return "到店通知";
   return orderStatusLabel(order, status);
 }
-export function formatDateTime(value) { return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
+// 所有日期時間一律以台灣時間（UTC+8，無日光節約）顯示與輸入，不隨瀏覽器所在時區變動。
+const TAIPEI_TIME_ZONE = "Asia/Taipei";
+const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000;
+export function formatDateTime(value) { return new Intl.DateTimeFormat("zh-TW", { timeZone: TAIPEI_TIME_ZONE, dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
+export function formatDate(value) { return new Intl.DateTimeFormat("zh-TW", { timeZone: TAIPEI_TIME_ZONE, dateStyle: "medium" }).format(new Date(value)); }
+/** datetime-local 欄位值（YYYY-MM-DDTHH:mm），代表台灣時間。 */
+export function taipeiDateTimeInputValue(value) {
+  const time = value === undefined || value === null ? Date.now() : new Date(value).getTime();
+  return new Date(time + TAIPEI_OFFSET_MS).toISOString().slice(0, 16);
+}
+/** 把台灣時間的 datetime-local 欄位值轉回 ISO（UTC）。 */
+export function taipeiDateTimeInputToIso(value) { return new Date(`${value}:00+08:00`).toISOString(); }
 let toastTimer = null;
 let pageScrollLockState = null;
 const pageScrollStyleKeys = ["position", "top", "left", "right", "width", "overflow", "paddingRight"];

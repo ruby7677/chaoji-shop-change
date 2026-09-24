@@ -135,7 +135,8 @@ export async function notifyLowStock(env: Env) {
   }
   if (!toNotify.length) return;
   const lines = toNotify.map((variant) => `• ${variant.products?.name || "商品"} · ${variant.name} (${variant.sku})：剩 ${variant.stock_on_hand} 件`);
-  const eventKey = `low-stock:${new Date().toISOString().slice(0, 10)}:${toNotify.map((item) => `${item.id}-${item.stock_on_hand}`).join(",")}`;
+  // 以台灣日期去重：同一台灣日內相同庫存狀態只通知一次（原本用 UTC 日期，台灣早上 8 點才換日）。
+  const eventKey = `low-stock:${taipeiDate(new Date())}:${toNotify.map((item) => `${item.id}-${item.stock_on_hand}`).join(",")}`;
   const sent = await Promise.all(recipients.map((chatId) => notifyTelegram(env, eventKey, chatId, "low_stock", buildLowStockMessage(env.STORE_NAME, lines))));
   if (sent.some((result) => result.sent)) {
     for (const variant of toNotify) {
@@ -144,9 +145,18 @@ export async function notifyLowStock(env: Env) {
   }
 }
 
+const BIRTHDAY_COUPON_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+/** 台灣日期（YYYY-MM-DD）。 */
+export function taipeiDate(date: Date) {
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Taipei" }).format(date);
+}
+
 export async function notifyBirthdayCoupons(env: Env) {
   if (!lineNotificationEnabled(env) || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return;
-  const start = new Date(); start.setHours(0, 0, 0, 0);
+  // 近 48 小時內發出的生日券。原本以 Worker 的 UTC 午夜為「今天」起點，台灣早上 8 點前手動發券會在
+  // 下一次每小時排程跨過 UTC 午夜後漏發；event key 以券 id 去重，視窗重疊不會重複通知。
+  const start = new Date(Date.now() - BIRTHDAY_COUPON_WINDOW_MS);
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/coupons`);
   url.searchParams.set("select", "id,code,name,discount_amount,coupon_members(member_id,profiles(line_user_id))");
   url.searchParams.set("is_birthday", "eq.true");

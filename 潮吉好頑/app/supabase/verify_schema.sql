@@ -55,6 +55,11 @@ select
     from (select to_regprocedure('public.create_delivery_order(jsonb,text,text,text,integer,uuid,text,text)') as fn) f
     where fn is not null
   ), false) as delivery_order_core_exists_and_blocked_for_api_roles,
+  -- 202609250006_taipei_order_number：訂單編號以台灣時間產生。
+  coalesce((
+    select 'TimeZone=Asia/Taipei' = any(proconfig) and 'search_path=""' = any(proconfig)
+    from pg_proc where oid = to_regprocedure('public.create_delivery_order(jsonb,text,text,text,integer,uuid,text,text)')
+  ), false) as delivery_order_number_uses_taipei_time,
   to_regprocedure('public.admin_update_order_fulfillment(uuid,uuid,integer,boolean,text,text)') is not null as final_payment_workflow_rpc_exists,
   exists (
     select 1 from information_schema.columns

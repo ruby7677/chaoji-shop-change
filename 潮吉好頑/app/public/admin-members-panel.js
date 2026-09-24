@@ -1,9 +1,9 @@
 // 後台會員與行銷：會員列表與點數帳本、點數規則、會員點數調整、優惠券與生日券。
 import { escapeHtml, money } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
-import { formatDateTime, orderStatusLabel, showToast } from "./app-core.js";
+import { formatDateTime, orderStatusLabel, showToast, taipeiDateTimeInputToIso, taipeiDateTimeInputValue } from "./app-core.js";
 import { products } from "./storefront-catalog.js";
-import { adminData, adminFetch, localDateTime, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
+import { adminData, adminFetch, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
 
 export function ensureDiscountAdminUI() {
   if (!document.querySelector("[data-admin-tab='discounts']") || !document.querySelector("[data-admin-panel='discounts']")) return;
@@ -15,8 +15,8 @@ export function resetCouponForm() {
   document.querySelector("#coupon-id").value = "";
   document.querySelector("#coupon-active").checked = true;
   document.querySelector("#coupon-member-limit").value = "1";
-  document.querySelector("#coupon-valid-from").value = localDateTime();
-  document.querySelector("#coupon-valid-until").value = localDateTime(Date.now() + 30 * 86400000);
+  document.querySelector("#coupon-valid-from").value = taipeiDateTimeInputValue();
+  document.querySelector("#coupon-valid-until").value = taipeiDateTimeInputValue(Date.now() + 30 * 86400000);
 }
 
 export function renderAdminDiscounts() {
@@ -30,7 +30,7 @@ export function renderAdminDiscounts() {
     document.querySelector("#birthday-enabled").checked = birthday.enabled;
   }
   const list = document.querySelector("#admin-coupon-list");
-  list.innerHTML = (adminData.coupons || []).map((coupon) => `<div class="admin-card coupon-card"><div><strong>${escapeHtml(coupon.code)} · ${escapeHtml(coupon.name)}</strong><small>折 ${money(coupon.discount_amount)} · ${coupon.combinable_with_points ? "可" : "不可"}與點數併用 · 已用 ${(coupon.coupon_redemptions || []).length}${coupon.total_usage_limit ? `/${coupon.total_usage_limit}` : ""} · ${coupon.is_active ? "啟用" : "停用"}<br />${new Date(coupon.valid_from).toLocaleString("zh-TW")} 至 ${new Date(coupon.valid_until).toLocaleString("zh-TW")}${coupon.is_birthday ? " · 生日券" : ""}</small></div>${coupon.is_birthday ? "" : `<button type="button" data-coupon-edit="${coupon.id}">編輯</button>`}</div>`).join("") || '<div class="empty-state">尚未建立優惠券。</div>';
+  list.innerHTML = (adminData.coupons || []).map((coupon) => `<div class="admin-card coupon-card"><div><strong>${escapeHtml(coupon.code)} · ${escapeHtml(coupon.name)}</strong><small>折 ${money(coupon.discount_amount)} · ${coupon.combinable_with_points ? "可" : "不可"}與點數併用 · 已用 ${(coupon.coupon_redemptions || []).length}${coupon.total_usage_limit ? `/${coupon.total_usage_limit}` : ""} · ${coupon.is_active ? "啟用" : "停用"}<br />${formatDateTime(coupon.valid_from)} 至 ${formatDateTime(coupon.valid_until)}${coupon.is_birthday ? " · 生日券" : ""}</small></div>${coupon.is_birthday ? "" : `<button type="button" data-coupon-edit="${coupon.id}">編輯</button>`}</div>`).join("") || '<div class="empty-state">尚未建立優惠券。</div>';
 }
 
 export function renderAdminDiscountOptionBoxes({ preserveSelection = false } = {}) {
@@ -109,8 +109,8 @@ export function editCoupon(couponId) {
   document.querySelector("#coupon-name").value = coupon.name;
   document.querySelector("#coupon-amount").value = coupon.discount_amount;
   document.querySelector("#coupon-member-limit").value = coupon.per_member_limit;
-  document.querySelector("#coupon-valid-from").value = localDateTime(coupon.valid_from);
-  document.querySelector("#coupon-valid-until").value = localDateTime(coupon.valid_until);
+  document.querySelector("#coupon-valid-from").value = taipeiDateTimeInputValue(coupon.valid_from);
+  document.querySelector("#coupon-valid-until").value = taipeiDateTimeInputValue(coupon.valid_until);
   document.querySelector("#coupon-total-limit").value = coupon.total_usage_limit || "";
   document.querySelector("#coupon-combinable").checked = coupon.combinable_with_points;
   document.querySelector("#coupon-active").checked = coupon.is_active;
@@ -130,7 +130,7 @@ export async function submitCoupon(event) {
   const body = {
     code: document.querySelector("#coupon-code").value.toUpperCase(), name: document.querySelector("#coupon-name").value,
     discount_amount: Number(document.querySelector("#coupon-amount").value), per_member_limit: Number(document.querySelector("#coupon-member-limit").value),
-    valid_from: new Date(document.querySelector("#coupon-valid-from").value).toISOString(), valid_until: new Date(document.querySelector("#coupon-valid-until").value).toISOString(),
+    valid_from: taipeiDateTimeInputToIso(document.querySelector("#coupon-valid-from").value), valid_until: taipeiDateTimeInputToIso(document.querySelector("#coupon-valid-until").value),
     total_usage_limit: totalLimit ? Number(totalLimit) : null, combinable_with_points: document.querySelector("#coupon-combinable").checked,
     is_active: document.querySelector("#coupon-active").checked,
     product_ids: [...document.querySelectorAll("[name='coupon_product']:checked")].map((input) => input.value),

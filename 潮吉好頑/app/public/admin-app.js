@@ -348,11 +348,6 @@ export function applyAdminQuickFilter(filter) {
   document.querySelector(".admin-content")?.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-export function localDateTime(value) {
-  const date = value ? new Date(value) : new Date();
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-}
-
 function renderAdminData() {
   ensureDiscountAdminUI();
   const readyStat = document.querySelector('[data-stat="readyForPickup"]');

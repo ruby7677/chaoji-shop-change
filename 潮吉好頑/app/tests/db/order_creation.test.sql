@@ -12,6 +12,11 @@ select tests.assert((select status = 'pending_payment' and subtotal = 2000 and a
                     'in-stock order totals are computed by the database');
 select tests.assert((select payment_deadline = now() + interval '24 hours' from public.orders where id = (select id from t_order)),
                     'in-stock bank transfer order has a 24 hour payment deadline');
+select tests.assert((select order_number like 'CJ-' || to_char(now() at time zone 'Asia/Taipei', 'YYMMDD-HH24MISS') || '-____'
+                       from public.orders where id = (select id from t_order)),
+                    'the order number carries Taiwan date and time');
+select tests.assert(current_setting('TimeZone') <> 'Asia/Taipei' or current_setting('TimeZone') = (select setting from pg_settings where name = 'TimeZone'),
+                    'placing an order does not change the session time zone');
 select tests.assert((select count(*) = 1 and sum(quantity) = 2 from public.inventory_reservations
                       where order_id = (select id from t_order) and released_at is null),
                     'order reserves the ordered quantity');
