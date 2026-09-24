@@ -23,6 +23,31 @@ select tests.expect_error($$select count(*) from public.profiles$$, 'permission 
 select tests.assert((select count(*) = 2 from public.storefront_variants where is_published), 'anon can read the published catalog');
 rollback;
 
+-- 公開型錄底層表只開放前台用到的欄位：成本、SKU、安全庫存與實際庫存不能用 anon key 直接查。
+-- 以整列讀取 storefront_variants：view 新增欄位卻漏了底層欄位授權時，這裡會失敗。
+begin;
+select tests.seed();
+update public.product_variants set cost = 600 where id = tests.id('variant_stock');
+select tests.login(null);
+select tests.assert((select count(*) = 2 and bool_and(to_jsonb(v) ? 'hero_tagline' and v.stock is not null) from public.storefront_variants v),
+                    'anon can read every storefront column');
+select tests.assert((select count(*) = 2 from public.product_variants where is_published and price > 0), 'anon can still read public variant columns');
+select tests.expect_error($$select cost from public.product_variants$$, 'permission denied', 'anon cannot read variant cost');
+select tests.expect_error($$select sku from public.product_variants$$, 'permission denied', 'anon cannot read SKUs');
+select tests.expect_error($$select stock_on_hand from public.product_variants$$, 'permission denied', 'anon cannot read raw stock');
+select tests.expect_error($$select safety_stock from public.product_variants$$, 'permission denied', 'anon cannot read safety stock');
+select tests.expect_error($$select * from public.product_variants$$, 'permission denied', 'anon cannot select every variant column');
+select tests.expect_error($$select * from public.products$$, 'permission denied', 'new product columns are private by default');
+select tests.login(tests.id('member_a'));
+select tests.expect_error($$select cost from public.product_variants$$, 'permission denied', 'members cannot read variant cost');
+select tests.assert((select count(*) = 2 from public.storefront_variants), 'members can read the catalog');
+select public.replace_member_cart(tests.order_items(tests.id('variant_stock'), 2));
+select tests.assert((select count(*) = 1 and bool_and(quantity = 2) from public.member_cart_items), 'cart sync still validates published variants');
+select tests.as_service();
+select tests.assert((select cost = 600 and sku = 'TEST-STOCK' from public.product_variants where id = tests.id('variant_stock')),
+                    'the Worker service role still reads every column');
+rollback;
+
 -- 個人資料：只能改自己的姓名／電話／生日／地址；不能改管理員標記或 LINE 綁定，也改不到別人。
 begin;
 select tests.seed();

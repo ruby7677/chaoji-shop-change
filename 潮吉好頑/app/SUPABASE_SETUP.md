@@ -33,6 +33,7 @@
 - `202609230003_liff_session_vault.sql`：LIFF 持久登入以 LINE `sub` 為鍵保存加密 refresh token，僅 Worker service_role 讀寫（見第 2 節第 19 點）。
 - `202609240001_product_gallery_showcase.sql`：商品多圖 `product_images`、商品頁介紹與 Hero 輪播欄位、多圖管理 RPC。
 - `202609250001_cancellation_notification_marker.sql`：`orders.cancellation_notified_at`，讓每小時取消通知掃描只處理尚未交給通知狀態機的訂單。
+- `202609250002_catalog_column_grants.sql`：`categories`、`products`、`product_variants` 對 anon／authenticated 改為欄位級 SELECT，成本、SKU、安全庫存與實際庫存不再能用公開 anon key 查詢。`storefront_variants` 新增底層欄位時，須以新 migration 補該欄位的 grant，否則前台型錄會回 permission denied（`npm run test:db` 會抓到）。
 
 ## 2. 建立 LINE 自訂登入提供者
 

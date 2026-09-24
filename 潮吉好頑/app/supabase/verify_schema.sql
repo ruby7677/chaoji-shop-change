@@ -288,6 +288,20 @@ select
     select 'security_invoker=true' = any(reloptions)
     from pg_class where oid = 'public.storefront_variants'::regclass
   ), false) as storefront_view_security_invoker,
+  -- 202609250002_catalog_column_grants：型錄底層表只授權前台 view 用到的欄位，成本與庫存不公開。
+  not exists (
+    select 1
+    from (values ('anon'), ('authenticated')) r(role_name)
+    cross join (values ('public.categories'), ('public.products'), ('public.product_variants')) t(table_name)
+    where has_table_privilege(r.role_name, t.table_name, 'SELECT')
+  ) as catalog_tables_have_no_table_level_select,
+  not exists (
+    select 1
+    from (values ('anon'), ('authenticated')) r(role_name)
+    cross join (values ('cost'), ('sku'), ('safety_stock'), ('stock_on_hand'), ('deposit_rate')) c(column_name)
+    where has_column_privilege(r.role_name, 'public.product_variants', c.column_name, 'SELECT')
+  ) as variant_private_columns_hidden_from_api_roles,
+  has_table_privilege('anon', 'public.storefront_variants', 'SELECT') as storefront_view_readable_by_anon,
   -- 資料一致性：products.image_path 必須等於多圖排序第一張。
   to_regclass('public.product_images') is not null and not exists (
     select 1

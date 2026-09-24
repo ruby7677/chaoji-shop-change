@@ -30,6 +30,7 @@ description: Trace or change 潮吉好頑 cart, order, notification and permissi
 - 貨幣、庫存、點數不得相信購物車儲存的價格／數量；伺服器與交易函式須重新計算或驗證。
 - `service_role` 會繞過 RLS：使用它的每個會員／管理路由，必須先驗證身分、物件歸屬或管理權限。
 - `has_table_privilege(...,'UPDATE')=false` 不表示完全不可修改：本專案有欄位級 UPDATE grants，須再查 `has_column_privilege` 或 `information_schema.column_privileges`。
+- 型錄底層表（`categories`／`products`／`product_variants`）對 anon／authenticated 只有欄位級 SELECT：`storefront_variants` 或會員 JWT 呼叫的 invoker 函式要用到新欄位時，須在 migration 補該欄位 grant。
 - RPC 有多個 overload，SQL 可能被較新 migration 替換；追查完整簽名及實際生效定義，不只看 initial schema。
 - 不用正式訂單驗證付款或扣庫存；採隔離測試資料／可回滾測試。真實 LINE 發送會消耗額度並聯絡人員，需有通知測試授權。
 
