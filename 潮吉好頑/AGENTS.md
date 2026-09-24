@@ -28,8 +28,7 @@
 
 - 任務只要涉及購物車、結帳、訂單、付款、庫存、點數／優惠券交易結果、LINE／Telegram 通知、管理員／會員權限、Supabase 資料一致性，且需要跨前端、Worker、SQL／RPC／RLS 其中兩層以上追查或修改，開始分析或修改前必須重新讀取該 Skill。
 - 單純文案、純 CSS 視覺小改、與交易流程無關且只改單一前端層的 UI 微調，不強制載入。
-- 不得因為同一聊天前一輪曾讀過、主代理記得內容、先前 worker 曾讀過、worker 睡眠後被喚醒，或本機剛重新連線，就省略本次重新讀取。
-- 新開聊天、Code Mode continuation 中斷／重建、MCP 重新連線、工具 catalog 刷新後需要恢復實作，若任務仍符合上述條件，應再次讀取 `AGENTS.md` 與該 Skill 後再繼續修改。
+- 每個符合條件的任務都讀取 Skill 檔案的目前內容，不以先前讀過的印象代替：檔案可能已更新，而接續的工作階段（新聊天、重新連線、恢復的 worker）不一定保有先前讀到的內容。恢復中斷的實作前，同樣先重新讀取 `AGENTS.md` 與該 Skill。
 - 新建立的 `luna_worker` 若承接符合上述條件的任務，委派內容必須明確要求它自行讀取 `AGENTS.md` 與 `.agents/skills/chaoji-shop-change/SKILL.md`；不可假設主代理讀過即等同 worker 已讀。
 - 若 Skill 對某項分析、驗證或工具使用有更具體要求，以 Skill 的任務專屬規則為準；MCP 穩定性規則只處理工具 discovery、連線與重試，不得用來跳過 Skill 規定的檢查。
 

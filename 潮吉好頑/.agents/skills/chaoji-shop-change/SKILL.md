@@ -5,7 +5,7 @@ description: Trace or change 潮吉好頑 cart, order, notification and permissi
 
 # 潮吉好頑跨層變更
 
-跨層實作依 `AGENTS.md` 委派時，Luna Worker 使用 `gpt-6-luna` 與 `max` 推理等級；若內建同名角色固定舊模型，選擇可指定這組設定的 worker。
+委派方式依根目錄 `AGENTS.md`：Codex 見「主代理與 Luna Worker 分工」，Claude Code 見「Claude Code 對應規則」。
 
 專案根目錄是本技能目錄的 `../../..`，執行程式在其 `app/`。沿用根目錄 `AGENTS.md`；本技能不另建產品規則副本。
 
