@@ -8,6 +8,7 @@ import { selectHeroSlides } from "./hero-slides.js";
 import { initAdminProductGallery } from "./admin-product-gallery.js";
 import { initAdminProductsTable, renderAdminProductsTable } from "./admin-products-table.js";
 import { initAdminShell } from "./admin-shell.js";
+import { adminConfirm } from "./admin-confirm.js";
 
 let products = [
   { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", icon: "🌀", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" },
@@ -2432,7 +2433,7 @@ function renderAdminNotifications() {
 async function requeueAdminNotification(button) {
   const [channel, id] = String(button.dataset.adminNotificationRequeue || "").split(":");
   if (!["line", "telegram"].includes(channel) || !/^[0-9a-f-]{36}$/i.test(id || "")) throw new Error("通知紀錄資料不正確");
-  if (!window.confirm("確定將這筆失敗通知重新排入下一次重試嗎？目前不會立即發送。")) return;
+  if (!(await adminConfirm({ title: "重新排入這筆失敗通知？", message: "會在下一次排程重試時發送，現在不會立即發送。", confirmLabel: "重新排入", trigger: button }))) return;
   button.disabled = true;
   try {
     await adminFetch(`/api/admin/notification-deliveries/${channel}/${id}/requeue`, { method: "POST", body: JSON.stringify({}) });
@@ -2604,7 +2605,7 @@ async function submitBirthdaySettings(event) {
 }
 
 async function issueBirthdayCouponsNow() {
-  if (!window.confirm("確定要立即執行生日券發送嗎？已發送過的會員不會重複取得。")) return;
+  if (!(await adminConfirm({ title: "立即執行生日券發送？", message: "已發送過的會員不會重複取得。", confirmLabel: "立即發送" }))) return;
   const result = await adminFetch("/api/admin/birthday-coupons/issue", { method: "POST" });
   await refreshAdminSections(["discounts"]);
   switchAdminTab("discounts");
@@ -2621,7 +2622,7 @@ async function submitMemberPointAdjustment(event) {
   const points = Number(pointsField.value);
   const reason = reasonField.value.trim();
   if (!Number.isInteger(points) || points === 0 || !reason) throw new Error("請填寫非 0 點數與異動原因");
-  if (!window.confirm(`確定要${points > 0 ? "增加" : "扣除"} ${Math.abs(points)} 點？`)) return;
+  if (!(await adminConfirm({ title: `確定要${points > 0 ? "增加" : "扣除"} ${Math.abs(points)} 點？`, message: `異動原因：${reason}`, confirmLabel: points > 0 ? "確定增加" : "確定扣除", danger: points < 0, trigger: event.submitter }))) return;
   await adminFetch(`/api/admin/members/${form.dataset.adminPointsForm}/points`, { method: "POST", body: JSON.stringify({ points, reason }) });
   await refreshAdminSections(["members"]);
   switchAdminTab("members");
@@ -2803,17 +2804,17 @@ async function submitAdminOrderTransition(event) {
   if (["cancelled", "refund_pending", "refunded"].includes(targetStatus) && !note) throw new Error("取消或退款相關操作必須填寫原因");
   const currentOrder = (adminData.orders || []).find((order) => order.id === form.dataset.adminOrderForm);
   const warning = targetStatus === "confirmed"
-    ? "確認款項後會正式扣除商品庫存。確定繼續？"
+    ? "確認款項後會正式扣除商品庫存。"
     : targetStatus === "completed"
-      ? "完成訂單代表商品已取走且尾款已收訖。確定繼續？"
+      ? "完成訂單代表商品已取走且尾款已收訖。"
       : targetStatus === "cancelled" && ["pending_payment", "pending_review"].includes(currentOrder?.status)
-        ? "此訂單尚未扣除實體庫存；取消後會釋放保留量。確定繼續？"
+        ? "此訂單尚未扣除實體庫存；取消後會釋放保留量。"
       : targetStatus === "cancelled"
-        ? "此訂單已扣除庫存且尚未完成交付；取消後會由系統反轉原銷售異動，不能再手動重複回補。確定繼續？"
+        ? "此訂單已扣除庫存且尚未完成交付；取消後會由系統反轉原銷售異動，不能再手動重複回補。"
       : ["refund_pending", "refunded"].includes(targetStatus)
-        ? "退款流程不會自動回補庫存；收到實物後，請在已退款訂單逐項驗收並分為可再售或報廢。確定繼續？"
-        : "確定更新此訂單狀態？";
-  if (!window.confirm(warning)) return;
+        ? "退款流程不會自動回補庫存；收到實物後，請在已退款訂單逐項驗收並分為可再售或報廢。"
+        : "";
+  if (!(await adminConfirm({ title: "確定更新此訂單狀態？", message: warning, confirmLabel: "確定更新", danger: ["cancelled", "refund_pending", "refunded"].includes(targetStatus), trigger: event.submitter }))) return;
   const button = form.querySelector("button[type='submit']");
   button.disabled = true;
   try {
@@ -2842,7 +2843,7 @@ async function submitAdminOrderReturn(event) {
   const scrap = Number(scrapField.value);
   const max = Number(form.dataset.returnMax || 0);
   if (![received, restock, scrap].every(Number.isInteger) || received <= 0 || received > max || restock < 0 || scrap < 0 || restock + scrap !== received) throw new Error("收到、可再售與報廢數量必須正確相等，且不可超過原購買數量");
-  if (!window.confirm(`確認收到 ${received} 件，其中可再售 ${restock} 件、報廢 ${scrap} 件？`)) return;
+  if (!(await adminConfirm({ title: "確認退貨驗收？", message: `收到 ${received} 件，其中可再售 ${restock} 件、報廢 ${scrap} 件。`, confirmLabel: "確認驗收", trigger: event.submitter }))) return;
   const button = form.querySelector("button[type='submit']");
   if (button instanceof HTMLButtonElement) button.disabled = true;
   try {
@@ -2869,7 +2870,7 @@ async function submitAdminOrderFulfillment(event) {
   const confirmed = confirmedField.checked;
   if (!Number.isInteger(shippingFee) || shippingFee < 0) throw new Error("實際運費必須是 0 或正整數");
   if (confirmed && !/^\d{5}$/.test(finalFive)) throw new Error("請填寫 5 位數尾款匯款末五碼");
-  if (confirmed && !window.confirm("確認尾款與運費已入帳？確認後即可完成寄送訂單。")) return;
+  if (confirmed && !(await adminConfirm({ title: "確認尾款與運費已入帳？", message: "確認後即可完成寄送訂單。", confirmLabel: "確認已入帳", trigger: event.submitter }))) return;
   const button = form.querySelector("button[type='submit']");
   if (button instanceof HTMLButtonElement) button.disabled = true;
   try {

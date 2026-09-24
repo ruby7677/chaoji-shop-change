@@ -4,6 +4,7 @@
 import { escapeHtml } from "./product-format.js";
 import { adminIcon } from "./admin-icons.js";
 import { createAdminSheet, openAdminSheetFor } from "./admin-sheets.js";
+import { adminConfirm } from "./admin-confirm.js";
 import { discountPercent, editSheetMarkup, kindPill, priceFormMarkup, pricePreviewText, priceMarkup, relationOne } from "./admin-products-forms.js";
 
 const PRICE_SHEET_AUTO_CLOSE_MS = 15000;
@@ -14,7 +15,6 @@ let editSheet = null;
 let priceSheet = null;
 let editingProductId = null;
 let priceSubmittedAt = 0;
-let confirmBox = null;
 
 const helpers = () => ({ adminCategoryOptions: deps.adminCategoryOptions, splitPreorderArrival: deps.splitPreorderArrival });
 const productOf = (productId) => deps.getProducts().find((product) => product.id === productId) || null;
@@ -164,49 +164,6 @@ function syncSheetsAfterRender() {
 }
 
 // ---------- 上架開關：先確認再送出 ----------
-function ensureConfirmBox() {
-  if (confirmBox) return confirmBox;
-  const dialog = document.querySelector("#admin-dialog");
-  const scrim = document.createElement("div");
-  scrim.className = "admin-confirm-scrim";
-  scrim.hidden = true;
-  scrim.innerHTML = '<div class="admin-confirm" role="alertdialog" aria-modal="true" aria-labelledby="admin-confirm-title" aria-describedby="admin-confirm-message">'
-    + '<h3 id="admin-confirm-title"></h3><p id="admin-confirm-message"></p>'
-    + '<div class="admin-confirm-actions"><button class="secondary-button" type="button" data-confirm-cancel>取消</button><button class="primary-button" type="button" data-confirm-ok></button></div></div>';
-  dialog.append(scrim);
-  let resolver = null;
-  let returnFocus = null;
-  const finish = (result) => {
-    if (scrim.hidden) return;
-    scrim.hidden = true;
-    returnFocus?.focus({ preventScroll: true });
-    resolver?.(result);
-    resolver = null;
-  };
-  scrim.addEventListener("click", (event) => {
-    if (event.target === scrim || event.target.closest("[data-confirm-cancel]")) finish(false);
-    else if (event.target.closest("[data-confirm-ok]")) finish(true);
-  });
-  // Esc 只取消確認，不關閉整個後台
-  dialog.addEventListener("cancel", (event) => {
-    if (scrim.hidden) return;
-    event.preventDefault();
-    finish(false);
-  });
-  confirmBox = {
-    ask({ title, message, confirmLabel, trigger }) {
-      scrim.querySelector("#admin-confirm-title").textContent = title;
-      scrim.querySelector("#admin-confirm-message").textContent = message;
-      scrim.querySelector("[data-confirm-ok]").textContent = confirmLabel;
-      returnFocus = trigger;
-      scrim.hidden = false;
-      scrim.querySelector("[data-confirm-cancel]").focus({ preventScroll: true });
-      return new Promise((resolve) => { resolver = resolve; });
-    }
-  };
-  return confirmBox;
-}
-
 function variantPayload(variant, isPublished) {
   // 與規格表單送出內容相同（submitDynamicAdminForm），只改上架狀態
   return {
@@ -235,7 +192,7 @@ async function togglePublish(button) {
     : product.is_published
       ? "上架後前台會顯示此規格，顧客可加入購物車。"
       : "此規格會設為上架，但商品目前未上架，前台仍不會顯示；需在「編輯」中勾選「上架商品」。";
-  const confirmed = await ensureConfirmBox().ask({ title: `${next ? "上架" : "下架"}「${label}」？`, message, confirmLabel: next ? "確定上架" : "確定下架", trigger: button });
+  const confirmed = await adminConfirm({ title: `${next ? "上架" : "下架"}「${label}」？`, message, confirmLabel: next ? "確定上架" : "確定下架", danger: !next, trigger: button });
   if (!confirmed) return;
   button.disabled = true;
   button.setAttribute("aria-busy", "true");

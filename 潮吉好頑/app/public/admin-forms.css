@@ -70,6 +70,17 @@
 #admin-dialog.admin-app #admin-inventory-form,
 #admin-dialog.admin-app #admin-account-form { padding: 16px; border: 1px solid var(--admin-border); border-radius: 14px; background: #fff; }
 
+/* ---------- 共用畫面內確認視窗（admin-confirm.js，取代 window.confirm） ---------- */
+#admin-dialog.admin-app .admin-confirm-scrim { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px; background: rgba(20, 20, 20, 0.45); }
+#admin-dialog.admin-app .admin-confirm-scrim[hidden] { display: none; }
+#admin-dialog.admin-app .admin-confirm { width: min(420px, 100%); padding: 20px; border-radius: 16px; background: #fff; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2); }
+#admin-dialog.admin-app .admin-confirm h3 { margin: 0 0 8px; font-size: 17px; line-height: 1.4; overflow-wrap: anywhere; }
+#admin-dialog.admin-app .admin-confirm p { margin: 0 0 18px; color: var(--admin-text-muted); line-height: 1.6; }
+#admin-dialog.admin-app .admin-confirm-actions { display: flex; gap: 8px; }
+#admin-dialog.admin-app .admin-confirm-actions button { flex: 1; min-height: 44px; border-radius: 10px; }
+#admin-dialog.admin-app .admin-confirm-actions .primary-button { border-color: #141414; background: #141414; color: var(--admin-brand-sun); }
+#admin-dialog.admin-app .admin-confirm-actions .primary-button.is-danger { border-color: #9a302a; background: #9a302a; color: #fff; }
+
 @media (max-width: 760px) {
   #admin-dialog.admin-app .admin-sheet-panel { width: 100vw; border-left: 0; }
   #admin-dialog.admin-app .admin-sheet-body .form-grid { grid-template-columns: 1fr; }
