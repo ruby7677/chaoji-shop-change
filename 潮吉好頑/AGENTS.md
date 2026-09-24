@@ -9,7 +9,6 @@
 - Worker：`app/src/index.ts` 只有路由與排程入口；`env.ts`（Env 型別）、`http.ts`（安全 header／CSP、json、rate limit）、`auth.ts`（LINE／LIFF 驗證、`requireUser`／`requireAdmin`）、`member-api.ts`、`catalog.ts`、`notifications.ts`、`database-errors.ts`、後台 `admin-dashboard.ts`／`admin-overview.ts`／`admin-orders.ts`／`admin-settings.ts`／`admin-catalog.ts`；另有 `product-showcase.ts`（商品頁與多圖 API）、`product-image-storage.ts`（圖片儲存與邊緣快取）、`share-meta.ts`（分享預覽）、`notification-delivery.ts`（通知寄送）、`auth-session.ts`／`liff-session-vault.ts`／`web-session.ts`（登入工作階段）。
 - LINE 訊息文案：`app/src/line-notification-messages.ts`。
 - DB：`app/supabase/migrations/`；部署：`app/wrangler.jsonc`。
-- `app/index.html`、`app/styles.css`、`app/app.js` 是歷史原型，不要同步修改或當正式入口。
 - Git 根目錄可能在上一層並包含其他專案；用指定路徑查看 diff、暫存與提交，避免 `git add .`。
 - 單檔維持在 500 行內（目前 `public/app.js` 約 1,100 行為例外：登入、LIFF、回跳與結帳狀態互相重新指定，拆開需改寫邏輯）：新功能放新的 ES module（`public/*.js`）、新 CSS 檔或 `src/*.ts` 模組，入口檔只加 import 與接線。ES module 不能重新指定別的模組的 `let`：跨模組修改狀態要由擁有該狀態的模組匯出函式（例：`invalidateBankAccounts()`、`forgetCartSyncUser()`）。
 - CSP 無 `unsafe-inline`：動態 HTML 不可寫 `style="…"` 屬性（改用 class 或 `el.style.setProperty()`）；圖片只能走同源 Worker；修改 `index.html` 的 `auth-boot-critical` inline style 必須同步更新 `src/http.ts` 的 CSP hash。

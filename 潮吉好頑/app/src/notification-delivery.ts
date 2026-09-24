@@ -1,3 +1,4 @@
+import { serviceHeaders } from "./http";
 export type NotificationChannel = "line" | "telegram";
 
 export interface NotificationDeliveryEnv {
@@ -36,14 +37,6 @@ type DeliveryAttempt = {
 export type DeliveryResult = { sent: boolean; handled: boolean };
 
 const DEFAULT_LEASE_SECONDS = 120;
-
-function serviceHeaders(env: NotificationDeliveryEnv) {
-  return {
-    apikey: env.SUPABASE_SERVICE_ROLE_KEY as string,
-    Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-    "Content-Type": "application/json"
-  };
-}
 
 /** True only for HTTP failures that should be retried automatically. */
 export function isRetryableNotificationStatus(status: number) {

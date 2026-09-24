@@ -40,7 +40,8 @@ export function bearerToken(request: Request) {
   return authorization?.startsWith("Bearer ") ? authorization : null;
 }
 
-export function serviceHeaders(env: Env, prefer?: string) {
+/** Supabase service role 標頭；只需要 service role key，通知模組的精簡 env 型別也能直接使用。 */
+export function serviceHeaders(env: Pick<Env, "SUPABASE_SERVICE_ROLE_KEY">, prefer?: string) {
   return {
     apikey: env.SUPABASE_SERVICE_ROLE_KEY as string,
     Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
