@@ -2,7 +2,8 @@
 import { escapeHtml, isPreorderItem, money } from "./product-format.js";
 import { auth, showToast, syncPageScrollLock } from "./app-core.js";
 import { products } from "./storefront-catalog.js";
-import { activeCheckoutItems, activeCheckoutScope, beginLineLogin, openCheckout, profileIsComplete, showProfileDialog } from "./app.js";
+import { activeCheckoutItems, activeCheckoutScope, openCheckout } from "./checkout-flow.js";
+import { beginLineLogin, profileIsComplete, showProfileDialog } from "./member-profile.js";
 import { requireLineFriendshipForCheckout } from "./member-benefits.js";
 
 export const cart = [];

@@ -2,7 +2,7 @@
 import { escapeHtml, isPreorderItem, money } from "./product-format.js";
 import { auth, customerServiceLineUrl, deliveryMethodLabels, deliveryMethodNotes, formatDate } from "./app-core.js";
 import { checkoutCartItems, selectedDeliveryMethod, selectedPaymentMethod } from "./cart.js";
-import { activeCheckoutScope, showCheckoutError } from "./app.js";
+import { activeCheckoutScope, showCheckoutError } from "./checkout-flow.js";
 
 export let bankAccounts = [];
 

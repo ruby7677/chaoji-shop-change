@@ -419,7 +419,7 @@ alter table public.products
 | 2 | LIFF endpoint 子路徑、`liff.state` 與 History 路由互動 | Stage 5 於 LINE 內實機測試 | 已解決：店主從 LINE 內開商品連結可正常開啟並登入（Stage 5） |
 | 3 | 多圖增加 Storage／流量用量 | 上傳時轉 WebP、限制長邊 1600px、每商品 ≤10 張 | 持續：邊緣快取已改為含版本的 key、`s-maxage` 1 天（第九輪） |
 | 4 | 修改 `auth-boot-critical` inline style 會使 CSP hash 失效 | 盡量不動；若必須修改，同步重算 `SECURITY_HEADERS` hash | 持續注意 |
-| 5 | `app.js` 過大（規劃時 3797 行） | 本案只抽出不擴張；長期拆分另立計畫 | 已處理（2026-09-24）：前台、後台與共用程式拆成獨立模組，`app.js` 剩約 1,100 行（登入／LIFF／回跳層，見 AGENTS.md） |
+| 5 | `app.js` 過大（規劃時 3797 行） | 本案只抽出不擴張；長期拆分另立計畫 | 已處理（2026-09-24）：前台、後台與共用程式拆成獨立模組，`app.js` 剩約 1,100 行；2026-09-25 再將登入／LIFF／回跳／會員／結帳層拆成 `liff-session.js`、`auth-return-state.js`、`auth-boot.js`、`member-profile.js`、`checkout-flow.js`，`app.js` 剩約 340 行（事件接線與開機），見 AGENTS.md |
 | 6 | Hero 選品權 | 預設由後台 `hero_rank` 控制 | 已實作：全部未設定排序時自動輪播最新預購商品（`hero-slides.js`） |
 | 7 | 現有 `.claude/launch.json` 是 `python -m http.server 8082`，沒有 SPA fallback 與 `/api/*` | 已新增 launch 設定 `worker-dev`（`npx wrangler dev --port 8082`）；5714 在此機器被 Windows 保留，不能使用 | 已處理 |
 | 8 | 參考站素材與文案 | 只參考互動與版面模式，不複製其圖片、文案或品牌元素 | 持續遵守 |

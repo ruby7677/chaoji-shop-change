@@ -2,7 +2,7 @@
 import { escapeHtml, isPreorderItem, money } from "./product-format.js";
 import { auth, closeDialog, deliveryMethodLabels, formatDateTime, linkCustomerServiceText, orderIncludesPreorder, orderInventoryTypeLabel, orderStatusLabel, showDialog, showToast } from "./app-core.js";
 import { ensurePaymentMethodUI } from "./checkout-form.js";
-import { beginLineLogin } from "./app.js";
+import { beginLineLogin } from "./member-profile.js";
 
 export let currentOrders = [];
 let activePaymentOrder = null;

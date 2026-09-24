@@ -3,7 +3,8 @@ import { liffState, canRequestLineFriendship, requestLineFriendship } from "./li
 import { escapeHtml, money } from "./product-format.js";
 import { auth, closeDialog, formatDate, showDialog } from "./app-core.js";
 import { resetMemberCartSyncState } from "./cart.js";
-import { activeCheckoutScope, liffSessionMatches, openCheckout } from "./app.js";
+import { activeCheckoutScope, openCheckout } from "./checkout-flow.js";
+import { liffSessionMatches } from "./liff-session.js";
 
 const MEMBER_POINTS_TTL_MS = 12 * 60 * 1000;
 const LINE_FRIENDSHIP_TTL_MS = 15 * 60 * 1000;
