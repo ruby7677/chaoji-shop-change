@@ -309,6 +309,11 @@ select
     where has_column_privilege(r.role_name, 'public.product_variants', c.column_name, 'SELECT')
   ) as variant_private_columns_hidden_from_api_roles,
   has_table_privilege('anon', 'public.storefront_variants', 'SELECT') as storefront_view_readable_by_anon,
+  -- migration 紀錄使用 repo 檔名的 12 碼版本；Supabase MCP／Dashboard 套用後會留下 14 碼時間戳，
+  -- 需以 npm run db:history-sql -- align 改回檔名版本。
+  not exists (
+    select 1 from supabase_migrations.schema_migrations where version !~ '^[0-9]{12}$'
+  ) as migration_history_uses_repo_versions,
   -- 資料一致性：products.image_path 必須等於多圖排序第一張。
   to_regclass('public.product_images') is not null and not exists (
     select 1

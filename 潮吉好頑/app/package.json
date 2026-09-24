@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "check:js": "node tests/check-js.mjs",
     "test": "node --test \"tests/worker/*.test.mjs\" \"tests/frontend/*.test.mjs\"",
-    "test:db": "bash tests/db/run.sh"
+    "test:db": "bash tests/db/run.sh",
+    "db:history-sql": "node tests/migration-history-sql.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260910.1",

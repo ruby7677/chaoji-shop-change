@@ -70,3 +70,14 @@ create table if not exists storage.buckets (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Supabase CLI／Dashboard 的 migration 紀錄表（欄位與正式專案相同）；run.sh 套用每支 migration 後寫入一列。
+create schema if not exists supabase_migrations;
+create table if not exists supabase_migrations.schema_migrations (
+  version text primary key,
+  statements text[],
+  name text,
+  created_by text,
+  idempotency_key text unique,
+  rollback text[]
+);

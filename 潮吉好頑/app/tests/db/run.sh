@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# 交易測試：在一般 PostgreSQL（需 pg_cron）上建立全新資料庫，依序套用 Supabase 模擬層與全部 migration，
-# 執行 verify_schema.sql，再跑 tests/db/*.test.sql。每個測試案例自行 begin … rollback。
+# 交易測試：在一般 PostgreSQL（需 pg_cron）上建立全新資料庫，依序套用 Supabase 模擬層與全部 migration（並寫入 migration 紀錄），
+# 核對紀錄與 supabase/migrations/ 一致、執行 verify_schema.sql，再跑 tests/db/*.test.sql。每個測試案例自行 begin … rollback。
 #
 # 連線使用標準 PG* 環境變數（PGHOST、PGPORT、PGUSER、PGPASSWORD）；資料庫名稱由 CJ_TEST_DB 指定，
 # 預設 cj_test，且必須與 postgresql.conf 的 cron.database_name 相同。會刪除並重建該資料庫，
@@ -26,9 +26,21 @@ for migration in supabase/migrations/*.sql; do
     echo "$output" >&2
     exit 1
   fi
+  # 與 Supabase CLI 相同，以檔名的版本與名稱記錄已套用的 migration。
+  base=$(basename "$migration" .sql)
+  "${PSQL[@]}" -d "$DB" -c "insert into supabase_migrations.schema_migrations(version, name) values ('${base%%_*}', '${base#*_}')"
   count=$((count + 1))
 done
 echo "applied $count migrations"
+
+# 紀錄必須與 supabase/migrations/ 完全一致（同一段 SQL 可貼到正式專案檢查）。
+history_issues=$(node tests/migration-history-sql.mjs | "${PSQL[@]}" -At -d "$DB")
+if [ -n "$history_issues" ]; then
+  echo "migration history does not match supabase/migrations:" >&2
+  echo "$history_issues" >&2
+  exit 1
+fi
+echo "migration history matches supabase/migrations"
 
 failed_checks=$({ echo "with v as ("; sed '1d;$ s/;$//' supabase/verify_schema.sql; echo ") select e.key from v, jsonb_each(to_jsonb(v)) e where e.value::text <> 'true';"; } | "${PSQL[@]}" -At -d "$DB")
 if [ -n "$failed_checks" ]; then

@@ -12,5 +12,6 @@
 | `SUPABASE_PHASE13_17_TEST_REPORT.md` | Phase 13–17：商品積點資格與 snapshot 回歸 | 已完成（2026-09-20） |
 | `SUPABASE_INDEX_AUDIT.md` | 索引與 Security／Performance Advisor 唯讀審查 | 審查紀錄 |
 | `SUPABASE_OPTIMIZATION_REGRESSION.md` | 優化回歸／流量驗收計畫 | 驗收規劃（結果見 Phase 11–17 報告） |
+| `MIGRATION_HISTORY_ALIGNMENT_2026-09-24.md` | 正式 DB migration 紀錄對齊檔名版本、結構指紋稽核與新舊版本對照 | 已完成（2026-09-24） |
 
 已結案的功能計畫（`app/ADMIN_REDESIGN_PLAN.md`、`app/PRODUCT_SHOWCASE_PLAN.md`）仍留在 `app/`，因其風險表與部署紀錄仍會被引用。

@@ -19,7 +19,7 @@
 
 ## 已套用 migration（2026-09-22～09-24）
 
-2026-09-24 以 Supabase migration history 核對：以下 migration 皆已套用至正式 DB（遠端版本號與本機檔名不同，以名稱對應），另含 `liff_session_vault`（20260923111528）與 `product_gallery_showcase`（20260923145715）：
+2026-09-24 以 Supabase migration history 核對：以下 migration 皆已套用至正式 DB。同日已將正式 DB 的紀錄對齊檔名版本（見下方「Migration 紀錄對齊」），之後以 `npm run db:history-sql` 的唯讀 SQL 核對：
 
 - `202609220001_member_point_balance_rpc.sql`：完整 point ledger 餘額 RPC，前台近期 100 筆只作歷程。
 - `202609220002_notification_delivery_state_machine.sql`：LINE／Telegram 原子 claim、lease、claim token fencing 與 transient retry；外部 API 仍只能保證 at-least-once。
@@ -33,15 +33,16 @@
 - `202609230003_liff_session_vault.sql`：LIFF 持久登入以 LINE sub 為鍵保存加密 refresh token；RLS＋deny policy，anon／authenticated 無任何表權限，僅 Worker service_role 讀寫。
 - `202609240001_product_gallery_showcase.sql`：商品多圖 `product_images`（service-role-only、排序唯一鍵延後檢查）、商品頁介紹與 Hero 欄位、多圖管理 RPC 僅 service_role 可執行；`products.image_path` 由第一張圖同步。
 - `202609250001_cancellation_notification_marker.sql`：`orders.cancellation_notified_at` 與部分索引，讓每小時取消通知掃描只處理尚未交給通知狀態機的訂單；會員無此欄位 UPDATE 權限。
-- `202609250002_catalog_column_grants.sql`（遠端版本 20260924175913）：`categories`／`products`／`product_variants` 對 anon／authenticated 改為欄位級 SELECT，只開放 `storefront_variants` 與 `replace_member_cart` 用到的欄位；成本、SKU、安全庫存、實際庫存、訂金比例不再能以公開 anon key 查詢。套用後已在正式 DB 以 anon／authenticated 角色實測：型錄 view 全欄位可讀（3 筆上架規格）、讀 `cost`／`sku`／`stock_on_hand`／`select *` 皆為 permission denied、會員購物車驗證查詢可執行、service_role 仍可讀全部欄位。
-- `202609250003_drop_legacy_rpcs.sql`（遠端版本 20260924181114）：刪除 `create_pending_order`、`create_discounted_order` 與 `admin_create_product` 13／14／15 參數舊 overload（套用前確認正式 DB 無函式、排程或 view 引用）。套用後以必定回滾的交易在正式 DB 實測：service_role 以 Worker 的 16 個具名參數與 13 個位置參數皆可建立商品、非管理員 actor 回 `ADMIN_REQUIRED`、authenticated／anon 直接呼叫為 permission denied、`create_pending_order` 已不存在；回滾後正式 DB 無任何測試商品、分類或 audit row。
+- `202609250002_catalog_column_grants.sql`：`categories`／`products`／`product_variants` 對 anon／authenticated 改為欄位級 SELECT，只開放 `storefront_variants` 與 `replace_member_cart` 用到的欄位；成本、SKU、安全庫存、實際庫存、訂金比例不再能以公開 anon key 查詢。套用後已在正式 DB 以 anon／authenticated 角色實測：型錄 view 全欄位可讀（3 筆上架規格）、讀 `cost`／`sku`／`stock_on_hand`／`select *` 皆為 permission denied、會員購物車驗證查詢可執行、service_role 仍可讀全部欄位。
+- `202609250003_drop_legacy_rpcs.sql`：刪除 `create_pending_order`、`create_discounted_order` 與 `admin_create_product` 13／14／15 參數舊 overload（套用前確認正式 DB 無函式、排程或 view 引用）。套用後以必定回滾的交易在正式 DB 實測：service_role 以 Worker 的 16 個具名參數與 13 個位置參數皆可建立商品、非管理員 actor 回 `ADMIN_REQUIRED`、authenticated／anon 直接呼叫為 permission denied、`create_pending_order` 已不存在；回滾後正式 DB 無任何測試商品、分類或 audit row。
+- **Migration 紀錄對齊（2026-09-24，無 schema 變更）**：正式 DB 原有 44 列以套用時間戳為版本、19 支早期 migration 沒有紀錄。先以唯讀稽核確認：本機從零套用 63 支 migration 與正式 DB 的欄位、約束、索引、view、trigger、RLS、權限、排程、bucket 結構指紋全部相同；60 支函式屬性與權限相同，本體差異只有 CRLF 換行（9 支）、註解（2 支）與 `calculate_shipping_fee`（正式 DB 為 `select 0`，唯一呼叫者已先檢查配送方式，無法觸發差異）。之後在單一交易把 44 列版本改為檔名版本（`statements`／`created_by` 不變，指紋前後相同）並補 19 列（`statements` 留空）；對齊後 `npm run db:history-sql` 唯讀檢查 0 列。詳細與新舊版本對照見 `docs/history/MIGRATION_HISTORY_ALIGNMENT_2026-09-24.md`。
 
 套用後需以 `supabase/verify_schema.sql` 唯讀確認函式簽名、notification claim token、退貨驗收表與管理概況 count RPC，再執行 Supabase Security Advisors。不要把本機 dry-run 視為 migration 已套用或 production 已更新。
 
 **Security Advisors 結果（2026-09-24 唯讀執行）**：
 - `authenticated_security_definer_function_executable`（5 項）：`create_delivery_order`（10 參數版）、`submit_order_payment`、`member_point_balance`、`member_available_coupons`、`current_user_is_admin`。皆為會員前台功能刻意開放給 `authenticated`；已核對函式內皆以 `auth.uid()` 判斷呼叫者、`search_path` 為空、未授權 `anon`。8 參數版 `create_delivery_order` 是 10 參數版呼叫的核心實作（不是舊版），只剩 `service_role`／`postgres` 可直接執行。屬預期，不需處理；日後修改這些函式須維持以 `auth.uid()` 限定本人資料。
 - `auth_leaked_password_protection`：Free 方案無法開啟，見下方 A 節（Email provider 已關閉、只允許 LINE）。
-- `verify_schema.sql`（2026-09-24 唯讀執行於正式專案 `csiviervpnxdzyfcuamm`）：套用 `202609250003` 後 103 項檢查全部為 true：`202609250002` 新增型錄底層表無整表 SELECT、`product_variants` 私有欄位不對 API 角色開放、anon 可讀 `storefront_variants` 三項；`202609250003` 將舊 RPC 由「存在」改為「已移除」，並新增 8 參數 `create_delivery_order` 核心存在且 API 角色不可直接執行。先前一輪補上 `202609230003`、`202609240001`、`202609250001` 的檢查：LIFF vault 與 `product_images` 的 RLS／deny policy／API 角色無表權限、多圖 RPC 僅 service_role 可執行、`audit_logs_action_check` 同時允許 `retry` 與 `delete`、`storefront_variants` 維持 `security_invoker` 並含 Hero 欄位，以及資料一致性 `products.image_path` 等於第一張商品圖。之後每次變更 schema 都要重跑並更新此列。
+- `verify_schema.sql`（2026-09-24 唯讀執行於正式專案 `csiviervpnxdzyfcuamm`）：migration 紀錄對齊後 104 項檢查全部為 true（新增 `migration_history_uses_repo_versions`：紀錄全部為 12 碼檔名版本）；套用 `202609250003` 時為 103 項：`202609250002` 新增型錄底層表無整表 SELECT、`product_variants` 私有欄位不對 API 角色開放、anon 可讀 `storefront_variants` 三項；`202609250003` 將舊 RPC 由「存在」改為「已移除」，並新增 8 參數 `create_delivery_order` 核心存在且 API 角色不可直接執行。先前一輪補上 `202609230003`、`202609240001`、`202609250001` 的檢查：LIFF vault 與 `product_images` 的 RLS／deny policy／API 角色無表權限、多圖 RPC 僅 service_role 可執行、`audit_logs_action_check` 同時允許 `retry` 與 `delete`、`storefront_variants` 維持 `security_invoker` 並含 Hero 欄位，以及資料一致性 `products.image_path` 等於第一張商品圖。之後每次變更 schema 都要重跑並更新此列。
 
 Audit 驗證方案：以隔離測試管理員執行商品／規格／分類／收款帳戶／優惠券／生日券／點數設定 mutation，確認每次資料變更與 audit row 同 transaction；一般會員、anon 與偽造 actor 應被 RPC 拒絕。對 `audit_logs` 執行 UPDATE、DELETE、TRUNCATE 應分別被權限或 `AUDIT_LOG_IMMUTABLE` 拒絕。若商品圖片 binary 上傳成功但後續 DB pointer 更新失敗，需依 storage 與 audit 結果人工補償；此跨服務操作不宣稱單一 transaction。
 

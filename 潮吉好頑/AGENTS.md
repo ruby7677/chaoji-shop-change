@@ -107,7 +107,7 @@ Cloudflare production deployment 必須由單一 deployment owner 統籌，並�
 - 所有文字差異：`git diff --check`；UI 另檢查受影響畫面及相關手機／平板／桌機尺寸，語法通過不等於 UI 通過。
 - Worker／部署設定修改或準備部署：依「Cloudflare 部署穩定流程／常見失敗處理」執行 `npx wrangler deploy --dry-run --minify`。SQL／RPC／權限修改另跑 `npm run test:db`：在本機 PostgreSQL 16＋pg_cron 從零套用全部 migration、執行 `verify_schema.sql` 與 `tests/db/*.test.sql`（需 bash，會重建 `CJ_TEST_DB` 指定的資料庫，只能指向測試用資料庫）；Windows 無此環境時以 GitHub Actions `CI` 的 database job 結果為準。新增交易規則要在 `tests/db` 補對應的允許／拒絕案例；沒跑的測試不可宣稱已通過。
 - SQL／付款／庫存／權限須驗證允許與拒絕案例，不能只以編譯或健康端點代替；未做實測須清楚註明。
-- 已套用 SQL 以新增增量 migration 修正；遠端歷史與本機檔名可能不同，先核對內容，不能全量重跑。
+- 已套用 SQL 以新增增量 migration 修正，不能全量重跑。正式 DB 的 migration 紀錄（`supabase_migrations.schema_migrations`）與 `app/supabase/migrations/` 檔名一一對應（12 碼版本）：套用前以 `npm run db:history-sql` 產生的唯讀 SQL 確認只有新檔案是 `missing_in_history`；以 Supabase MCP `apply_migration` 套用時 `name` 用檔名去掉版本號的部分，套用後執行 `npm run db:history-sql -- align` 產生的 SQL 把時間戳版本改回檔名版本，再跑一次唯讀檢查確認 0 列（Supabase CLI `db push` 會直接寫入檔名版本）。
 - 不輸出 `.env`／`.dev.vars`／token；不以可編輯 `user_metadata` 授權。會員不能自行變更管理員或 LINE 綁定欄位。
 - 部署、SQL 套用與通知測試依任務已有授權執行，不因本指引擴大授權；文件變更不需部署。網路／權限失敗先判斷原因，不重複相同命令，也不關閉 TLS 驗證。
 - 回覆簡短交代結果、驗證與未完成部分；僅在實際成功後報部署版本。不把規劃寫成完成。

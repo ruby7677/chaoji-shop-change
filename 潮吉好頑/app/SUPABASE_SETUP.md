@@ -3,7 +3,7 @@
 ## 1. 套用資料庫
 
 1. **新專案**：依檔名順序執行 `supabase/migrations/` 內全部 migration（SQL Editor 逐檔貼上、Supabase CLI 或資料庫連線皆可），再執行 `supabase/seed.sql` 建立兩筆示範商品。全部 migration 可在空資料庫從頭套用，`npm run test:db` 會實際驗證這件事；seed 也已確認可在全部 migration 之後執行。
-2. **既有專案**：先比對遠端 migration history 與本機檔名，只執行尚未套用的 migration，不要重跑已套用的檔案（遠端版本號與本機檔名可能不同，需比對內容）。
+2. **既有專案**：執行 `npm run db:history-sql` 產生的唯讀 SQL（貼到 SQL Editor 或以 Supabase MCP 執行），回傳的 `missing_in_history` 即尚未套用的 migration，只套用這些檔案，不要重跑已套用的檔案。正式 DB 的紀錄已與檔名一一對應（2026-09-24 對齊，見 `docs/history/MIGRATION_HISTORY_ALIGNMENT_2026-09-24.md`）；以 Supabase MCP／Dashboard 套用會留下 14 碼時間戳版本，套用後執行 `npm run db:history-sql -- align` 產生的 SQL 改回檔名版本，再跑一次唯讀檢查確認 0 列。Supabase CLI `db push` 會直接寫入檔名版本。
 3. 套用後執行 `supabase/verify_schema.sql`（唯讀，應全部回傳 true），再執行 Supabase Security Advisors；結果記錄於 `SECURITY_OPERATIONS_CHECKLIST.md`。
 4. 重新啟動網站後，`GET /api/catalog` 應回傳 Supabase 內的兩筆示範商品。
 
