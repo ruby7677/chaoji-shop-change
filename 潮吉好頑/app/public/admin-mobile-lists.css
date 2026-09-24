@@ -1,0 +1,271 @@
+/* 後台手機版密度調整（續，原 styles.css 1154–1422 行）：商品、會員、優惠券列表，430px 與減少動態。
+   與 admin-mobile-layout.css 為同一個 900px 媒體查詢，分檔時在規則邊界關閉後重新開啟，串接順序與原檔相同。 */
+@media (max-width: 900px) {
+  #admin-dialog .admin-order-payment span {
+    min-height: 54px;
+    padding: 7px;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  #admin-dialog .admin-order-payment b {
+    margin-top: 3px;
+    font-size: 14px;
+    line-height: 1.25;
+  }
+
+  #admin-dialog .admin-order-bank {
+    flex-direction: column;
+    gap: 3px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  #admin-dialog .admin-order-note,
+  #admin-dialog .admin-order-terminal {
+    padding: 8px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  #admin-dialog .admin-order-action {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  #admin-dialog .admin-order-action .primary-button,
+  #admin-dialog .admin-fulfillment-form .secondary-button {
+    width: 100%;
+  }
+
+  #admin-dialog .admin-fulfillment-form {
+    padding: 10px;
+    margin-top: 10px;
+  }
+
+  #admin-dialog .admin-order-history {
+    padding-top: 10px;
+    margin-top: 10px;
+  }
+
+  #admin-dialog .admin-order-history summary {
+    min-height: 44px;
+    padding: 11px 0;
+    font-size: 13px;
+  }
+
+  #admin-dialog .admin-order-history ol {
+    margin-top: 6px;
+  }
+
+  #admin-dialog .admin-card-list,
+  #admin-dialog .admin-member-list,
+  #admin-dialog .admin-product-list {
+    gap: 8px;
+    margin-top: 12px;
+    margin-bottom: 16px;
+  }
+
+  #admin-dialog .admin-card {
+    align-items: flex-start;
+    gap: 10px;
+    min-height: 52px;
+    padding: 10px 11px;
+  }
+
+  #admin-dialog .admin-card button {
+    flex: 0 0 auto;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 9px 10px;
+  }
+
+  #admin-dialog .admin-member-card {
+    padding: 12px;
+    border-radius: 8px;
+  }
+
+  #admin-dialog .admin-member-card > header {
+    display: block;
+  }
+
+  #admin-dialog .admin-member-card h3 {
+    font-size: 16px;
+    line-height: 1.3;
+  }
+
+  #admin-dialog .member-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  #admin-dialog .member-metrics span {
+    min-width: 0;
+    min-height: 50px;
+    padding: 8px;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+
+  #admin-dialog .member-metrics b {
+    margin-top: 3px;
+    font-size: 13px;
+  }
+
+  #admin-dialog .member-extra {
+    gap: 3px;
+    margin: 8px 0;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  #admin-dialog .admin-point-adjust {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding-top: 10px;
+  }
+
+  #admin-dialog .admin-point-adjust button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  #admin-dialog .admin-product-list {
+    gap: 10px;
+  }
+
+  #admin-dialog .admin-product-card {
+    padding: 0 11px 11px;
+    border-radius: 8px;
+  }
+
+  #admin-dialog .admin-product-head {
+    grid-template-columns: 68px minmax(0, 1fr);
+    gap: 9px;
+    margin: 0 -11px;
+    padding: 11px;
+  }
+
+  #admin-dialog .admin-product-thumbnail {
+    width: 68px;
+    border-radius: 7px;
+  }
+
+  #admin-dialog .admin-product-thumbnail img { padding: 5px; }
+
+  #admin-dialog .admin-product-title h3 {
+    margin: 4px 0 3px;
+    font-size: 15px;
+    line-height: 1.3;
+  }
+
+  #admin-dialog .admin-product-title p {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  #admin-dialog .admin-product-metrics {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  #admin-dialog .admin-product-metrics span {
+    padding: 6px;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  #admin-dialog .admin-product-metrics b {
+    margin-top: 2px;
+    font-size: 12px;
+  }
+
+  #admin-dialog .admin-product-edit > summary,
+  #admin-dialog .admin-variant-card > summary {
+    min-height: 44px;
+    padding: 10px 26px 10px 0;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  #admin-dialog .admin-variant-card {
+    padding: 0 10px;
+    margin-top: 7px;
+    border-radius: 7px;
+  }
+
+  #admin-dialog .variant-summary {
+    justify-content: flex-start;
+    gap: 5px;
+  }
+
+  #admin-dialog .admin-low-stock {
+    padding: 10px;
+    margin: 12px 0 16px;
+  }
+
+  #admin-dialog .admin-low-stock-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 9px;
+    padding: 8px 0;
+  }
+
+  #admin-dialog .admin-low-stock-row button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  #admin-dialog .coupon-scope {
+    padding: 9px;
+  }
+
+  #admin-dialog .coupon-scope > div {
+    grid-template-columns: 1fr;
+    gap: 5px;
+    max-height: 180px;
+  }
+
+  #admin-dialog .coupon-scope label {
+    min-height: 44px;
+    padding: 9px 7px;
+  }
+
+  #admin-dialog .toast {
+    top: max(58px, env(safe-area-inset-top));
+    width: min(360px, calc(100vw - 28px));
+  }
+}
+
+@media (max-width: 430px) {
+  #admin-dialog {
+    width: calc(100% - 8px);
+    max-height: calc(100dvh - 8px);
+  }
+
+  #admin-dialog .admin-shell { height: calc(100dvh - 8px); }
+  #admin-dialog .admin-content { padding-inline: 10px; }
+  #admin-dialog .admin-nav { padding-inline: 7px; }
+  #admin-dialog .admin-nav button { padding-inline: 10px; }
+  #admin-dialog .stats { gap: 6px; }
+  #admin-dialog .stats .stat-card { min-height: 68px; padding: 9px; }
+  #admin-dialog .stats .stat-card b { font-size: 22px; }
+  #admin-dialog .admin-order-card { padding: 10px; }
+  #admin-dialog .admin-order-payment { gap: 5px; }
+  #admin-dialog .admin-order-payment span { padding: 6px; }
+  #admin-dialog .admin-member-card { padding: 10px; }
+  #admin-dialog .admin-product-card { padding-inline: 9px; }
+  #admin-dialog .admin-product-head { margin-inline: -9px; padding: 9px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #admin-dialog .admin-nav button,
+  #admin-dialog .primary-button,
+  #admin-dialog .secondary-button,
+  #admin-dialog .stats .stat-card { transition: none; }
+}

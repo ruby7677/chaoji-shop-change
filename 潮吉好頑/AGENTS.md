@@ -4,14 +4,15 @@
 
 本指引只適用此目錄。工作目錄為 `app/`，使用 PowerShell、原生 HTML/CSS/JavaScript、TypeScript Worker、Supabase；沒有前端框架或 bundler build 指令。
 
-- 正式前端：`app/public/index.html`、`app/public/styles.css`、`app/public/app.js`（主程式）；功能模組：後台 `admin-*.js`／`admin-*.css`，商品頁與首頁輪播 `product-*.js`、`hero-*.js`、`product-showcase.css`、`product-page.css`，LINE LIFF `liff-auth.js`。
-- Worker API／授權／通知觸發：`app/src/index.ts`；模組：`product-showcase.ts`（商品頁與多圖 API）、`product-image-storage.ts`（圖片儲存與邊緣快取）、`share-meta.ts`（分享預覽）、`notification-delivery.ts`（通知寄送）、`auth-session.ts`／`liff-session-vault.ts`（登入工作階段）。
+- 正式前端入口：`app/public/index.html`、`app/public/app.js`（登入／LIFF／回跳狀態、個人資料、事件接線與開機流程）。前台模組：`storefront-catalog.js`（型錄與 Hero）、`cart.js`（購物車與雲端同步）、`checkout-form.js`（結帳表單）、`member-benefits.js`（點數與 LINE 好友）、`member-orders.js`（我的訂單與回報匯款）、`app-core.js`（前後台共用：`auth` 狀態、狀態文字、對話框、toast），商品頁與輪播 `product-*.js`、`hero-*.js`，LINE LIFF `liff-auth.js`、登入續期 `web-session.js`／`auth-expiry.js`。後台：`admin-app.js`（狀態、分區載入、分頁切換）、各分頁 `admin-*-panel.js`、`admin-product-image.js`，以及外框／概況／表格等 `admin-*.js`。
+- 前端樣式依原 cascade 順序拆成 `styles.css`（基礎）→ `storefront-refinements.css` → `admin-operations.css` → `storefront-details.css` → `admin-mobile-layout.css` → `admin-mobile-lists.css`，再接功能 CSS（`product-*.css`、`admin-*.css`…）。`index.html` 的 `<link>` 順序就是 cascade 順序，不可調換；新樣式放對應功能檔或新檔。
+- Worker：`app/src/index.ts` 只有路由與排程入口；`env.ts`（Env 型別）、`http.ts`（安全 header／CSP、json、rate limit）、`auth.ts`（LINE／LIFF 驗證、`requireUser`／`requireAdmin`）、`member-api.ts`、`catalog.ts`、`notifications.ts`、`database-errors.ts`、後台 `admin-dashboard.ts`／`admin-overview.ts`／`admin-orders.ts`／`admin-settings.ts`／`admin-catalog.ts`；另有 `product-showcase.ts`（商品頁與多圖 API）、`product-image-storage.ts`（圖片儲存與邊緣快取）、`share-meta.ts`（分享預覽）、`notification-delivery.ts`（通知寄送）、`auth-session.ts`／`liff-session-vault.ts`／`web-session.ts`（登入工作階段）。
 - LINE 訊息文案：`app/src/line-notification-messages.ts`。
 - DB：`app/supabase/migrations/`；部署：`app/wrangler.jsonc`。
 - `app/index.html`、`app/styles.css`、`app/app.js` 是歷史原型，不要同步修改或當正式入口。
 - Git 根目錄可能在上一層並包含其他專案；用指定路徑查看 diff、暫存與提交，避免 `git add .`。
-- `public/app.js`、`public/styles.css`、`src/index.ts` 已遠超 500 行：新功能放新的 ES module（`public/*.js`）、新 CSS 檔或 `src/*.ts` 模組，原檔只加 import 與接線，不再擴張。
-- CSP 無 `unsafe-inline`：動態 HTML 不可寫 `style="…"` 屬性（改用 class 或 `el.style.setProperty()`）；圖片只能走同源 Worker；修改 `index.html` 的 `auth-boot-critical` inline style 必須同步更新 `src/index.ts` 的 CSP hash。
+- 單檔維持在 500 行內（目前 `public/app.js` 約 1,100 行為例外：登入、LIFF、回跳與結帳狀態互相重新指定，拆開需改寫邏輯）：新功能放新的 ES module（`public/*.js`）、新 CSS 檔或 `src/*.ts` 模組，入口檔只加 import 與接線。ES module 不能重新指定別的模組的 `let`：跨模組修改狀態要由擁有該狀態的模組匯出函式（例：`invalidateBankAccounts()`、`forgetCartSyncUser()`）。
+- CSP 無 `unsafe-inline`：動態 HTML 不可寫 `style="…"` 屬性（改用 class 或 `el.style.setProperty()`）；圖片只能走同源 Worker；修改 `index.html` 的 `auth-boot-critical` inline style 必須同步更新 `src/http.ts` 的 CSP hash。
 - 進行中的功能規劃放在 `app/*_PLAN.md`（例：`app/PRODUCT_SHOWCASE_PLAN.md`），實作前先讀對應規劃並更新各 Stage 狀態。
 
 ## 範圍與讀取順序

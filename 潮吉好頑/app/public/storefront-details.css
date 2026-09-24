@@ -1,0 +1,145 @@
+/* 前台細節（原 styles.css 731–875 行）：彈窗捲動、商品標籤、結帳改版、付款帳戶卡片。 */
+/* Modal scroll ownership: one contained scroll surface per overlay, never the homepage. */
+#orders-dialog #orders-list{max-height:none;overflow:visible}
+#admin-dialog .admin-shell{height:min(760px,calc(100dvh - 24px));min-height:0;max-height:100%}
+#admin-dialog .admin-content{height:100%;min-height:0;max-height:none;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch}
+@media(max-width:760px){
+  #admin-dialog{max-height:calc(100dvh - 16px)}
+  #admin-dialog .admin-shell{height:calc(100dvh - 16px);min-height:0}
+  #admin-dialog .admin-content{height:100%;max-height:none}
+}
+
+/* Keep the mobile store/contact row on one grid line and make the LINE link easier to scan. */
+@media(max-width:760px){.trust-rail-place{grid-row:1}.trust-rail-link{font-size:calc(.76rem + 2px)}}
+
+/* Product status and purchase-condition labels. */
+.product-image{position:relative;overflow:hidden}
+.product-availability-badge{position:absolute;top:8px;left:8px;z-index:2;display:inline-flex;align-items:center;width:auto;height:auto;min-height:0;padding:2px 6px;border:0;border-radius:3px;font-size:.68rem;font-weight:900;letter-spacing:.02em;line-height:1.35;white-space:nowrap;box-shadow:0 1px 2px rgba(21,21,21,.16)}
+.product-card .product-image span.product-availability-badge{width:auto;height:auto;min-height:0;padding:2px 6px;border:0;border-radius:3px;font-size:1.02rem;line-height:1.35}
+.product-card .product-image span.product-availability-badge-in-stock{background:#e7c438;color:var(--home-ink)}
+.product-card .product-image span.product-availability-badge-preorder{background:#5dd6f2;color:#073f48}
+.product-card .product-image span.product-promotion-badge{position:absolute;top:8px;right:8px;z-index:2;display:inline-flex;align-items:center;width:auto;height:auto;min-height:0;padding:2px 6px;border:0;border-radius:3px;background:#b42318;color:#fff;font-size:1.02rem;font-weight:900;letter-spacing:.02em;line-height:1.35;white-space:nowrap;box-shadow:0 1px 2px rgba(21,21,21,.16)}
+.product-tags{display:flex;flex-wrap:wrap;gap:5px;margin:-1px 0 8px}
+.product-tag{display:inline-flex;align-items:center;padding:3px 7px;border-radius:3px;background:#e9e6df;color:#57524a;font-size:.68rem;font-weight:800;line-height:1.35;white-space:nowrap}
+.product-tag-no-points{color:#b42318}
+@media(max-width:760px){.product-card .product-image span.product-availability-badge{top:8px;left:8px;padding:2px 6px;font-size:.96rem}.product-card .product-image span.product-promotion-badge{top:8px;right:8px;padding:2px 6px;font-size:.96rem}.product-tags{gap:4px;margin-top:-2px}.product-tag{padding:3px 6px;font-size:.64rem}}
+@media(max-width:430px){.product-card .product-image span.product-availability-badge{top:7px;left:7px;padding:2px 5px;font-size:.9rem}.product-card .product-image span.product-promotion-badge{top:7px;right:7px;padding:2px 5px;font-size:.9rem}.product-tag{font-size:.6rem}}
+
+/* Compact product-card copy: keep the visual hierarchy while reducing the
+   vertical cost of metadata and labels below the product image. */
+.product-info{padding:14px 15px 15px}
+.product-category{font-size:.62rem;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.product-info h3{font-size:.95rem;line-height:1.3;margin:6px 0 5px;min-height:0}
+.product-tags{gap:4px;margin:0 0 6px;min-height:0}
+.product-tag{padding:2px 6px;font-size:.64rem;line-height:1.3}
+.stock{min-height:1.3em;font-size:.7rem;line-height:1.3;margin:0}
+.preorder-stock{margin:4px 0 0;color:#b42318;font-size:.72rem;font-weight:900;line-height:1.3}
+.price{margin:9px 0;font-size:1.12rem;line-height:1.2}
+.card-actions{gap:6px}
+.card-actions button,.card-actions a{padding:8px 7px;font-size:.68rem;line-height:1.25}
+@media(max-width:760px){
+  .product-info{padding:10px 11px 12px}
+  .product-category{font-size:.58rem}
+  .product-info h3{font-size:.9rem;line-height:1.3;margin:5px 0 5px}
+  .product-tag{padding:2px 5px;font-size:.62rem}
+  .stock{font-size:.65rem}
+  .preorder-stock{font-size:.67rem}
+  .price{margin:8px 0;font-size:1.02rem}
+  .card-actions button,.card-actions a{padding:8px 5px;font-size:.64rem}
+}
+@media(max-width:430px){
+  .product-info{padding:8px 9px 10px}
+  .product-category{font-size:.56rem}
+  .product-info h3{font-size:.86rem;margin:4px 0}
+  .product-tag{font-size:.6rem}
+  .stock{font-size:.62rem}
+  .preorder-stock{font-size:.64rem}
+  .price{margin:7px 0;font-size:.98rem}
+  .card-actions button,.card-actions a{padding:8px 4px;font-size:.61rem}
+}
+
+.price-discounted{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.price-original{color:var(--home-muted);font-size:.72em;font-weight:700;text-decoration:line-through;text-decoration-thickness:1px}
+.price-sale{color:#b42318;font-weight:900}
+.admin-price-discount{display:inline-flex;align-items:baseline;gap:5px;font-variant-numeric:tabular-nums}
+.admin-price-discount s{color:var(--admin-text-muted);font-size:.75em}
+.admin-price-discount b{color:var(--admin-danger,#b42318)}
+
+/* Checkout rebuild: details first, then one consolidated discount + review step. */
+#checkout-dialog{width:min(640px,calc(100% - 20px));max-width:640px}
+.checkout-progress{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:15px 0 20px}
+.checkout-progress span{min-width:0;padding:7px 3px;border-bottom:3px solid var(--home-line);color:var(--home-muted);font-size:.64rem;font-weight:800;line-height:1.35;text-align:center;white-space:nowrap}
+.checkout-progress span.is-complete{border-color:#9b8740;color:#685b27}
+.checkout-progress span.is-current{border-color:var(--home-yellow);color:var(--home-ink);background:linear-gradient(to top,rgba(244,207,87,.18),transparent)}
+.checkout-next{width:100%;min-height:48px;margin-top:18px;border-color:var(--home-yellow);background:var(--home-yellow);color:var(--home-ink)}
+.checkout-next:disabled{cursor:not-allowed;opacity:.5}
+.checkout-review-step{margin-top:18px}
+.checkout-section-heading,.checkout-summary-head{display:flex;align-items:flex-start;gap:11px;margin-bottom:13px}
+.checkout-section-heading>span,.checkout-summary-head>span{display:grid;place-items:center;flex:0 0 32px;width:32px;height:32px;border-radius:50%;background:var(--home-ink);color:#fff;font-size:.68rem;font-weight:900}
+.checkout-section-heading h3,.checkout-summary-head h4{margin:0;color:var(--home-ink);font-size:1rem;line-height:1.3;font-weight:900}
+.checkout-section-heading p,.checkout-summary-head p{margin:2px 0 0;color:var(--home-muted);font-size:.74rem;line-height:1.45}
+.checkout-benefits{margin:0 0 12px;padding:14px;border:1px solid var(--home-line);border-radius:10px;background:#fff}
+.checkout-benefits-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.checkout-benefits-head h4{margin:0;font-size:.92rem;line-height:1.35}
+.checkout-benefits-head p{margin:2px 0 0;color:var(--home-muted);font-size:.72rem;line-height:1.45}
+.checkout-benefits-head>span{padding:3px 7px;border-radius:999px;background:var(--home-ink);color:#fff;font-size:.58rem;font-weight:900;letter-spacing:.08em}
+.checkout-benefits-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.checkout-benefits-grid label{min-width:0;margin:0;font-size:.78rem;font-weight:800;line-height:1.4}
+.checkout-benefits-grid input{width:100%;min-height:44px;margin-top:5px;padding:9px 10px;border:1px solid var(--home-line);border-radius:7px;background:var(--home-paper);font-size:16px}
+.checkout-benefits-grid small{display:block;margin-top:4px;color:var(--home-muted);font-size:.68rem;font-weight:500;line-height:1.45}
+.checkout-benefits-note{margin:10px 0 0;color:var(--home-muted);font-size:.7rem;line-height:1.55}
+.checkout-order-summary{margin:12px 0;padding:14px;border-color:var(--home-line);border-radius:10px;background:#fff}
+.checkout-order-summary .checkout-summary-head{padding:0;font-size:inherit}
+.checkout-order-summary .checkout-summary-head>div,.checkout-order-summary .checkout-summary-head>div:last-child{display:block;margin:0;padding:0;border:0;font-size:inherit;font-weight:inherit}
+.checkout-order-summary .checkout-summary-lines{display:block;padding:0;border:0}
+.checkout-order-summary .checkout-summary-row{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:5px 0;font-size:.78rem;line-height:1.45}
+.checkout-summary-row span{min-width:0;color:var(--home-muted)}
+.checkout-summary-row strong{flex:0 0 auto;color:var(--home-ink);font-variant-numeric:tabular-nums;text-align:right}
+.checkout-summary-item{border-bottom:1px solid rgba(217,209,191,.7)}
+.checkout-summary-discount strong{color:#18864b}
+.checkout-order-summary .checkout-summary-payable{margin-top:7px;padding-top:11px;border-top:2px solid var(--home-ink);font-size:.95rem;font-weight:900}
+.checkout-summary-payable span{color:var(--home-ink)}
+.checkout-summary-payable strong{font-size:1.12rem}
+.checkout-review-back{width:100%;min-height:44px;margin-top:10px}
+.checkout-review-sticky{position:sticky;bottom:-1px;z-index:2;display:grid;grid-template-columns:minmax(0,auto) minmax(220px,1fr);align-items:center;gap:14px;margin:18px -30px -30px;padding:13px 30px calc(13px + env(safe-area-inset-bottom));border-top:1px solid var(--home-line);background:rgba(255,255,255,.97);box-shadow:0 -10px 24px rgba(21,21,21,.08);backdrop-filter:blur(10px)}
+.checkout-review-step.hidden,.checkout-review-sticky.hidden{display:none}
+.checkout-review-sticky>div{display:grid;gap:1px}
+.checkout-review-sticky small{color:var(--home-muted);font-size:.68rem;line-height:1.3}
+.checkout-review-sticky strong{font-size:1.16rem;line-height:1.2;font-variant-numeric:tabular-nums}
+.checkout-review-sticky .checkout-submit{min-height:48px;background:var(--home-yellow);border-color:var(--home-yellow);color:var(--home-ink)}
+@media(max-width:600px){
+  .checkout-progress{gap:2px;margin-bottom:17px}
+  .checkout-progress span{padding-inline:1px;font-size:.56rem;letter-spacing:-.02em}
+  .checkout-benefits-grid{grid-template-columns:1fr}
+  .checkout-review-sticky{grid-template-columns:auto minmax(0,1fr);margin:16px -20px -25px;padding:12px 20px calc(12px + env(safe-area-inset-bottom))}
+  .checkout-review-sticky .checkout-submit{padding-inline:10px;font-size:.78rem}
+  #checkout-form input:not([type=radio]),#checkout-form select,#checkout-form textarea{font-size:16px}
+}
+@media(max-width:390px){
+  .checkout-progress span{font-size:.52rem}
+  .checkout-review-sticky{grid-template-columns:1fr}
+  .checkout-review-sticky>div{grid-template-columns:auto 1fr;align-items:baseline;gap:8px}
+  .checkout-review-sticky strong{text-align:right}
+}
+
+/* Payment account card: give the inner account surface more horizontal room
+   on phones while keeping the account number and copy control on one line. */
+@media(max-width:600px){
+  .transfer-account-card{margin-inline:-2px;padding:13px 12px;border-radius:18px}
+  .transfer-card-head{padding-bottom:12px}
+  .transfer-card-total{padding:12px 0 10px}
+  .transfer-card-total strong{font-size:1.55rem}
+  .transfer-account-inner{gap:8px;padding:13px 12px;border-radius:14px}
+  .transfer-account-row{gap:8px}
+  .transfer-account-row strong{max-width:75%}
+  .transfer-account-number-line{gap:8px}
+  .transfer-account-number-line>strong{font-size:1.12rem;line-height:1.25}
+  .transfer-account-number-line .copy-account-button{flex-basis:50px;width:50px;min-width:50px;min-height:50px}
+  .transfer-card-note{margin-top:12px}
+}
+
+@media(max-width:390px){
+  .transfer-account-card{padding-inline:10px}
+  .transfer-account-inner{padding-inline:10px}
+  .transfer-account-number-line>strong{font-size:1.08rem}
+}
