@@ -27,6 +27,14 @@ type DeliveryAttempt = {
   errorMessage: string | null;
 };
 
+/**
+ * `sent`: the provider accepted the message during this call (or earlier).
+ * `handled`: nothing is left for a caller to re-drive. The row is sent, owned
+ * by the retry cron, or the channel is disabled; false only when no claim row
+ * could be recorded, so the event must be offered again later.
+ */
+export type DeliveryResult = { sent: boolean; handled: boolean };
+
 const DEFAULT_LEASE_SECONDS = 120;
 
 function serviceHeaders(env: NotificationDeliveryEnv) {
@@ -207,12 +215,12 @@ export async function deliverLineNotification(
   recipientId: string,
   eventType: string,
   message: unknown
-) {
-  if (env.LINE_NOTIFY_ENABLED === "false" || !env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN || !recipientId) return false;
+): Promise<DeliveryResult> {
+  if (env.LINE_NOTIFY_ENABLED === "false" || !env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN || !recipientId) return { sent: false, handled: true };
   const claim = await claimNotification(env, "line", eventKey, recipientId, eventType, { messages: [message] });
-  if (!claim) return false;
-  if (!claim.claimed) return claim.status === "sent";
-  return deliverClaim(env, "line", claim, recipientId);
+  if (!claim) return { sent: false, handled: false };
+  if (!claim.claimed) return { sent: claim.status === "sent", handled: true };
+  return { sent: await deliverClaim(env, "line", claim, recipientId), handled: true };
 }
 
 /** Queue/claim and deliver one Telegram notification. Its result is independent from LINE. */
@@ -222,12 +230,12 @@ export async function deliverTelegramNotification(
   recipientId: string,
   eventType: string,
   message: string
-) {
-  if (env.TELEGRAM_NOTIFY_ENABLED === "false" || !env.TELEGRAM_BOT_TOKEN || !recipientId) return false;
+): Promise<DeliveryResult> {
+  if (env.TELEGRAM_NOTIFY_ENABLED === "false" || !env.TELEGRAM_BOT_TOKEN || !recipientId) return { sent: false, handled: true };
   const claim = await claimNotification(env, "telegram", eventKey, recipientId, eventType, { text: message.slice(0, 4096) });
-  if (!claim) return false;
-  if (!claim.claimed) return claim.status === "sent";
-  return deliverClaim(env, "telegram", claim, recipientId);
+  if (!claim) return { sent: false, handled: false };
+  if (!claim.claimed) return { sent: claim.status === "sent", handled: true };
+  return { sent: await deliverClaim(env, "telegram", claim, recipientId), handled: true };
 }
 
 async function claimDue(env: NotificationDeliveryEnv, channel: NotificationChannel) {
