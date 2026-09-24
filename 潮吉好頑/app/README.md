@@ -21,6 +21,16 @@ LINE 自訂登入提供者與 callback 設定請參考 `SUPABASE_SETUP.md`。
 
 如果已經執行過舊版 `202609080001_initial_schema.sql`，不可重跑；請依序執行後續 migration，再以 `supabase/verify_schema.sql` 唯讀驗證。
 
+## 測試與 CI
+
+在 `app/` 執行：
+
+- `npm run typecheck`、`npm run check:js`：Worker 型別與前端 module 語法。
+- `npm test`：Worker（登入續期、取消通知掃描、受保護路由）與前端（續期、到期處理）測試；Supabase／LINE／Telegram 全部以假 fetch 取代，不連任何真實服務。
+- `npm run test:db`：需要 bash 與已啟用 pg_cron 的 PostgreSQL 16（`cron.database_name` 需等於 `CJ_TEST_DB`，預設 `cj_test`）。會重建該資料庫，套用 `tests/db/supabase-shim.sql`（模擬 Supabase 角色、`auth.uid()`、`storage.buckets`）與全部 migration，執行 `verify_schema.sql`，再跑 `tests/db/*.test.sql` 的交易與權限案例（建單與保留量、回報匯款、逾期取消、管理員確認／取消回滾、點數、會員資料隔離與欄位權限、稽核不可變）。每個案例都在自己的交易中執行並回滾。**不可指向正式或共用資料庫。**
+
+GitHub Actions `CI`（`.github/workflows/ci.yml`）在推送或 PR 修改 `潮吉好頑/app/` 時執行上述全部檢查與 `wrangler deploy --dry-run`，不會部署。
+
 ## 已完成與待續
 
 - 已完成：Cloudflare 靜態資產與 API、Supabase Auth + LINE OAuth、首次登入會員資料、商品目錄與主圖、交易保護的訂單建立、匯款末五碼回報、會員訂單查詢、預購 2 小時／現貨 24 小時付款期限與自動釋放、管理端商品／規格／收款帳戶／庫存／訂單／會員／點數、優惠券、生日券自動發送與結帳點數折抵。

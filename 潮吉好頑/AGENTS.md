@@ -77,7 +77,7 @@ Cloudflare production deployment 必須由單一 deployment owner 統籌，並�
 - 同一時間只能有一個 deployment owner。開始 deploy 前先確認 agent 狀態沒有其他代理正在部署；禁止多個 Luna 平行執行 `wrangler deploy`，避免舊 Worker／資產覆蓋新版本。
 - Windows managed sandbox 常因 Wrangler 寫入 `C:\Users\user\AppData\Roaming\xdg.config\.wrangler\logs` 觸發 `EPERM`。每次 Wrangler 指令前先設定 task-specific `$env:WRANGLER_WRITE_LOGS='0'`（Wrangler v4.130 的 `shouldLogToDisk` 支援 `false/0`）。禁止用重試同一命令解決；禁止改動 `HOME`／`CODEX_HOME`，也禁止關閉 sandbox／TLS。必要時可將 `WRANGLER_LOG_PATH` 指到 workspace 可寫目錄，但優先關閉 disk logs。
 - Windows `Invoke-WebRequest`／`curl` 使用 Schannel 可能出現 `SEC_E_NO_CREDENTIALS`。post-deploy smoke 固定使用 Node.js 標準 `fetch`；不得關閉 TLS 驗證，同一個 Schannel 命令失敗後不要重試。
-- Wrangler 4.130 的 `wrangler check` 不是一般 config validation（僅有 startup profile）；不可把它當 deployment gate。固定 gate 為：修改 JS 執行 `node --check`、執行 `npm run typecheck`、`git diff --check`，以及 `npx wrangler deploy --dry-run --minify`。
+- Wrangler 4.130 的 `wrangler check` 不是一般 config validation（僅有 startup profile）；不可把它當 deployment gate。固定 gate 為：`npm run check:js`（所有前端 module 的 `node --check`）、`npm run typecheck`、`npm test`、`git diff --check`，以及 `npx wrangler deploy --dry-run --minify`。
 - dry-run 前確認 cwd 是 `app/`、`wrangler.jsonc` 的 `name` 為 `chaoji-haowan-shop`、`main` 為 `src/index.ts`，且沒有誤用 `wrangler.preview.jsonc`；同時確認本次關鍵 route／marker 存在於 source。dry-run 完成後到正式 deploy 前若工作樹相關檔案有變更，必須重新跑完整 gate。
 - 正式部署固定使用 `$env:WRANGLER_WRITE_LOGS='0'; npx wrangler deploy --minify`。只有 exit code 為 0 且輸出 `Current Version ID` 時，才可回報部署成功。
 - deploy 後執行 `npx wrangler deployments list --json`，確認最新版本流量為 100%；再用 Node `fetch` 驗證 health、config、catalog、首頁及本次特定 route。受保護 route 未登入應回 401／403；若回 404，視為漏部署。另須 fetch 正式 `app.js`／`styles.css` 檢查本次 marker。
@@ -102,9 +102,9 @@ Cloudflare production deployment 必須由單一 deployment owner 統籌，並�
 
 在 `app/` 執行，依修改類型選必要檢查：
 
-- JS：`node --check public/app.js`；Worker：`npm run typecheck`。
+- JS：`npm run check:js`；Worker：`npm run typecheck`；Worker 與前端行為：`npm test`（`tests/worker`、`tests/frontend`，外部服務全部以假 fetch 取代）。
 - 所有文字差異：`git diff --check`；UI 另檢查受影響畫面及相關手機／平板／桌機尺寸，語法通過不等於 UI 通過。
-- Worker／部署設定修改或準備部署：依「Cloudflare 部署穩定流程／常見失敗處理」執行 `npx wrangler deploy --dry-run --minify`。目前沒有 `npm test`；不要聲稱已執行不存在的測試。
+- Worker／部署設定修改或準備部署：依「Cloudflare 部署穩定流程／常見失敗處理」執行 `npx wrangler deploy --dry-run --minify`。SQL／RPC／權限修改另跑 `npm run test:db`：在本機 PostgreSQL 16＋pg_cron 從零套用全部 migration、執行 `verify_schema.sql` 與 `tests/db/*.test.sql`（需 bash，會重建 `CJ_TEST_DB` 指定的資料庫，只能指向測試用資料庫）；Windows 無此環境時以 GitHub Actions `CI` 的 database job 結果為準。新增交易規則要在 `tests/db` 補對應的允許／拒絕案例；沒跑的測試不可宣稱已通過。
 - SQL／付款／庫存／權限須驗證允許與拒絕案例，不能只以編譯或健康端點代替；未做實測須清楚註明。
 - 已套用 SQL 以新增增量 migration 修正；遠端歷史與本機檔名可能不同，先核對內容，不能全量重跑。
 - 不輸出 `.env`／`.dev.vars`／token；不以可編輯 `user_metadata` 授權。會員不能自行變更管理員或 LINE 綁定欄位。
