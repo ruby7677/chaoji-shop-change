@@ -1,0 +1,123 @@
+/* 商品與規格頁（ADMIN_REDESIGN_PLAN Stage 8）：工具列、規格表格（窄畫面轉卡片）、上架開關、優惠價／編輯面板、確認視窗。
+ * 前綴同 admin-shell.css；token 取自 #admin-dialog.admin-app。 */
+
+/* ---------- 頁首的新增／分類管理／新增規格按鈕排成一列（原本各佔一行） ---------- */
+@media (min-width: 761px) {
+  #admin-dialog.admin-app [data-admin-panel="products"] > details.admin-sheet:not(.admin-sheet-dynamic) { display: inline-block; margin: 0 8px 12px 0; vertical-align: top; }
+}
+
+/* ---------- 工具列 ---------- */
+#admin-dialog.admin-app .admin-products-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 6px; }
+#admin-dialog.admin-app .admin-products-search { flex: 1 1 220px; min-width: 0; margin: 0; }
+#admin-dialog.admin-app .admin-products-toolbar :is(input, select) { width: 100%; min-height: 42px; margin: 0; padding: 0 12px; border: 1px solid var(--admin-border); border-radius: 10px; background: #fff; color: var(--admin-text); font-size: 16px; }
+#admin-dialog.admin-app .admin-products-toolbar select { flex: 0 1 160px; width: auto; }
+#admin-dialog.admin-app .admin-products-toolbar :is(input, select):focus { border-color: #141414; outline: none; box-shadow: 0 0 0 3px #fff6b8; }
+#admin-dialog.admin-app .admin-products-new { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 42px; padding: 0 14px; border: 1px solid #141414; border-radius: 10px; background: #141414; color: var(--admin-brand-sun); font-size: 14px; font-weight: 800; cursor: pointer; }
+#admin-dialog.admin-app .admin-products-new:hover { background: #2b2926; }
+#admin-dialog.admin-app .admin-products-count { margin: 0 0 10px; color: var(--admin-text-muted); font-size: 12px; font-weight: 600; }
+
+/* ---------- 共用小元件 ---------- */
+#admin-dialog.admin-app .admin-pill { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 800; line-height: 1.5; white-space: nowrap; }
+#admin-dialog.admin-app .admin-pill.mint { background: #dcf7e6; color: #166534; }
+#admin-dialog.admin-app .admin-pill.amber { background: #fdf0d2; color: #92400e; }
+#admin-dialog.admin-app .admin-pill.danger { background: #fdecec; color: #b42318; }
+#admin-dialog.admin-app .admin-pill.gray { background: #efece4; color: var(--admin-text-muted); }
+#admin-dialog.admin-app .admin-price { font-weight: 800; font-variant-numeric: tabular-nums; }
+#admin-dialog.admin-app .admin-price.is-sale { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
+#admin-dialog.admin-app .admin-price-was { color: var(--admin-text-muted); font-size: 12px; font-weight: 500; }
+#admin-dialog.admin-app .admin-price.is-sale .admin-price-now { color: #b42318; }
+#admin-dialog.admin-app .cell-main { display: block; font-weight: 800; }
+#admin-dialog.admin-app .cell-sub { display: block; color: var(--admin-text-muted); font-size: 12px; }
+#admin-dialog.admin-app .cell-sub.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.02em; }
+#admin-dialog.admin-app .cell-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+
+/* ---------- 表格（桌機） ---------- */
+#admin-dialog.admin-app .admin-table-wrap { overflow: hidden; border: 1px solid var(--admin-border); border-radius: 14px; background: #fff; }
+#admin-dialog.admin-app .admin-stack-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+#admin-dialog.admin-app .admin-stack-table th { padding: 10px 12px; border-bottom: 1px solid var(--admin-border); background: var(--admin-surface-subtle); color: var(--admin-text-muted); font-size: 12px; font-weight: 700; text-align: left; white-space: nowrap; }
+#admin-dialog.admin-app .admin-stack-table td { padding: 10px 12px; border-bottom: 1px solid var(--admin-border); vertical-align: middle; }
+#admin-dialog.admin-app .admin-stack-table tbody tr:last-child td { border-bottom: 0; }
+#admin-dialog.admin-app .admin-stack-table tbody tr:hover { background: #fffcea; }
+#admin-dialog.admin-app .admin-stack-table :is(th, td).num { text-align: right; }
+#admin-dialog.admin-app .admin-prod-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
+#admin-dialog.admin-app .admin-row-thumb { display: grid; place-items: center; width: 44px; height: 44px; flex: none; overflow: hidden; border: 1px solid var(--admin-border); border-radius: 10px; background: var(--admin-surface-subtle); }
+#admin-dialog.admin-app .admin-row-thumb img { width: 100%; height: 100%; padding: 2px; object-fit: contain; }
+#admin-dialog.admin-app .admin-row-thumb .admin-product-placeholder svg { width: 20px; height: 20px; }
+#admin-dialog.admin-app .admin-row-thumb .admin-product-placeholder small { display: none; }
+#admin-dialog.admin-app .admin-price-cell { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+#admin-dialog.admin-app .admin-stock-cell { display: inline-flex; flex-direction: column; gap: 4px; }
+#admin-dialog.admin-app .admin-stockbar { display: block; width: 90px; height: 6px; overflow: hidden; border-radius: 3px; background: #eee9dc; }
+#admin-dialog.admin-app .admin-stockbar i { display: block; width: 0; height: 100%; background: #16a34a; }
+#admin-dialog.admin-app .admin-stockbar.low i { background: var(--admin-brand-tongue); }
+
+/* 上架開關：44×28 視覺，外圍 44px 觸控範圍 */
+#admin-dialog.admin-app .admin-switch { position: relative; width: 48px; height: 28px; margin: 8px 0; padding: 0; border: 0; border-radius: 14px; background: #d8d3c5; cursor: pointer; transition: background 150ms ease; }
+#admin-dialog.admin-app .admin-switch::before { content: ""; position: absolute; inset: -8px 0; }
+#admin-dialog.admin-app .admin-switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2); transition: transform 150ms ease; }
+#admin-dialog.admin-app .admin-switch[aria-checked="true"] { background: #16a34a; }
+#admin-dialog.admin-app .admin-switch[aria-checked="true"]::after { transform: translateX(20px); }
+#admin-dialog.admin-app .admin-switch:disabled { opacity: 0.5; cursor: progress; }
+#admin-dialog.admin-app .admin-row-actions { display: inline-flex; gap: 6px; }
+#admin-dialog.admin-app .admin-row-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 0 12px; border: 1px solid var(--admin-border); border-radius: 10px; background: #fff; color: #141414; font-size: 14px; font-weight: 700; white-space: nowrap; cursor: pointer; transition: border-color 150ms ease; }
+#admin-dialog.admin-app .admin-row-button:hover { border-color: #141414; }
+#admin-dialog.admin-app .admin-row-button.is-sale { border-color: #f3c1c1; color: #b42318; }
+#admin-dialog.admin-app .admin-row-button .admin-icon { width: 16px; height: 16px; }
+
+/* ---------- 窄畫面：每個規格一張卡片，欄位逐行「標籤：值」 ---------- */
+@media (max-width: 1179px) {
+  #admin-dialog.admin-app .admin-table-wrap { overflow: visible; border: 0; background: transparent; }
+  #admin-dialog.admin-app .admin-stack-table thead { display: none; }
+  #admin-dialog.admin-app .admin-stack-table,
+  #admin-dialog.admin-app .admin-stack-table tr,
+  #admin-dialog.admin-app .admin-stack-table td { display: block; width: 100%; }
+  #admin-dialog.admin-app .admin-stack-table tbody { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; }
+  #admin-dialog.admin-app .admin-stack-table tr { padding: 12px 14px; border: 1px solid var(--admin-border); border-radius: 14px; background: #fff; }
+  #admin-dialog.admin-app .admin-stack-table tbody tr:hover { background: #fff; border-color: #cfc5ad; }
+  #admin-dialog.admin-app .admin-stack-table td { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; padding: 4px 0; border: 0; text-align: right; }
+  #admin-dialog.admin-app .admin-stack-table td::before { content: attr(data-l); flex: none; color: var(--admin-text-muted); font-size: 12px; font-weight: 700; text-align: left; }
+  #admin-dialog.admin-app .admin-stack-table td.lead-cell { display: block; margin-bottom: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--admin-border); text-align: left; }
+  #admin-dialog.admin-app .admin-stack-table td.lead-cell::before { content: none; }
+  #admin-dialog.admin-app .admin-stack-table td[data-l="規格"] { flex-wrap: wrap; }
+  #admin-dialog.admin-app .admin-stack-table td[data-l="規格"] .cell-sub { flex-basis: 100%; }
+  #admin-dialog.admin-app .admin-stack-table td[data-l="操作"] { padding-top: 8px; }
+  #admin-dialog.admin-app .admin-stock-cell { align-items: flex-end; }
+}
+@media (max-width: 760px) {
+  #admin-dialog.admin-app .admin-products-toolbar select { flex: 1 1 calc(50% - 4px); }
+  #admin-dialog.admin-app .admin-products-search { flex-basis: 100%; }
+  #admin-dialog.admin-app .admin-products-new span { display: none; }
+}
+
+/* ---------- 優惠價面板 ---------- */
+#admin-dialog.admin-app .admin-price-target { display: grid; gap: 2px; margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; background: var(--admin-surface-subtle); }
+#admin-dialog.admin-app .admin-price-target span { color: var(--admin-text-muted); font-size: 13px; }
+#admin-dialog.admin-app .admin-price-preview { margin: 12px 0 0; padding: 12px 14px; border: 1px dashed #141414; border-radius: 12px; background: #fffdf2; font-weight: 700; }
+
+/* ---------- 編輯面板 ---------- */
+#admin-dialog.admin-app .admin-edit-section { margin: 0 0 24px; }
+#admin-dialog.admin-app .admin-edit-section h4 { margin: 0 0 12px; font-size: 16px; }
+#admin-dialog.admin-app .admin-edit-section h4 span { color: var(--admin-text-muted); font-weight: 600; }
+#admin-dialog.admin-app .admin-edit-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+#admin-dialog.admin-app .admin-edit-section-head h4 { margin: 0; }
+#admin-dialog.admin-app .admin-sheet-body .admin-gallery,
+#admin-dialog.admin-app .admin-sheet-body .admin-showcase-form { margin: 0 0 24px; }
+#admin-dialog.admin-app .admin-edit-variant { margin: 0 0 10px; border: 1px solid var(--admin-border); border-radius: 12px; background: #fff; }
+#admin-dialog.admin-app .admin-edit-variant > summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-height: 52px; padding: 10px 14px; list-style: none; cursor: pointer; }
+#admin-dialog.admin-app .admin-edit-variant > summary::-webkit-details-marker { display: none; }
+#admin-dialog.admin-app .admin-edit-variant-name small { display: block; color: var(--admin-text-muted); font-size: 12px; }
+#admin-dialog.admin-app .admin-edit-variant-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#admin-dialog.admin-app .admin-edit-variant > form { padding: 0 14px 14px; }
+#admin-dialog.admin-app details.admin-sheet-dynamic { display: none; }
+
+/* ---------- 上架確認視窗 ---------- */
+#admin-dialog.admin-app .admin-confirm-scrim { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 16px; background: rgba(20, 20, 20, 0.45); }
+#admin-dialog.admin-app .admin-confirm-scrim[hidden] { display: none; }
+#admin-dialog.admin-app .admin-confirm { width: min(420px, 100%); padding: 20px; border-radius: 16px; background: #fff; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2); }
+#admin-dialog.admin-app .admin-confirm h3 { margin: 0 0 8px; font-size: 17px; line-height: 1.4; overflow-wrap: anywhere; }
+#admin-dialog.admin-app .admin-confirm p { margin: 0 0 18px; color: var(--admin-text-muted); line-height: 1.6; }
+#admin-dialog.admin-app .admin-confirm-actions { display: flex; gap: 8px; }
+#admin-dialog.admin-app .admin-confirm-actions button { flex: 1; min-height: 44px; border-radius: 10px; }
+#admin-dialog.admin-app .admin-confirm-actions .primary-button { border-color: #141414; background: #141414; color: var(--admin-brand-sun); }
+@media (prefers-reduced-motion: reduce) {
+  #admin-dialog.admin-app :is(.admin-switch, .admin-switch::after) { transition: none; }
+}

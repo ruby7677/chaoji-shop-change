@@ -91,21 +91,3 @@
 @media (prefers-reduced-motion: reduce) {
   #admin-dialog.admin-app .admin-order-toggle .admin-icon { transition: none; }
 }
-
-/* ---------- 商品：限時優惠標記與捷徑 ---------- */
-#admin-dialog.admin-app .admin-chip.admin-chip-sale { border-color: #f3b9a6; background: #fdecec; color: #b42318; font-weight: 800; }
-#admin-dialog.admin-app .admin-product-card.is-on-sale { border-left: 4px solid #dc2626; }
-#admin-dialog.admin-app .admin-product-card.hidden-by-sale-filter { display: none; }
-#admin-dialog.admin-app .admin-price-discount s { color: var(--admin-text-muted); }
-#admin-dialog.admin-app .admin-price-discount b { color: #b42318; }
-#admin-dialog.admin-app .admin-price-shortcut { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 10px; border: 1px solid var(--admin-border); border-radius: 8px; background: #fff; color: #141414; font-size: 12px; font-weight: 800; white-space: nowrap; cursor: pointer; }
-#admin-dialog.admin-app .admin-price-shortcut:hover { border-color: #141414; background: #fff6b8; }
-#admin-dialog.admin-app .admin-price-shortcut .admin-icon { width: 14px; height: 14px; }
-#admin-dialog.admin-app .admin-sale-filter { align-self: end; min-height: 42px; padding: 0 14px; border: 1px solid #f3b9a6; border-radius: 999px; background: #fdecec; color: #b42318; font-size: 13px; font-weight: 800; white-space: nowrap; cursor: pointer; }
-#admin-dialog.admin-app .admin-sale-filter[aria-pressed="true"] { border-color: #141414; background: #b42318; color: #fff; }
-#admin-dialog.admin-app .admin-product-toolbar { grid-template-columns: minmax(0, 1fr) minmax(0, 220px) auto; align-items: end; }
-@media (max-width: 760px) {
-  #admin-dialog.admin-app .admin-product-toolbar { grid-template-columns: minmax(0, 1fr); }
-  #admin-dialog.admin-app .admin-sale-filter { justify-self: start; }
-  #admin-dialog.admin-app .variant-summary { flex-wrap: wrap; }
-}

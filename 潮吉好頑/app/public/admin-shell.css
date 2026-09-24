@@ -36,6 +36,9 @@
 /* 不沿用 styles.css 的 -webkit-overflow-scrolling:touch：iOS 會把它當成獨立圖層，困住內部 fixed 元素 */
 #admin-dialog.admin-app .admin-content { position: relative; height: 100dvh; min-height: 0; max-height: none; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: auto; padding: 0 0 56px; background: var(--admin-canvas); }
 #admin-dialog.admin-app .admin-content > :not(.admin-topbar) { margin-inline: 32px; }
+/* iOS Safari：捲動容器首次繪製時內容未超出高度，就不建立捲動圖層；資料載入後內容變長也不更新繪製與點擊範圍
+   （畫面停在載入中的高度被截斷、無法點擊）。以 1px 溢出確保一開始就是可捲動容器，肉眼不可見 */
+#admin-dialog.admin-app .admin-content::after { content: ""; position: absolute; top: 0; left: 0; width: 1px; height: calc(100% + 1px); pointer-events: none; }
 
 /* 側欄 */
 #admin-dialog.admin-app .admin-nav { display: flex; flex-direction: column; gap: 16px; overflow-x: hidden; overflow-y: auto; padding: 16px 12px 20px; background: var(--admin-sidebar); color: #e9e6dc; }

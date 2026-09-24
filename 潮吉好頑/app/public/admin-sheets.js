@@ -29,6 +29,7 @@ function enhanceSheet(details) {
   head.className = "admin-sheet-head";
   head.innerHTML = `<h3></h3><button class="admin-icon-button" type="button" data-admin-sheet-close aria-label="關閉「${title.replace(/"/g, "")}」">${adminIcon("x")}</button>`;
   head.querySelector("h3").textContent = title;
+  head.querySelector("h3").tabIndex = -1;
   const body = document.createElement("div");
   body.className = "admin-sheet-body";
   [...details.childNodes].filter((node) => node !== summary).forEach((node) => body.append(node));
@@ -53,6 +54,17 @@ function placePanel(details) {
   else if (!details.open && panel.parentElement !== details) details.append(panel);
 }
 
+// iOS Safari：鍵盤彈出或對 fixed 面板內元素捲動時會捲動整頁，鍵盤收起後頁面停在位移後的位置，
+// fixed 面板的點擊判定就與畫面錯開。面板開啟期間記住整頁捲動位置，輸入結束後捲回。
+const isTouchPointer = () => window.matchMedia("(pointer: coarse)").matches;
+let pageScroll = null;
+
+function restorePageScroll() {
+  if (pageScroll && (window.scrollX !== pageScroll.x || window.scrollY !== pageScroll.y)) window.scrollTo({ left: pageScroll.x, top: pageScroll.y, behavior: "instant" });
+}
+
+const isTextEntry = (node) => node instanceof HTMLElement && node.matches("input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]), textarea, select");
+
 // opened：剛被打開的面板（優先保留它，關掉其他）
 function syncScrim(opened = null) {
   const current = opened?.open ? opened : openSheet();
@@ -61,15 +73,66 @@ function syncScrim(opened = null) {
   if (current) {
     // 一次只開一個面板
     sheets().forEach((details) => { if (details !== current && details.open) details.open = false; });
-    panelOf.get(current)?.querySelector(".admin-sheet-body input:not([type=hidden]), .admin-sheet-body select, .admin-sheet-body textarea")?.focus({ preventScroll: true });
-  } else if (lastTrigger?.isConnected) {
-    lastTrigger.focus({ preventScroll: true });
-    lastTrigger = null;
+    if (!pageScroll) pageScroll = { x: window.scrollX, y: window.scrollY };
+    const panel = panelOf.get(current);
+    const body = panel?.querySelector(".admin-sheet-body");
+    if (body) body.scrollTop = 0;
+    // 觸控裝置不自動聚焦輸入框：避免一開啟就彈出鍵盤造成整頁位移；改聚焦標題供螢幕閱讀器朗讀
+    const target = isTouchPointer()
+      ? panel?.querySelector(".admin-sheet-head h3")
+      : panel?.querySelector(".admin-sheet-body input:not([type=hidden]), .admin-sheet-body select, .admin-sheet-body textarea");
+    target?.focus({ preventScroll: true });
+  } else {
+    restorePageScroll();
+    pageScroll = null;
+    if (lastTrigger?.isConnected) {
+      lastTrigger.focus({ preventScroll: true });
+      lastTrigger = null;
+    }
   }
 }
 
 function closeSheets() {
   sheets().forEach((details) => { details.open = false; });
+}
+
+// 其他模組動態建立的面板（沒有觸發按鈕，例如商品列表每列的「編輯」「優惠價」），共用遮罩、Esc 與 iOS 修正。
+export function createAdminSheet(host, title) {
+  if (!dialog) throw new Error("後台面板尚未初始化");
+  const details = document.createElement("details");
+  details.className = "admin-create admin-sheet-dynamic";
+  const summary = document.createElement("summary");
+  summary.textContent = title;
+  details.append(summary);
+  host.append(details);
+  enhanceSheet(details);
+  const panel = panelOf.get(details);
+  const heading = panel.querySelector(".admin-sheet-head h3");
+  const closeButton = panel.querySelector("[data-admin-sheet-close]");
+  return {
+    details,
+    body: panel.querySelector(".admin-sheet-body"),
+    setTitle(text) {
+      heading.textContent = text;
+      panel.setAttribute("aria-label", text);
+      closeButton.setAttribute("aria-label", `關閉「${text}」`);
+    },
+    // trigger：關閉後焦點回到的按鈕
+    open(trigger = null) {
+      lastTrigger = trigger;
+      details.open = true;
+    },
+    close() { details.open = false; }
+  };
+}
+
+// 開啟某個表單所在的既有面板（例如「＋」開啟新增商品）
+export function openAdminSheetFor(node, trigger = null) {
+  const details = sheetOf(node);
+  if (!details) return false;
+  lastTrigger = trigger;
+  details.open = true;
+  return true;
 }
 
 // 面板頂部說明文字預設收合為兩行，保留原節點位置（app.js 以 > .dialog-copy 直接子選擇器更新文字）
@@ -139,6 +202,16 @@ export function initAdminSheets() {
     const details = sheetOf(event.target);
     if (details) details.open = false;
   }, true);
+  // 鍵盤收起（離開輸入框且沒有移到另一個輸入框）後捲回開啟面板時的整頁位置；等 Safari 鍵盤收合動畫結束
+  const restoreAfterKeyboard = () => {
+    if (!pageScroll || isTextEntry(document.activeElement)) return;
+    restorePageScroll();
+  };
+  dialog.addEventListener("focusout", (event) => {
+    if (!pageScroll || !isTextEntry(event.target) || !event.target.closest(".admin-sheet-panel")) return;
+    window.setTimeout(restoreAfterKeyboard, 320);
+  });
+  window.visualViewport?.addEventListener("resize", restoreAfterKeyboard);
   // 面板開啟時 Esc 只關閉面板，不關閉整個後台
   dialog.addEventListener("cancel", (event) => {
     if (!openSheet()) return;

@@ -15,6 +15,8 @@
 @keyframes admin-sheet-in { from { transform: translateX(40px); opacity: 0; } }
 #admin-dialog.admin-app .admin-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; padding-top: max(14px, env(safe-area-inset-top)); border-bottom: 1px solid var(--admin-border); background: var(--admin-surface-subtle); }
 #admin-dialog.admin-app .admin-sheet-head h3 { margin: 0; font-size: 17px; }
+/* 觸控裝置開啟面板時聚焦標題（tabindex=-1，非互動元素），不顯示焦點框 */
+#admin-dialog.admin-app .admin-sheet-head h3:focus { outline: none; }
 #admin-dialog.admin-app .admin-sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 20px calc(32px + env(safe-area-inset-bottom)); }
 #admin-dialog.admin-app .admin-sheet-body > .admin-form,
 #admin-dialog.admin-app .admin-sheet-body > form { margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
@@ -62,8 +64,7 @@
 #admin-dialog.admin-app .movement-negative { color: #9a302a; }
 #admin-dialog.admin-app .empty-state { padding: 24px 16px; border: 1px dashed #cfc5ad; border-radius: 14px; background: transparent; color: var(--admin-text-muted); text-align: center; }
 #admin-dialog.admin-app .admin-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 16px 0; }
-#admin-dialog.admin-app .admin-order-toolbar label,
-#admin-dialog.admin-app .admin-product-toolbar label { color: var(--admin-text-muted); font-size: 13px; font-weight: 700; }
+#admin-dialog.admin-app .admin-order-toolbar label { color: var(--admin-text-muted); font-size: 13px; font-weight: 700; }
 
 /* 庫存頁：調整表單保持在頁面上（主要動作），以卡片包覆 */
 #admin-dialog.admin-app #admin-inventory-form,

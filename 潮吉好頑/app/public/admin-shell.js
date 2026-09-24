@@ -4,7 +4,6 @@
 import { adminIcon } from "./admin-icons.js";
 import { initAdminOverview } from "./admin-overview.js";
 import { initAdminOrdersUI } from "./admin-orders-ui.js";
-import { initAdminProductsUI } from "./admin-products-ui.js";
 import { initAdminSheets } from "./admin-sheets.js";
 
 const NAV_GROUPS = [
@@ -157,6 +156,31 @@ export function openAdminOrderSearch(keyword) {
   searchOrders(keyword);
 }
 
+// iOS Safari 在 top layer dialog 內的捲動容器，內容長高後不一定更新繪製與點擊範圍（搭配 admin-shell.css 的 1px 溢出）。
+// 內容高度變動時切換一次 overflow，強制重建捲動圖層；保留捲動位置。
+function watchContentGrowth() {
+  const content = $(".admin-content");
+  if (!content || !("ResizeObserver" in window)) return;
+  let queued = false;
+  let lastHeight = content.scrollHeight;
+  const refresh = () => {
+    queued = false;
+    if (!dialog.open || content.scrollHeight === lastHeight) return;
+    lastHeight = content.scrollHeight;
+    const top = content.scrollTop;
+    content.style.setProperty("overflow-y", "hidden");
+    void content.offsetHeight;
+    content.style.removeProperty("overflow-y");
+    content.scrollTop = top;
+  };
+  const observer = new ResizeObserver(() => {
+    if (queued) return;
+    queued = true;
+    window.requestAnimationFrame(refresh);
+  });
+  [...content.children].forEach((child) => observer.observe(child));
+}
+
 function bindEvents() {
   dialog.addEventListener("click", (event) => {
     if (event.target.closest("[data-admin-nav-toggle]")) {
@@ -177,6 +201,7 @@ function bindEvents() {
     event.preventDefault();
     $("#admin-global-search-input").focus();
   });
+  watchContentGrowth();
   // 分頁切換可能來自按鈕或程式（快速篩選），統一觀察 active class
   new MutationObserver(syncTitle).observe($(".admin-nav"), { subtree: true, attributes: true, attributeFilter: ["class"] });
   // 每次載入結束（#admin-loading 被隱藏）更新徽章與時間
@@ -211,6 +236,5 @@ export function initAdminShell(dependencies) {
   syncTitle();
   initAdminOverview({ ...dependencies, openOrder: searchOrders });
   initAdminOrdersUI(dependencies);
-  initAdminProductsUI();
   initAdminSheets();
 }

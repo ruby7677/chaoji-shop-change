@@ -5,7 +5,8 @@ import { mountHeroCarousel } from "./hero-carousel.js";
 import { createProductPage } from "./product-page.js";
 import { initAnchorScroll, scrollToAnchor } from "./anchor-scroll.js";
 import { selectHeroSlides } from "./hero-slides.js";
-import { adminProductGalleryMarkup, adminProductShowcaseMarkup, initAdminProductGallery } from "./admin-product-gallery.js";
+import { initAdminProductGallery } from "./admin-product-gallery.js";
+import { initAdminProductsTable, renderAdminProductsTable } from "./admin-products-table.js";
 import { initAdminShell } from "./admin-shell.js";
 
 let products = [
@@ -211,7 +212,8 @@ function unlockPageScroll() {
   const bodyStyle = document.body.style;
   pageScrollStyleKeys.forEach((key) => { bodyStyle[key] = state.styles[key] || ""; });
   document.documentElement.classList.remove("is-scroll-locked");
-  window.scrollTo(state.scrollX, state.scrollY);
+  // html 設有 scroll-behavior:smooth；還原位置須立即完成，否則關閉視窗後整頁會從頂端滑回原處
+  window.scrollTo({ left: state.scrollX, top: state.scrollY, behavior: "instant" });
 }
 
 function syncPageScrollLock() {
@@ -221,7 +223,12 @@ function syncPageScrollLock() {
 
 function showDialog(dialog) {
   if (!dialog) return;
-  if (!dialog.open) dialog.showModal();
+  // 先鎖頁面再 showModal：鎖定會讓整頁捲動位置歸 0，若 dialog 已在 top layer，
+  // iOS Safari 會沿用舊捲動位置的繪製與點擊範圍（畫面被截斷、無法操作；例如從頁尾開後台）
+  if (!dialog.open) {
+    lockPageScroll();
+    dialog.showModal();
+  }
   syncPageScrollLock();
 }
 
@@ -2568,7 +2575,9 @@ function editCoupon(couponId) {
   const memberIds = new Set((coupon.coupon_members || []).map((item) => item.member_id));
   document.querySelectorAll("[name='coupon_product']").forEach((input) => { input.checked = productIds.has(input.value); });
   document.querySelectorAll("[name='coupon_member']").forEach((input) => { input.checked = memberIds.has(input.value); });
-  document.querySelector("#admin-coupon-form").scrollIntoView({ behavior: "smooth", block: "start" });
+  // 表單在滑出面板內時由 admin-sheets.js 開啟並捲回頂端；對 fixed 面板呼叫 scrollIntoView 會讓 iOS Safari 捲動整頁、點擊錯位
+  const couponForm = document.querySelector("#admin-coupon-form");
+  if (!couponForm.closest(".admin-sheet-panel")) couponForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function submitCoupon(event) {
@@ -3002,14 +3011,6 @@ function refreshAdminManagementOptionControls() {
   renderAdminDiscountOptionBoxes({ preserveSelection: true });
 }
 
-function adminPriceMarkup(variant) {
-  const price = Number(variant?.price || 0);
-  const compareAtPrice = Number(variant?.compare_at_price || 0);
-  return compareAtPrice > price
-    ? `<span class="admin-price-discount"><s>${money(compareAtPrice)}</s><b>${money(price)}</b></span>`
-    : `<strong>${money(price)}</strong>`;
-}
-
 /** 建立後台商品主圖缺失或載入失敗時的可存取替代內容。 */
 function adminProductImageFallbackMarkup() {
   return '<span class="admin-product-placeholder" role="img" aria-label="尚無商品圖片"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6.5h16v11H4zM7 6.5l1.8-2h6.4l1.8 2M8 13l2.2-2.2 2.3 2.3 1.5-1.5 2 2"/></svg><small>NO IMAGE</small></span>';
@@ -3039,55 +3040,11 @@ function ensureAdminPricingUI() {
   if (variantPrice && !document.querySelector("#admin-new-compare-at-price")) variantPrice.insertAdjacentHTML("afterend", '<label>原價（選填）<input id="admin-new-compare-at-price" type="number" min="0" step="1" placeholder="例如 1680" /><small>高於售價時顯示刪除線與限時優惠。</small></label>');
 }
 
+// 商品列表版面由 admin-products-table.js 負責（ADMIN_REDESIGN_PLAN Stage 8）；新增商品表單的附加欄位仍在此補上
 function renderAdminProducts() {
   ensureAdminPointsEligibilityUI();
   ensureAdminPricingUI();
-  const container = document.querySelector("#admin-product-list");
-  if (!document.querySelector("#admin-product-search")) {
-    container.insertAdjacentHTML("beforebegin", '<div class="admin-order-toolbar admin-product-toolbar"><label>搜尋商品<input id="admin-product-search" type="search" placeholder="商品名稱、分類、規格或 SKU" /></label><label>上架狀態<select id="admin-product-status"><option value="all">全部商品</option><option value="published">已上架</option><option value="unpublished">未上架</option></select></label></div>');
-  }
-  const keyword = document.querySelector("#admin-product-search")?.value.trim().toLowerCase() || "";
-  const status = document.querySelector("#admin-product-status")?.value || "all";
-  const products = (adminData.products || []).filter((product) => {
-    const category = relationOne(product.categories)?.name || "";
-    const variants = product.product_variants || [];
-    const searchable = `${product.name} ${category} ${variants.map((variant) => `${variant.name} ${variant.sku}`).join(" ")}`.toLowerCase();
-    return searchable.includes(keyword) && (status === "all" || (status === "published" ? product.is_published : !product.is_published));
-  });
-  if (!products.length) {
-    container.innerHTML = '<div class="empty-state">目前沒有符合條件的商品。</div>';
-    removeLegacyShippingUI();
-    return;
-  }
-  container.innerHTML = products.map((product, index) => {
-    const category = relationOne(product.categories)?.name || "未分類";
-    const productVariants = product.product_variants || [];
-    const totalStock = productVariants.reduce((sum, variant) => sum + variant.stock_on_hand, 0);
-    const publishedVariants = productVariants.filter((variant) => variant.is_published).length;
-    const prices = productVariants.map((variant) => variant.price);
-    const priceRange = prices.length ? `${money(Math.min(...prices))}${Math.min(...prices) === Math.max(...prices) ? "" : `–${money(Math.max(...prices))}`}` : "尚無價格";
-    const imageUrl = product.image_path ? `/api/product-images/${product.id}?v=${encodeURIComponent(product.image_updated_at || "1")}` : "";
-    const variants = productVariants.map((variant) => {
-      const arrival = splitPreorderArrival(variant.preorder_arrival);
-      const lowStock = variant.stock_on_hand <= variant.safety_stock;
-      return `<details class="admin-variant-card"><summary><span class="variant-identity"><b>${escapeHtml(variant.name)}</b><small>SKU ${escapeHtml(variant.sku)}</small></span><span class="variant-summary"><em class="admin-chip ${variant.kind === "preorder" ? "chip-preorder" : ""}">${variant.kind === "preorder" ? "預購" : "現貨"}</em><em class="admin-chip ${lowStock ? "chip-warning" : ""}">庫存 ${variant.stock_on_hand}</em>${adminPriceMarkup(variant)}${variant.is_published ? "" : '<em class="admin-chip chip-muted">未上架</em>'}</span></summary><form class="admin-form" data-edit-variant-form="${variant.id}"><div class="form-grid"><label>規格名稱<input name="name" required value="${escapeHtml(variant.name)}" /></label><label>SKU<input name="sku" required value="${escapeHtml(variant.sku)}" /></label><label>類型<select name="kind"><option value="in_stock" ${variant.kind === "in_stock" ? "selected" : ""}>現貨</option><option value="preorder" ${variant.kind === "preorder" ? "selected" : ""}>預購</option></select></label><label>售價<input name="price" type="number" min="0" step="1" required value="${variant.price}" /></label><label>安全庫存<input name="safety_stock" type="number" min="0" step="1" value="${variant.safety_stock}" /></label><label>訂金比例（%）<input name="deposit_rate" type="number" min="0" max="100" value="${Math.round(Number(variant.deposit_rate) * 100)}" /></label><fieldset class="wide date-range-field"><legend>預計到貨區間（選填）</legend><div class="date-range-grid"><label>開始日期<input name="preorder_arrival_from" type="date" value="${arrival.from}" /></label><label>結束日期<input name="preorder_arrival_until" type="date" value="${arrival.until}" /></label></div>${arrival.raw ? `<small class="date-range-legacy">目前文字：${escapeHtml(arrival.raw)}；若選日期後儲存，會改為日期區間。</small>` : "<small>可只選一天；預購實際到貨時間仍以海外物流進度為準。</small>"}<input type="hidden" name="preorder_arrival_raw" value="${escapeHtml(arrival.raw)}" /></fieldset><label>排序<input name="display_order" type="number" value="${variant.display_order}" /></label><label class="wide">賣貨便連結<input name="seller_link" type="url" value="${escapeHtml(variant.seller_link || "")}" /></label><label class="check-field"><input name="is_published" type="checkbox" ${variant.is_published ? "checked" : ""} /> 上架此規格</label></div><button class="primary-button" type="submit">儲存規格</button></form></details>`;
-    }).join("");
-    return `<article class="admin-product-card" data-tone="${index % 4}"><header class="admin-product-head"><div class="admin-product-thumbnail">${imageUrl ? `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(product.name)}" loading="lazy" />` : adminProductImageFallbackMarkup()}</div><div class="admin-product-title"><div class="admin-product-labels"><span class="admin-product-number">#${String(index + 1).padStart(2, "0")}</span><span class="admin-chip">${escapeHtml(category)}</span><span class="admin-chip ${product.is_published ? "chip-live" : "chip-muted"}">${product.is_published ? "已上架" : "未上架"}</span></div><h3>${escapeHtml(product.name)}</h3><p>${escapeHtml(product.description || "尚未填寫商品說明")}</p></div><div class="admin-product-metrics"><span>規格<b>${publishedVariants}/${productVariants.length}</b></span><span>總庫存<b>${totalStock}</b></span><span>售價<b>${priceRange}</b></span></div></header><details class="admin-product-edit"><summary>編輯商品資料與照片</summary><form class="admin-form" data-edit-product-form="${product.id}" data-category-id="${escapeHtml(product.category_id || "")}"><div class="form-grid"><label>商品名稱<input name="name" required value="${escapeHtml(product.name)}" /></label><label>商品分類<select name="category_id">${adminCategoryOptions(product.category_id || relationOne(product.categories)?.id || "", { includeInactiveSelected: true })}</select><small>分類位於商品層級，所有規格共用。</small></label><label>排序<input name="display_order" type="number" value="${product.display_order}" /></label><label class="wide">商品說明<textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea></label><label>每位會員限購數量<input name="purchase_limit" type="number" min="1" step="1" value="${product.purchase_limit ?? ""}" placeholder="留空代表不限購" /></label><label class="check-field"><input name="is_published" type="checkbox" ${product.is_published ? "checked" : ""} /> 上架商品</label></div><button class="primary-button" type="submit">儲存商品</button></form>${adminProductGalleryMarkup(product)}${adminProductShowcaseMarkup(product)}</details><section class="admin-variant-group"><h4>商品規格 <span>${productVariants.length}</span></h4>${variants || '<div class="empty-state">此商品尚無規格。</div>'}</section></article>`;
-  }).join("");
-  container.querySelectorAll("[data-edit-product-form]").forEach((form) => {
-    const product = (adminData.products || []).find((item) => item.id === form.dataset.editProductForm);
-    const limitLabel = form.querySelector("input[name='purchase_limit']")?.closest("label");
-    if (!product || !limitLabel || form.querySelector("[name='points_excluded']")) return;
-    limitLabel.insertAdjacentHTML("afterend", `<label class="check-field admin-points-excluded-field"><input name="points_excluded" type="checkbox" ${product.points_eligible === false ? "checked" : ""} /> 不可累積會員點數<small>啟用後，完成訂單時此商品金額不列入新點數累積。</small></label>`);
-  });
-  container.querySelectorAll("[data-edit-variant-form]").forEach((form) => {
-    const variant = (adminData.products || []).flatMap((product) => product.product_variants || []).find((item) => item.id === form.dataset.editVariantForm);
-    const priceLabel = form.querySelector("input[name='price']")?.closest("label");
-    if (variant && priceLabel && !form.querySelector("[name='compare_at_price']")) priceLabel.insertAdjacentHTML("afterend", `<label>原價（選填）<input name="compare_at_price" type="number" min="0" step="1" value="${variant.compare_at_price ?? ""}" placeholder="例如 1680" /><small>高於售價時顯示刪除線與限時優惠。</small></label>`);
-  });
-  container.querySelectorAll(".admin-product-card").forEach((card, index) => {
-    if (products[index]?.points_eligible === false) card.querySelector(".admin-product-labels")?.insertAdjacentHTML("beforeend", '<span class="admin-chip chip-warning">不積點</span>');
-  });
+  renderAdminProductsTable();
   removeLegacyShippingUI();
 }
 
@@ -3625,6 +3582,15 @@ initAdminProductGallery({
   showToast,
   getProduct: (id) => (adminData?.products || []).find((product) => product.id === id),
   fallbackMarkup: adminProductImageFallbackMarkup
+});
+initAdminProductsTable({
+  getProducts: () => adminData?.products || [],
+  adminFetch,
+  showToast,
+  adminCategoryOptions,
+  splitPreorderArrival,
+  fallbackMarkup: adminProductImageFallbackMarkup,
+  onCatalogChanged: invalidateAdminManagementOptions
 });
 initAdminShell({
   getStats: () => (adminData?.stats && Object.keys(adminData.stats).length ? adminData.stats : null),
