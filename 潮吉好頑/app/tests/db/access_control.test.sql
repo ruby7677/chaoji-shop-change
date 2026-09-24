@@ -79,7 +79,7 @@ select tests.expect_error($$update public.product_variants set stock_on_hand = 9
 select tests.expect_error($$insert into public.point_ledger(member_id, kind, points, reason) values (tests.id('member_a'), 'manual', 999, 'x')$$,
                           'permission denied', 'member cannot grant points');
 select tests.expect_error($$select count(*) from public.liff_session_vault$$, 'permission denied', 'member cannot read the LIFF session vault');
-select tests.expect_error($$select count(*) from public.line_notification_logs$$, 'permission denied', 'member cannot read notification logs');
+select tests.expect_error($$select count(*) from public.notification_deliveries$$, 'permission denied', 'member cannot read notification deliveries');
 select tests.expect_error($$select count(*) from public.audit_logs$$, 'permission denied', 'member cannot read audit logs');
 select tests.expect_error($$select count(*) from public.bank_accounts$$, 'permission denied', 'member cannot read bank accounts directly');
 select tests.logout();

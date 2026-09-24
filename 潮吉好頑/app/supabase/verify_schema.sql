@@ -85,8 +85,9 @@ select
   ) as final_payment_columns_exist,
   to_regprocedure('public.admin_save_coupon(uuid,uuid,text,text,integer,boolean,timestamp with time zone,timestamp with time zone,integer,integer,boolean,uuid[],uuid[])') is not null as admin_save_coupon_exists,
   to_regprocedure('public.issue_birthday_coupons()') is not null as issue_birthday_coupons_exists,
-  to_regclass('public.line_notification_logs') is not null as line_notification_logs_exists,
-  to_regclass('public.telegram_notification_logs') is not null as telegram_notification_logs_exists,
+  -- 202609250004_unify_notification_deliveries：LINE／Telegram 通知紀錄合併為單表，函式改為靜態 SQL。
+  to_regclass('public.notification_deliveries') is not null as notification_deliveries_exists,
+  to_regclass('public.line_notification_logs') is null and to_regclass('public.telegram_notification_logs') is null as legacy_notification_log_tables_removed,
   to_regprocedure('public.member_point_balance()') is not null as member_point_balance_rpc_exists,
   to_regprocedure('public.claim_notification_delivery(text,text,text,text,jsonb,integer)') is not null as notification_claim_rpc_exists,
   to_regprocedure('public.claim_due_notification_deliveries(text,integer,integer)') is not null as notification_due_claim_rpc_exists,
@@ -106,19 +107,46 @@ select
   ) as notification_display_context_exists,
   exists (
     select 1
-    from information_schema.columns
-    where table_schema = 'public' and table_name in ('line_notification_logs', 'telegram_notification_logs')
-      and column_name = 'claim_token'
-    group by table_schema, column_name
-    having count(*) = 2
-  ) as notification_claim_token_columns_exist,
+    from pg_constraint
+    where conrelid = to_regclass('public.notification_deliveries')
+      and conname = 'notification_deliveries_channel_event_recipient_key'
+      and pg_get_constraintdef(oid) = 'UNIQUE (channel, event_key, recipient_id)'
+  ) as notification_deliveries_unique_per_channel_event_recipient,
   exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'notification_deliveries' and column_name = 'claim_token'
+  ) as notification_claim_token_column_exists,
+  coalesce((select relrowsecurity from pg_class where oid = to_regclass('public.notification_deliveries')), false) as notification_deliveries_rls_enabled,
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'notification_deliveries' and policyname = 'deny api roles'
+  ) as notification_deliveries_deny_policy_exists,
+  not exists (
     select 1
-    from pg_policies
-    where schemaname = 'public'
-      and tablename = 'telegram_notification_logs'
-      and policyname = 'deny api roles'
-  ) as telegram_notification_deny_policy_exists,
+    from (values ('anon'), ('authenticated')) r(role_name)
+    cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) p(privilege)
+    where to_regclass('public.notification_deliveries') is null
+       or has_table_privilege(r.role_name, 'public.notification_deliveries', p.privilege)
+  ) as notification_deliveries_api_roles_blocked,
+  -- 通知函式不再以動態 SQL 切換表名，建立時即檢查欄位。
+  not exists (
+    select 1 from pg_proc p
+    where p.pronamespace = 'public'::regnamespace
+      and p.proname in ('claim_notification_delivery', 'claim_due_notification_deliveries', 'complete_notification_delivery',
+                        'admin_list_notification_deliveries', 'admin_requeue_notification_delivery', 'purge_notification_deliveries')
+      and p.prosrc ~* 'execute\s+format'
+  ) as notification_functions_use_static_sql,
+  coalesce((
+    select not has_function_privilege('anon', fn, 'EXECUTE')
+       and not has_function_privilege('authenticated', fn, 'EXECUTE')
+       and not has_function_privilege('service_role', fn, 'EXECUTE')
+    from (select to_regprocedure('public.purge_notification_deliveries(integer)') as fn) f
+    where fn is not null
+  ), false) as notification_purge_exists_and_blocked_for_api_roles,
+  exists (
+    select 1 from cron.job
+    where jobname = 'chaoji-purge-notification-deliveries' and command = 'select public.purge_notification_deliveries();'
+  ) as notification_purge_cron_exists,
   to_regclass('public.line_low_stock_states') is not null as line_low_stock_states_exists,
   to_regclass('public.inventory_return_confirmations') is not null as inventory_return_confirmations_exists,
   to_regprocedure('public.admin_confirm_order_return(uuid,uuid,integer,integer,integer,text)') is not null as admin_confirm_order_return_exists,

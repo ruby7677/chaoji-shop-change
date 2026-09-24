@@ -35,6 +35,7 @@
 - `202609250001_cancellation_notification_marker.sql`：`orders.cancellation_notified_at`，讓每小時取消通知掃描只處理尚未交給通知狀態機的訂單。
 - `202609250002_catalog_column_grants.sql`：`categories`、`products`、`product_variants` 對 anon／authenticated 改為欄位級 SELECT，成本、SKU、安全庫存與實際庫存不再能用公開 anon key 查詢。`storefront_variants` 新增底層欄位時，須以新 migration 補該欄位的 grant，否則前台型錄會回 permission denied（`npm run test:db` 會抓到）。
 - `202609250003_drop_legacy_rpcs.sql`：刪除已無呼叫者的 `create_pending_order`、`create_discounted_order` 與 `admin_create_product` 的 13／14／15 參數舊 overload；下單只走 `create_delivery_order`（10 參數版對外、8 參數版為其核心實作，僅 service_role 可直接執行），建立商品只剩 16 參數版。
+- `202609250004_unify_notification_deliveries.sql`：LINE／Telegram 通知紀錄合併為 `notification_deliveries`（`channel` 欄位區分），5 支通知 RPC 簽名與回傳不變、改為靜態 SQL；既有紀錄保留原 id 與 claim token，狀態機上線前留下的 `pending` 舊紀錄改為不自動重試的 `failed`（可由後台重新排入）。另新增 `purge_notification_deliveries` 與每日 pg_cron `chaoji-purge-notification-deliveries`（台灣 03:30），刪除 180 天前已送出或已失敗且不再重試的紀錄。
 
 ## 2. 建立 LINE 自訂登入提供者
 
