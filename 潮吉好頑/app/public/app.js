@@ -9,6 +9,7 @@ import { initAdminProductGallery } from "./admin-product-gallery.js";
 import { initAdminProductsTable, renderAdminProductsTable } from "./admin-products-table.js";
 import { initAdminShell } from "./admin-shell.js";
 import { adminConfirm } from "./admin-confirm.js";
+import { handleSessionExpired, initAuthExpiry, watchSessionExpiry } from "./auth-expiry.js";
 
 let products = [
   { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", icon: "🌀", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" },
@@ -1245,6 +1246,7 @@ function loadMember() {
       if ((memberPointsCache.userId && memberPointsCache.userId !== user.id) || (lineFriendshipCache.userId && lineFriendshipCache.userId !== user.id)) clearMemberStateCache();
       auth.user = user;
       updateMemberButton();
+      watchSessionExpiry();
       // Identity binding is an explicit, best-effort operation. A temporary
       // service-role/database failure must not log the member out or block catalog.
       await Promise.all([
@@ -2023,6 +2025,8 @@ async function adminFetch(path, options = {}) {
   });
   const result = await response.json();
   if (!response.ok) {
+    // 401 代表登入已失效：頁首恢復成未登入並提示重新登入（auth-expiry.js）
+    if (response.status === 401) void handleSessionExpired();
     const error = new Error(result.error || "管理操作失敗");
     error.code = result.code;
     error.status = response.status;
@@ -3583,6 +3587,14 @@ initAdminProductGallery({
   showToast,
   getProduct: (id) => (adminData?.products || []).find((product) => product.id === id),
   fallbackMarkup: adminProductImageFallbackMarkup
+});
+initAuthExpiry({
+  getAccessToken: () => auth.accessToken,
+  // LINE App 內可用保存的工作階段換發新 token；一般瀏覽器需重新登入
+  tryRestore: () => (liffState.isInClient ? restorePersistentLiffSession() : Promise.resolve(false)),
+  clearSession: clearStoredAuthSession,
+  closeDialog,
+  showToast
 });
 initAdminProductsTable({
   getProducts: () => adminData?.products || [],
