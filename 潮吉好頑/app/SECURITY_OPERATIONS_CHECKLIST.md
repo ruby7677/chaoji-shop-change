@@ -38,7 +38,7 @@
 套用後需以 `supabase/verify_schema.sql` 唯讀確認函式簽名、notification claim token、退貨驗收表與管理概況 count RPC，再執行 Supabase Security Advisors。不要把本機 dry-run 視為 migration 已套用或 production 已更新。
 
 **Security Advisors 結果（2026-09-24 唯讀執行）**：
-- `authenticated_security_definer_function_executable`（5 項）：`create_delivery_order`（10 參數版）、`submit_order_payment`、`member_point_balance`、`member_available_coupons`、`current_user_is_admin`。皆為會員前台功能刻意開放給 `authenticated`；已核對函式內皆以 `auth.uid()` 判斷呼叫者、`search_path` 為空、未授權 `anon`。舊 8 參數版 `create_delivery_order` 只剩 `service_role`／`postgres`。屬預期，不需處理；日後修改這些函式須維持以 `auth.uid()` 限定本人資料。
+- `authenticated_security_definer_function_executable`（5 項）：`create_delivery_order`（10 參數版）、`submit_order_payment`、`member_point_balance`、`member_available_coupons`、`current_user_is_admin`。皆為會員前台功能刻意開放給 `authenticated`；已核對函式內皆以 `auth.uid()` 判斷呼叫者、`search_path` 為空、未授權 `anon`。8 參數版 `create_delivery_order` 是 10 參數版呼叫的核心實作（不是舊版），只剩 `service_role`／`postgres` 可直接執行。屬預期，不需處理；日後修改這些函式須維持以 `auth.uid()` 限定本人資料。
 - `auth_leaked_password_protection`：Free 方案無法開啟，見下方 A 節（Email provider 已關閉、只允許 LINE）。
 - `verify_schema.sql`（2026-09-24 唯讀執行於正式專案 `csiviervpnxdzyfcuamm`）：套用 `202609250002` 後 103 項檢查全部為 true（新增型錄底層表無整表 SELECT、`product_variants` 私有欄位不對 API 角色開放、anon 可讀 `storefront_variants` 三項）。先前一輪補上 `202609230003`、`202609240001`、`202609250001` 的檢查：LIFF vault 與 `product_images` 的 RLS／deny policy／API 角色無表權限、多圖 RPC 僅 service_role 可執行、`audit_logs_action_check` 同時允許 `retry` 與 `delete`、`storefront_variants` 維持 `security_invoker` 並含 Hero 欄位，以及資料一致性 `products.image_path` 等於第一張商品圖。之後每次變更 schema 都要重跑並更新此列。
 

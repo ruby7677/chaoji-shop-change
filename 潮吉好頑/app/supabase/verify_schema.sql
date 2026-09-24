@@ -2,12 +2,12 @@
 select
   to_regclass('public.profiles') is not null as profiles_exists,
   to_regclass('public.storefront_variants') is not null as storefront_view_exists,
-  to_regprocedure('public.create_pending_order(jsonb,text,integer,integer,uuid,text)') is not null as create_order_rpc_exists,
+  -- 202609250003_drop_legacy_rpcs：舊下單 RPC 與 admin_create_product 舊 overload 已移除。
+  to_regprocedure('public.create_pending_order(jsonb,text,integer,integer,uuid,text)') is null as legacy_create_pending_order_removed,
   to_regprocedure('public.handle_new_auth_user()') is not null as auth_profile_function_exists,
   to_regprocedure('public.submit_order_payment(uuid,uuid,text)') is not null as submit_payment_rpc_exists,
   to_regprocedure('public.cancel_expired_orders()') is not null as cancel_expired_orders_exists,
-  to_regprocedure('public.admin_create_product(uuid,text,text,text,text,text,public.product_kind,integer,integer,text,numeric,text,boolean)') is not null as admin_create_product_exists,
-  to_regprocedure('public.admin_create_product(uuid,text,text,text,text,text,public.product_kind,integer,integer,text,numeric,text,boolean,integer)') is not null as admin_create_product_purchase_limit_exists,
+  (select count(*) = 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'admin_create_product') as admin_create_product_single_overload,
   to_regprocedure('public.admin_create_product(uuid,text,text,text,text,text,public.product_kind,integer,integer,text,numeric,text,boolean,integer,boolean,integer)') is not null as admin_create_product_latest_exists,
   to_regprocedure('public.admin_adjust_inventory(uuid,uuid,integer,text)') is not null as admin_adjust_inventory_exists,
   to_regclass('public.order_status_history') is not null as order_status_history_exists,
@@ -46,8 +46,15 @@ select
   to_regclass('public.coupons') is not null as coupons_exists,
   to_regclass('public.coupon_redemptions') is not null as coupon_redemptions_exists,
   to_regclass('public.birthday_coupon_settings') is not null as birthday_coupon_settings_exists,
-  to_regprocedure('public.create_discounted_order(jsonb,text,text,integer,uuid,text)') is not null as discounted_order_rpc_exists,
+  to_regprocedure('public.create_discounted_order(jsonb,text,text,integer,uuid,text)') is null as legacy_create_discounted_order_removed,
   to_regprocedure('public.create_delivery_order(jsonb,text,text,text,integer,uuid,text,text,text,text)') is not null as delivery_order_rpc_exists,
+  -- 8 參數版是 10 參數版呼叫的核心實作：必須存在，且只有 service_role 可直接執行。
+  coalesce((
+    select not has_function_privilege('anon', fn, 'EXECUTE')
+       and not has_function_privilege('authenticated', fn, 'EXECUTE')
+    from (select to_regprocedure('public.create_delivery_order(jsonb,text,text,text,integer,uuid,text,text)') as fn) f
+    where fn is not null
+  ), false) as delivery_order_core_exists_and_blocked_for_api_roles,
   to_regprocedure('public.admin_update_order_fulfillment(uuid,uuid,integer,boolean,text,text)') is not null as final_payment_workflow_rpc_exists,
   exists (
     select 1 from information_schema.columns
