@@ -1,0 +1,79 @@
+/* 後台滑出面板、說明收合、表單與清單卡片（ADMIN_REDESIGN_PLAN Stage 7）；前綴同 admin-shell.css */
+
+/* ---------- 滑出面板觸發按鈕（原 <summary>） ---------- */
+#admin-dialog.admin-app details.admin-sheet { margin: 0 0 12px; border: 0; background: transparent; }
+#admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px; border: 1px solid #141414; border-radius: 10px; background: var(--admin-brand-sun); color: #141414; font-size: 14px; font-weight: 800; list-style: none; cursor: pointer; }
+#admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger::-webkit-details-marker { display: none; }
+#admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger::after { content: none; }
+#admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger:hover { background: #fff29a; }
+#admin-dialog.admin-app details.admin-sheet > summary .admin-icon { width: 16px; height: 16px; }
+
+/* ---------- 滑出面板 ---------- */
+#admin-dialog.admin-app .admin-sheet-scrim { display: none; }
+#admin-dialog.admin-app .admin-sheet-scrim:not([hidden]) { display: block; position: fixed; inset: 0; z-index: 70; background: rgba(20, 20, 20, 0.4); }
+#admin-dialog.admin-app .admin-sheet-panel { position: fixed; top: 0; right: 0; bottom: 0; z-index: 71; display: flex; flex-direction: column; width: min(560px, 100vw); background: #fff; border-left: 1px solid var(--admin-border); box-shadow: -16px 0 40px rgba(0, 0, 0, 0.14); animation: admin-sheet-in 240ms cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes admin-sheet-in { from { transform: translateX(40px); opacity: 0; } }
+#admin-dialog.admin-app .admin-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; padding-top: max(14px, env(safe-area-inset-top)); border-bottom: 1px solid var(--admin-border); background: var(--admin-surface-subtle); }
+#admin-dialog.admin-app .admin-sheet-head h3 { margin: 0; font-size: 17px; }
+#admin-dialog.admin-app .admin-sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 20px calc(32px + env(safe-area-inset-bottom)); }
+#admin-dialog.admin-app .admin-sheet-body > .admin-form,
+#admin-dialog.admin-app .admin-sheet-body > form { margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+#admin-dialog.admin-app .admin-sheet-body .form-grid { grid-template-columns: 1fr 1fr; }
+#admin-dialog.admin-app .admin-sheet-body .form-grid .wide { grid-column: 1 / -1; }
+#admin-dialog.admin-app .admin-sheet-body form > button[type="submit"],
+#admin-dialog.admin-app .admin-sheet-body form > .form-actions { position: sticky; bottom: -32px; z-index: 2; width: 100%; margin-top: 20px; box-shadow: 0 -16px 20px 8px #fff; }
+#admin-dialog.admin-app .admin-sheet-body form > .form-actions { justify-content: stretch; padding: 12px 0; border-top: 1px solid var(--admin-border); background: #fff; }
+#admin-dialog.admin-app .admin-sheet-body form > .form-actions > button { flex: 1; }
+
+/* ---------- 面板說明文字收合 ---------- */
+#admin-dialog.admin-app .admin-help { max-width: 80ch; margin-bottom: 4px; }
+#admin-dialog.admin-app .admin-help.is-clamped { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+#admin-dialog.admin-app .admin-help-toggle { margin: 0 0 16px; padding: 4px 0; border: 0; background: transparent; color: var(--admin-accent); font-size: 13px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+
+/* ---------- 表單控制項（開啟中的面板會移到 .admin-panel 之外，選擇器需同時涵蓋 .admin-sheet-panel） ---------- */
+#admin-dialog.admin-app .admin-sheet-panel :is(small, span, label, button, select, input, textarea) { overflow-wrap: anywhere; }
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) select,
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) textarea { border-color: var(--admin-border); border-radius: 10px; font-size: 16px; }
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) input:focus,
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) select:focus,
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) textarea:focus { border-color: #141414; outline: none; box-shadow: 0 0 0 3px #fff6b8; }
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) input[type="checkbox"],
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) input[type="radio"] { accent-color: #141414; }
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) .primary-button { border-color: #141414; border-radius: 10px; background: #141414; color: var(--admin-brand-sun); }
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) .primary-button:hover { background: #2b2926; }
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) .secondary-button { border-color: var(--admin-border); border-radius: 10px; background: #fff; color: #141414; }
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) .secondary-button:hover { border-color: #141414; }
+#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) .danger-button { border-color: #9a302a; background: #9a302a; color: #fff; }
+
+/* ---------- 清單卡片（會員、優惠券、帳戶、庫存異動、稽核、通知） ---------- */
+#admin-dialog.admin-app .admin-card-list,
+#admin-dialog.admin-app .admin-member-list { display: grid; gap: 10px; }
+#admin-dialog.admin-app .admin-card,
+#admin-dialog.admin-app .admin-member-card { border: 1px solid var(--admin-border); border-radius: 14px; background: #fff; box-shadow: none; transition: border-color 150ms ease; }
+#admin-dialog.admin-app .admin-card:hover,
+#admin-dialog.admin-app .admin-member-card:hover { border-color: #cfc5ad; }
+#admin-dialog.admin-app .admin-card strong { font-size: 15px; }
+#admin-dialog.admin-app .admin-card small { color: var(--admin-text-muted); }
+#admin-dialog.admin-app .admin-card code { padding: 1px 5px; border-radius: 6px; background: var(--admin-surface-subtle); font-size: 12px; overflow-wrap: anywhere; }
+#admin-dialog.admin-app .member-metrics span { border-radius: 10px; background: var(--admin-surface-subtle); }
+#admin-dialog.admin-app .member-metrics b { color: #141414; }
+#admin-dialog.admin-app .movement-positive { color: #1f6a42; }
+#admin-dialog.admin-app .movement-negative { color: #9a302a; }
+#admin-dialog.admin-app .empty-state { padding: 24px 16px; border: 1px dashed #cfc5ad; border-radius: 14px; background: transparent; color: var(--admin-text-muted); text-align: center; }
+#admin-dialog.admin-app .admin-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 16px 0; }
+#admin-dialog.admin-app .admin-order-toolbar label,
+#admin-dialog.admin-app .admin-product-toolbar label { color: var(--admin-text-muted); font-size: 13px; font-weight: 700; }
+
+/* 庫存頁：調整表單保持在頁面上（主要動作），以卡片包覆 */
+#admin-dialog.admin-app #admin-inventory-form,
+#admin-dialog.admin-app #admin-account-form { padding: 16px; border: 1px solid var(--admin-border); border-radius: 14px; background: #fff; }
+
+@media (max-width: 760px) {
+  #admin-dialog.admin-app .admin-sheet-panel { width: 100vw; border-left: 0; }
+  #admin-dialog.admin-app .admin-sheet-body .form-grid { grid-template-columns: 1fr; }
+  #admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger { width: 100%; justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #admin-dialog.admin-app .admin-sheet-panel { animation: none; }
+}
