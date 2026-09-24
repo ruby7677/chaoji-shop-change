@@ -413,13 +413,13 @@
 }
 .hero-carousel-dot::before {
   content: "";
-  width: 7px;
+  width: 20px;
   height: 7px;
-  border-radius: 999px;
+  clip-path: inset(0 6.5px round 999px); /* 裁成 7px 圓點；切換只改 clip-path，不動 width，避免每幀重排版面 */
   background: rgba(21, 21, 21, .3);
-  transition: width .3s ease, background-color .3s ease;
+  transition: clip-path .3s ease, background-color .3s ease;
 }
-.hero-carousel-dot[aria-current="true"]::before { width: 20px; background: var(--home-ink); }
+.hero-carousel-dot[aria-current="true"]::before { clip-path: inset(0 round 999px); background: var(--home-ink); }
 .hero-carousel :is(button, a):focus-visible {
   outline: 2px solid var(--home-ink);
   outline-offset: 3px;
