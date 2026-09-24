@@ -48,7 +48,7 @@
 
 ## 主代理與 Luna Worker 分工（Codex）
 
-本節只適用 Codex 環境；Claude Code 的對應方式見下一節。本專案委派的 Luna Worker 使用 `gpt-6-luna`、`max` 推理等級；個人 agent 設定為 `C:\Users\user\.codex\agents\luna-worker.toml`。若工具內建的 `luna_worker` 角色仍固定舊模型，改用可明確指定 `gpt-6-luna`／`max` 的 worker，維持下列相同分工與安全邊界。
+本節只適用 Codex 環境；Claude Code 的對應方式見下一節。Luna Worker 的模型與推理等級以 `C:\Users\user\.codex\agents\luna-worker.toml` 為準；若內建 `luna_worker` 角色無法套用該設定，改用可指定該設定的 worker，維持下列相同分工與安全邊界。
 
 本專案預設採用「主代理規劃與審核、Luna Worker 執行」的協作方式。只要任務包含程式碼／檔案修改、測試、資料操作或部署，主代理應在理解目標與檢查現況後，將邊界清楚、可獨立驗收的實作工作委派給 `luna_worker`。
 

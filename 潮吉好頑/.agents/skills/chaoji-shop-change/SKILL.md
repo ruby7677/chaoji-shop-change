@@ -21,7 +21,7 @@ description: Trace or change 潮吉好頑 cart, order, notification and permissi
 | 管理頁入口 | `ensureDiscountAdminUI`、`renderAdminData`、`switchAdminTab` | HTML 及 JS 動態插入內容；HTML 無 tab 不代表未實作 |
 | LINE／後台權限 | `requireUser`、`requireAdmin`、`syncLineIdentity` | Auth 驗證 → profile 綁定／管理標記 → table/column grants＋RLS |
 
-交易修改前以一句話定義「觸發條件 → 預期結果」，分清前端顯示、Worker 檢查與 SQL 最终限制。只修改需要的層；診斷請求先交付原因，不自動套用修復。
+交易修改前以一句話定義「觸發條件 → 預期結果」，分清前端顯示、Worker 檢查與 SQL 最終限制。只修改需要的層；診斷請求先交付原因，不自動套用修復。
 
 ## 專案常見陷阱
 
