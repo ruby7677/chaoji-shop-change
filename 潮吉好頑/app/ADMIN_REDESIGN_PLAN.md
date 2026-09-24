@@ -148,4 +148,4 @@
 **原因**：前端只在載入頁面時以 `/auth/v1/user` 驗證一次 token；Supabase access token 約 1 小時到期，頁面不會再檢查或換發，也沒有任何程式把頁首改回未登入（`clearStoredAuthSession` 只清資料不更新畫面）。頁面開著超過到期時間後，頁首仍顯示名稱與「管理後台」，但所有會員／後台 API 都回 401「登入已過期」。
 **修正**：新增 `public/auth-expiry.js`（`app.js` 只接線）：登入成功後依 token 的 `exp` 排程到期檢查；分頁從背景回到前景時補檢查（休眠時計時器會暫停）；後台 API 回 401 也觸發。到期時先嘗試恢復（LINE App 內用既有保存工作階段 `restorePersistentLiffSession`），失敗才清除登入資料、頁首改回「LINE 登入」並隱藏「我的訂單」「管理後台」、關閉後台與訂單視窗，提示「登入已過期，請重新登入」。
 **Status**：Complete（部署 `f12d9aeb-0969-400a-834d-969974b565d3`）。正式站以店主登入、開著後台時模擬時間超過 token 到期：頁首由會員名稱改為「LINE 登入」、兩個按鈕隱藏、後台自動關閉、顯示提示、`sessionStorage` 登入資料已清除。後台 API 回 401 的觸發路徑為同一函式，未另外實測。
-**未做（可另議）**：一般瀏覽器內到期前以 refresh token 自動換發，讓管理員不必每小時重新登入；涉及登入流程，需業主決定。
+**後續（2026-09-24 店主決定，已實作、待部署）**：一般瀏覽器改由 Worker 以 HttpOnly cookie 續期（`src/web-session.ts`、`public/web-session.js`），access token 到期前 1 分鐘自動換發，管理員不必每小時重新登入。cookie 為瀏覽器工作階段（關閉瀏覽器即登出），且首次登入後最長 12 小時必須重新 LINE 登入。

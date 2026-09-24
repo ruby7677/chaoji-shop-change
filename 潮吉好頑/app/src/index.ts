@@ -21,6 +21,7 @@ import {
 } from "./auth-session";
 import { deleteVaultedSession, readVaultedSession, storeVaultedSession } from "./liff-session-vault";
 import { createProductShowcase, isShowcaseImageUpload } from "./product-showcase";
+import { createWebSession } from "./web-session";
 import { isShareMetaRequest, withShareMeta } from "./share-meta";
 import { IMAGE_CACHE_CONTROL, IMAGE_STALE_VERSION_CACHE_CONTROL, PRODUCT_IMAGE_BUCKET, PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_TYPES, hasImageSignature, imageContentType, productImageCacheKey, productImageEdgeCache, purgeProductImageCache, requestedImageVersion, storageObjectUrl } from "./product-image-storage";
 import {
@@ -746,6 +747,14 @@ async function databaseError(response: Response) {
 }
 
 const productShowcase = createProductShowcase<Env>({ json, serviceHeaders, requireAdmin, databaseError, securityHeaders: SECURITY_HEADERS });
+const webSession = createWebSession<Env>({
+  json,
+  enforceRateLimit,
+  lineMemberId: async (env, session) => {
+    const user = await refreshedAuthUser(env, session);
+    return user && hasLineIdentity(user, env) ? user.id : null;
+  }
+});
 
 async function publicCatalog(env: Env): Promise<Product[]> {
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return demoProducts;
@@ -1840,6 +1849,8 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/auth/session/remember") return rememberLiffSession(request, env);
     if (request.method === "POST" && url.pathname === "/api/auth/session/restore") return restoreLiffSession(request, env);
     if (request.method === "POST" && url.pathname === "/api/auth/session/forget") return forgetLiffSession();
+    const webSessionResponse = await webSession.route(request, env, url);
+    if (webSessionResponse) return webSessionResponse;
     if (request.method === "GET" && url.pathname === "/api/config") {
       // Runtime config only contains public, non-member-specific bootstrap data.
       // Keep every other JSON response on the default no-store policy.

@@ -29,6 +29,7 @@
 - `202609220007_notification_claim_found_fix.sql`：修正動態 notification claim 的 `ROW_COUNT` 判定；不改既有簽名、claim token fencing 或 service-role 權限。
 - `202609230001_notification_operations.sql`：通知紀錄 service-role-only list、failed-only requeue 與 retry audit；後台重排不會直接呼叫外部通知 API。
 - `202609230002_notification_display_context.sql`：通知列表補充遮罩收件人 context 與已知訂單編號；非訂單 event 不猜測關聯，仍不回傳 recipient_id、payload 或 token。
+- 一般瀏覽器登入續期（無 migration）：refresh token 只經 `/api/auth/web-session/start` 交給 Worker，加密後存於 HttpOnly `__Host-cj-web-session`（SameSite=Strict、瀏覽器工作階段），前端 sessionStorage 不再保存；續期請求須帶 `X-CJ-Web-Session: 1`，首次登入滿 12 小時強制重新登入，非 LINE 身分或 user id 不符一律拒絕並清除 cookie。
 - `202609230003_liff_session_vault.sql`：LIFF 持久登入以 LINE sub 為鍵保存加密 refresh token；RLS＋deny policy，anon／authenticated 無任何表權限，僅 Worker service_role 讀寫。
 - `202609240001_product_gallery_showcase.sql`：商品多圖 `product_images`（service-role-only、排序唯一鍵延後檢查）、商品頁介紹與 Hero 欄位、多圖管理 RPC 僅 service_role 可執行；`products.image_path` 由第一張圖同步。
 - `202609250001_cancellation_notification_marker.sql`：`orders.cancellation_notified_at` 與部分索引，讓每小時取消通知掃描只處理尚未交給通知狀態機的訂單；會員無此欄位 UPDATE 權限。

@@ -52,6 +52,7 @@ LINE 的網頁登入 ID Token 使用 HS256，但 LINE 的 OIDC discovery 宣告 
 17. Provider 啟用後，確認 `wrangler.jsonc` 的 `SUPABASE_CUSTOM_PROVIDER` 為 `custom:line-web`、`LINE_AUTH_ENABLED` 為 `true`；前端登入會帶入 `bot_prompt=normal`，登入同意畫面可提示加入官方 LINE。
 18. 若啟用 LIFF 無感重開登入，正式 Worker 需另外設定 `AUTH_SESSION_SECRET`。請使用至少 32 字元的隨機值，透過 `wrangler secret put AUTH_SESSION_SECRET` 寫入 Cloudflare Secret，不要放進 `wrangler.jsonc` 或 Git。Worker 只會把 Supabase refresh token 加密後存入 HttpOnly/Secure Cookie；瀏覽器 JavaScript 不會持久保存 refresh token。
 19. 套用 `202609230003_liff_session_vault.sql` 後，Worker 會改以 LIFF ID Token 驗證過的 LINE `sub` 為鍵，把加密 refresh token 存在 `liff_session_vault`（僅 service_role 可讀寫），並清除舊 Cookie。LINE WebView Cookie 遺失時仍可在頁內恢復登入，不再跳轉 Supabase／LINE OAuth；只有第一次建立會員時需要 OAuth。Migration 尚未套用時自動沿用 Cookie 模式。
+20. 一般瀏覽器（非 LINE App）同樣使用 `AUTH_SESSION_SECRET`：LINE 登入回來後，前端把 refresh token 交給 `/api/auth/web-session/start`，Worker 換發一次並確認是 LINE 會員後，加密存進 `__Host-cj-web-session`（HttpOnly、Secure、SameSite=Strict、不設 Max-Age），前端不再保存 refresh token。access token 到期前 1 分鐘由 `/api/auth/web-session/refresh` 換發；關閉瀏覽器即登出，首次登入滿 12 小時後 Worker 拒絕續期、需重新 LINE 登入。這條路徑不寫入 `liff_session_vault`，與 LINE App 的登入互不影響。
 20. LINE Developers Console 的 LIFF Endpoint URL 請設為站台根網址（例如 `https://<網域>/`），並以 `https://liff.line.me/<LIFF_ID>` 分享，不附加路徑；Endpoint 與開啟路徑不同時，LIFF SDK 會用 `liff.state` 再整頁導向一次，造成閃爍。LIFF 的 Size 建議 Full。
 
 ## 3. 設定網站導向網址
