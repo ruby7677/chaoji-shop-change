@@ -1,10 +1,13 @@
 /* 商品與規格頁（ADMIN_REDESIGN_PLAN Stage 8）：工具列、規格表格（窄畫面轉卡片）、上架開關、優惠價／編輯面板、確認視窗。
  * 前綴同 admin-shell.css；token 取自 #admin-dialog.admin-app。 */
 
-/* ---------- 頁首的新增／分類管理／新增規格按鈕排成一列（原本各佔一行） ---------- */
+/* ---------- 頁首的面板觸發按鈕（目前只剩「分類管理」）排成一列 ---------- */
 @media (min-width: 761px) {
   #admin-dialog.admin-app [data-admin-panel="products"] > details.admin-sheet:not(.admin-sheet-dynamic) { display: inline-block; margin: 0 8px 12px 0; vertical-align: top; }
 }
+/* 「新增商品」「新增規格」改由工具列與編輯面板開啟，不顯示頁首觸發按鈕；
+   <details> 與表單保留作為面板容器，開啟時面板會移到 #admin-dialog 最外層，不受 display:none 影響 */
+#admin-dialog.admin-app [data-admin-panel="products"] > details.admin-sheet.admin-sheet-headless:not(.admin-sheet-dynamic) { display: none; }
 
 /* ---------- 工具列 ---------- */
 #admin-dialog.admin-app .admin-products-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 6px; }

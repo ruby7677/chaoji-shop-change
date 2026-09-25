@@ -326,8 +326,17 @@ export function switchAdminTab(tab) {
   loadAdminSection(tab).catch(() => {});
 }
 
+// 操作後只立即重新載入目前分頁與 overview（頁首待處理徽章）；其他分區標記過期，切換過去時才載入，
+// 避免每次操作連打多個 API 而觸發每位管理員每分鐘的限流（API_ADMIN_RATE_LIMITER）
 export async function refreshAdminSections(sections) {
-  await Promise.all([...new Set(sections)].map((section) => loadAdminSection(section, { force: true })));
+  const activeTab = document.querySelector("[data-admin-tab].active")?.dataset.adminTab;
+  const activeSection = activeTab ? adminSectionForTab(activeTab) : null;
+  const immediate = [];
+  [...new Set(sections)].forEach((section) => {
+    if (section === activeSection || section === "overview") immediate.push(section);
+    else adminSectionLoaded.delete(section);
+  });
+  await Promise.all(immediate.map((section) => loadAdminSection(section, { force: true })));
 }
 
 export async function loadAdminData(section) {

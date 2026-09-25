@@ -4,7 +4,7 @@
 import { adminIcon } from "./admin-icons.js";
 import { escapeHtml, money } from "./product-format.js";
 
-// 後台 API 每位管理員每分鐘限 20 次（API_ADMIN_RATE_LIMITER），概況以較長快取避免佔用額度；
+// 後台 API 每位管理員每分鐘限 60 次（API_ADMIN_RATE_LIMITER），概況以較長快取避免佔用額度；
 // 按右上角重新整理可強制更新
 const CACHE_MS = 180_000;
 const LOW_STOCK_SHOWN = 8;
