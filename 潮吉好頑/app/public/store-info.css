@@ -60,3 +60,10 @@
   .site-header nav { margin-left: auto; }
   .site-header .header-actions { margin-left: 22px; }
 }
+
+/* 會員名稱按鈕：LINE 顯示名稱可能很長，超出寬度以「…」截斷，避免窄螢幕頁首按鈕換行；
+   完整名稱放在 title／aria-label（member-profile.js） */
+.site-header .login-button { max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 760px) {
+  .site-header .login-button { max-width: 6.5em; }
+}

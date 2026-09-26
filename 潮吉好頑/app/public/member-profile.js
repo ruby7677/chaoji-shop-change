@@ -94,7 +94,9 @@ function updateMemberButton() {
   const displayName = auth.profile?.full_name || auth.user?.user_metadata?.name || auth.user?.user_metadata?.full_name || "會員";
   const button = document.querySelector("[data-demo='login']");
   button.textContent = displayName;
-  button.title = "查看或修改會員資料";
+  // 名稱可能被 CSS 截斷，完整名稱保留在提示與報讀文字
+  button.title = `${displayName}｜查看或修改會員資料`;
+  button.setAttribute("aria-label", `會員 ${displayName}，查看或修改會員資料`);
   document.querySelector("[data-orders-open]").classList.remove("hidden");
   document.querySelector("[data-admin-open]").classList.toggle("hidden", auth.profile?.is_admin !== true);
   if (auth.profile?.full_name) document.querySelector("#checkout-name").value = auth.profile.full_name;

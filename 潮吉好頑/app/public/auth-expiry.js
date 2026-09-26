@@ -35,6 +35,7 @@ function renderLoggedOut() {
   if (login) {
     login.textContent = "LINE 登入";
     login.removeAttribute("title");
+    login.removeAttribute("aria-label");
   }
   document.querySelector("[data-orders-open]")?.classList.add("hidden");
   document.querySelector("[data-admin-open]")?.classList.add("hidden");
