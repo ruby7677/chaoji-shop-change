@@ -56,7 +56,6 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: postgres
       CJ_TEST_DB: cj_test
-      CJ_FUNCTION_SNAPSHOT: ${{ runner.temp }}/effective-db-functions.sql
     steps:
       - uses: actions/checkout@v4
       - name: Install PostgreSQL 16 with pg_cron
@@ -69,6 +68,9 @@ jobs:
           sudo systemctl restart postgresql
           sudo -u postgres psql -q -c "alter user postgres password 'postgres'"
       - name: Apply all migrations to a fresh database and run tests
+        # runner context is only available at step level, not in job-level env
+        env:
+          CJ_FUNCTION_SNAPSHOT: ${{ runner.temp }}/effective-db-functions.sql
         run: bash tests/db/run.sh
       - name: Upload effective database function definitions
         uses: actions/upload-artifact@v4
