@@ -64,7 +64,9 @@
 本檔同時供 Codex 與 Claude Code 使用。業務規則、Skill 載入、驗證與部署流程兩者共用；只有工具與分工不同。
 
 - 工具：使用 Claude Code 內建 Read／Edit／Write／Grep／Glob 與 PowerShell（或 Bash）；Chat On Steroids／MCP stale catalog 規則不適用。
-- 分工：不強制委派 `luna_worker`。小型或單層修改由主代理直接實作；跨層大型任務可拆給子代理（Agent 工具），委派內容同樣要寫明工作目錄、檔案歸屬、不可修改項目、驗收條件、部署授權，並要求子代理自行讀取本檔與 `.agents/skills/chaoji-shop-change/SKILL.md`。
+- 分工：主代理（Opus 5.5）負責理解目標、調查現況、規劃、做決策與最後驗收；大量執行工作——多檔修改、重複性編輯、補測試、大範圍搜尋整理——交給 Sonnet 子代理（Agent 工具，`model: "sonnet"`）。一兩行的小修改、純文件修改與需要當場判斷的除錯，主代理可直接處理。不使用 `luna_worker`。
+- 委派內容要能獨立執行：寫明工作目錄、要改的檔案／模組、不可修改的項目、具體做法與已做的決策、驗收條件，並要求子代理自行讀取本檔（跨層交易任務另加 `.agents/skills/chaoji-shop-change/SKILL.md`）。子代理不 commit、push、部署、套用 SQL 或發送通知；這些遠端與不可逆操作由主代理在驗收通過後依使用者授權執行。
+- 驗收：主代理不以子代理的回報代替檢查，要自己看實際 diff、依「驗證與交付」重跑必要檢查，UI 修改另看受影響畫面。不符合時把具體問題交回同一個子代理（SendMessage）修正；同一範圍兩輪仍不通過，主代理向使用者說明後自行接手。
 - 同一時間只有一個代理修改同一檔案；平行子代理只做唯讀調查或互不重疊的檔案。
 - 參考外部網站時用內建瀏覽器讀取 DOM／computed style 取得實際數值，只借鏡互動模式，不複製對方圖片、文案或品牌元素。
 - 前端預覽使用 `.claude/launch.json` 的 `worker-dev`（`wrangler dev`，port 8082，含 SPA fallback 與 `/api/*`）；`redesign-preview` 只是靜態 python 伺服器，無法測路由與 API。5714 在此機器被 Windows 保留、8080／3000 已被占用。測試用暫存檔放 scratchpad，完成後刪除。
