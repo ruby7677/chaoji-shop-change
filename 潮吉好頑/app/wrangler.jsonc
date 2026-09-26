@@ -28,6 +28,11 @@
       "name": "API_ADMIN_RATE_LIMITER",
       "namespace_id": "2026091403",
       "simple": { "limit": 60, "period": 60 }
+    },
+    {
+      "name": "API_AUTH_IP_RATE_LIMITER",
+      "namespace_id": "2026092601",
+      "simple": { "limit": 120, "period": 60 }
     }
   ],
   "triggers": {

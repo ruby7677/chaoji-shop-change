@@ -3,6 +3,10 @@
 
 export const PRODUCT_IMAGE_BUCKET = "product-images";
 export const PRODUCT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+// 上傳路由排除在全站 128KB JSON 上限之外，formData() 解析前必須先用 Content-Length
+// 擋下明顯過大的請求：主圖 + 選填縮圖各最多 PRODUCT_IMAGE_MAX_BYTES，再加 multipart
+// 框架與欄位本身的額外開銷。
+export const PRODUCT_IMAGE_UPLOAD_MAX_REQUEST_BYTES = 2 * PRODUCT_IMAGE_MAX_BYTES + 256 * 1024;
 export const PRODUCT_IMAGE_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",

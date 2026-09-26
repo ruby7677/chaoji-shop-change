@@ -55,7 +55,8 @@ async function verifyLiffIdToken(env: Env, idToken: string): Promise<VerifiedLif
 }
 
 export async function verifyLiffIdentity(request: Request, env: Env): Promise<Response> {
-  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `liff:${request.headers.get("CF-Connecting-IP") || "unknown"}`);
+  // 第一層：驗證 LINE token 之前只以 IP 防洪（上限寬鬆，避免共用 IP 的會員互相阻擋）
+  const rateLimitResponse = await enforceRateLimit(env.API_AUTH_IP_RATE_LIMITER, `liff:${request.headers.get("CF-Connecting-IP") || "unknown"}`);
   if (rateLimitResponse) return rateLimitResponse;
   if (!env.LINE_LOGIN_CHANNEL_ID || !env.LIFF_ID) return json({ error: "LIFF 尚未設定" }, { status: 503 });
   let body: { id_token?: unknown } | null;
@@ -65,6 +66,9 @@ export async function verifyLiffIdentity(request: Request, env: Env): Promise<Re
   if (!idToken || idToken.length > 8192) return json({ error: "LIFF 驗證資料不完整" }, { status: 400 });
   const identity = await verifyLiffIdToken(env, idToken);
   if (!identity?.sub) return json({ error: "LIFF LINE 身分驗證失敗" }, { status: 401 });
+  // 第二層：LINE 驗證通過後以該帳號計數，同一帳號換 IP 也無法大量呼叫
+  const userRateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `liff-user:${identity.sub}`);
+  if (userRateLimitResponse) return userRateLimitResponse;
   let sessionMatch: boolean | null = null;
   if (bearerToken(request)) {
     const authResult = await requireUser(request, env);
@@ -109,7 +113,8 @@ async function validateRefreshedLineSession(
 }
 
 export async function rememberLiffSession(request: Request, env: Env): Promise<Response> {
-  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, "session-remember:" + (request.headers.get("CF-Connecting-IP") || "unknown"));
+  // 第一層：驗證 LINE token 之前只以 IP 防洪（上限寬鬆，避免共用 IP 的會員互相阻擋）
+  const rateLimitResponse = await enforceRateLimit(env.API_AUTH_IP_RATE_LIMITER, "session-remember:" + (request.headers.get("CF-Connecting-IP") || "unknown"));
   if (rateLimitResponse) return rateLimitResponse;
   if (!sessionBridgeReady(env)) return json({ error: "LIFF 持久登入尚未設定" }, { status: 503 });
 
@@ -124,6 +129,9 @@ export async function rememberLiffSession(request: Request, env: Env): Promise<R
 
   const identity = await verifyLiffIdToken(env, idToken);
   if (!identity?.sub) return json({ error: "LIFF LINE 身分驗證失敗" }, { status: 401 });
+  // 第二層：LINE 驗證通過後以該帳號計數，同一帳號換 IP 也無法大量呼叫
+  const userRateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `session-remember-user:${identity.sub}`);
+  if (userRateLimitResponse) return userRateLimitResponse;
   const refreshed = await refreshSupabaseSession(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!, refreshToken);
   if (!refreshed) {
     return json({ error: "會員登入工作階段已失效" }, { status: 401, headers: { "Set-Cookie": clearRefreshSessionCookie() } });
@@ -164,7 +172,8 @@ async function restoreSealedSession(env: Env, sealed: string, lineUserId: string
 }
 
 export async function restoreLiffSession(request: Request, env: Env): Promise<Response> {
-  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, "session-restore:" + (request.headers.get("CF-Connecting-IP") || "unknown"));
+  // 第一層：驗證 LINE token 之前只以 IP 防洪（上限寬鬆，避免共用 IP 的會員互相阻擋）
+  const rateLimitResponse = await enforceRateLimit(env.API_AUTH_IP_RATE_LIMITER, "session-restore:" + (request.headers.get("CF-Connecting-IP") || "unknown"));
   if (rateLimitResponse) return rateLimitResponse;
   if (!sessionBridgeReady(env)) return json({ error: "LIFF 持久登入尚未設定" }, { status: 503 });
 
@@ -180,6 +189,9 @@ export async function restoreLiffSession(request: Request, env: Env): Promise<Re
   if (!identity?.sub) {
     return json({ error: "LIFF LINE 身分驗證失敗" }, { status: 401, headers: { "Set-Cookie": clearRefreshSessionCookie() } });
   }
+  // 第二層：LINE 驗證通過後以該帳號計數，同一帳號換 IP 也無法大量呼叫
+  const userRateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `session-restore-user:${identity.sub}`);
+  if (userRateLimitResponse) return userRateLimitResponse;
 
   const vaulted = await readVaultedSession(env, identity.sub);
   if (vaulted.status === "found") {

@@ -3,7 +3,7 @@
 // vault lets the Worker restore the member session from a fresh LIFF ID token
 // without sending the user through another Supabase OAuth redirect chain.
 // Callers must verify the LIFF ID token before using any of these helpers.
-import { fetchWithTimeout } from "./http";
+import { fetchWithTimeout, serviceHeaders } from "./http";
 
 export interface LiffSessionVaultEnv {
   SUPABASE_URL?: string;
@@ -21,15 +21,6 @@ function vaultReady(env: LiffSessionVaultEnv) {
   return Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
-function vaultHeaders(env: LiffSessionVaultEnv, prefer?: string) {
-  return {
-    apikey: env.SUPABASE_SERVICE_ROLE_KEY as string,
-    Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-    "Content-Type": "application/json",
-    ...(prefer ? { Prefer: prefer } : {})
-  };
-}
-
 function vaultUrl(env: LiffSessionVaultEnv, lineUserId?: string) {
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/${VAULT_TABLE}`);
   if (lineUserId) url.searchParams.set("line_user_id", `eq.${lineUserId}`);
@@ -41,7 +32,7 @@ export async function readVaultedSession(env: LiffSessionVaultEnv, lineUserId: s
   try {
     const url = vaultUrl(env, lineUserId);
     url.searchParams.set("select", "sealed_refresh_token");
-    const response = await fetchWithTimeout(url, { headers: vaultHeaders(env) });
+    const response = await fetchWithTimeout(url, { headers: serviceHeaders(env) });
     // A missing table (migration not applied yet) must fall back to the
     // cookie-only behaviour instead of failing the whole restore.
     if (!response.ok) return { status: "unavailable" };
@@ -65,7 +56,7 @@ export async function storeVaultedSession(
     url.searchParams.set("on_conflict", "line_user_id");
     const response = await fetchWithTimeout(url, {
       method: "POST",
-      headers: vaultHeaders(env, "resolution=merge-duplicates,return=minimal"),
+      headers: serviceHeaders(env, "resolution=merge-duplicates,return=minimal"),
       body: JSON.stringify({
         line_user_id: lineUserId,
         user_id: userId,
@@ -82,7 +73,7 @@ export async function storeVaultedSession(
 export async function deleteVaultedSession(env: LiffSessionVaultEnv, lineUserId: string): Promise<void> {
   if (!vaultReady(env)) return;
   try {
-    await fetchWithTimeout(vaultUrl(env, lineUserId), { method: "DELETE", headers: vaultHeaders(env, "return=minimal") });
+    await fetchWithTimeout(vaultUrl(env, lineUserId), { method: "DELETE", headers: serviceHeaders(env, "return=minimal") });
   } catch {
     // Best-effort cleanup: a stale row only fails its next refresh and is removed then.
   }

@@ -72,3 +72,31 @@ export const lineUser = (id) => ({ id, identities: [{ provider: "custom:line-web
 
 /** A RateLimit binding fake that always reports the limit as exceeded. */
 export const deniedRateLimit = { limit: async () => ({ success: false }) };
+
+/**
+ * A RateLimit binding fake keyed per call: `shouldDeny` is either an array of
+ * exact key strings to deny, or a predicate `(key) => boolean`. Every key seen
+ * is recorded on `.calls` so a test can assert which key a route used.
+ */
+export function keyedRateLimit(shouldDeny = []) {
+  const denyFn = typeof shouldDeny === "function" ? shouldDeny : (key) => shouldDeny.includes(key);
+  const calls = [];
+  return {
+    calls,
+    limit: async ({ key }) => {
+      calls.push(key);
+      return { success: !denyFn(key) };
+    }
+  };
+}
+
+/**
+ * Serializes a FormData body the same way a real client upload would, so the
+ * resulting Content-Length header reflects real bytes instead of being
+ * absent (a Request built directly from a FormData body in Node never gets a
+ * Content-Length header, unlike an actual incoming HTTP request).
+ */
+export async function formDataRequestInit(formData) {
+  const body = await new Response(formData).blob();
+  return { body, headers: { "Content-Type": body.type, "Content-Length": String(body.size) } };
+}

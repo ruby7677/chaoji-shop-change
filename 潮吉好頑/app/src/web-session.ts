@@ -28,6 +28,7 @@ export interface WebSessionEnv {
   SUPABASE_ANON_KEY?: string;
   AUTH_SESSION_SECRET?: string;
   API_MEMBER_RATE_LIMITER?: RateLimit;
+  API_AUTH_IP_RATE_LIMITER?: RateLimit;
 }
 
 export interface WebSessionDeps<E extends WebSessionEnv> {
@@ -74,10 +75,16 @@ export function createWebSession<E extends WebSessionEnv>(deps: WebSessionDeps<E
 
   async function guard(request: Request, env: E, action: string) {
     if (request.headers.get(WEB_SESSION_HEADER) !== "1") return json({ error: "登入續期請求格式錯誤" }, { status: 400 });
-    const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `web-session-${action}:${request.headers.get("CF-Connecting-IP") || "unknown"}`);
+    // 第一層：驗證身分之前只以 IP 防洪（上限寬鬆，避免共用 IP 的會員互相阻擋）
+    const rateLimitResponse = await enforceRateLimit(env.API_AUTH_IP_RATE_LIMITER, `web-session-${action}:${request.headers.get("CF-Connecting-IP") || "unknown"}`);
     if (rateLimitResponse) return rateLimitResponse;
     if (!ready(env)) return json({ error: "登入續期尚未設定" }, { status: 503 });
     return null;
+  }
+
+  // 第二層：Supabase 確認會員身分後才以會員 id 計數，同一帳號換 IP 也無法大量呼叫
+  function verifiedUserRateLimit(env: E, action: string, userId: string) {
+    return enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `web-session-${action}-user:${userId}`);
   }
 
   async function start(request: Request, env: E): Promise<Response> {
@@ -94,6 +101,8 @@ export function createWebSession<E extends WebSessionEnv>(deps: WebSessionDeps<E
     const refreshed = result.session;
     const userId = await lineMemberId(env, refreshed);
     if (!userId) return withCookies(json({ error: "本網站僅接受 LINE 會員登入" }, { status: 403 }), clearWebSessionCookies());
+    const userRateLimitResponse = await verifiedUserRateLimit(env, "start", userId);
+    if (userRateLimitResponse) return userRateLimitResponse;
     return issue(env, refreshed, userId, Date.now());
   }
 
@@ -111,6 +120,8 @@ export function createWebSession<E extends WebSessionEnv>(deps: WebSessionDeps<E
     const refreshed = result.session;
     const userId = await lineMemberId(env, refreshed);
     if (!userId || userId !== payload.uid) return failure("INVALID_WEB_SESSION", true);
+    const userRateLimitResponse = await verifiedUserRateLimit(env, "refresh", userId);
+    if (userRateLimitResponse) return userRateLimitResponse;
     // Keep the original login time so renewals never extend the 12-hour cap.
     return issue(env, refreshed, userId, payload.iat);
   }

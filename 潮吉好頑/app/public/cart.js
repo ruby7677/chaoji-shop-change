@@ -431,11 +431,6 @@ export function handleCartCheckout(scope = null) {
   if (method === "seller_delivery" && checkoutScope === "in_stock") return openSellerDeliveryCheckout(checkoutScope);
   openCheckout(checkoutScope);
 }
-export function removeLegacySellerCheckoutOption() {
-  const sellerInput = document.querySelector("input[name='delivery_method'][value='seller_delivery']");
-  sellerInput?.closest("label")?.classList.add("hidden");
-}
-
 // 商品頁加入購物車：依庫存與限購檢查後加入指定數量。伺服器建單時仍會重新驗證。
 export function addVariantQuantityToCart(variantId, quantity) {
   const variant = products.find((item) => item.id === variantId);

@@ -16,8 +16,8 @@ export const databaseErrors: Record<string, string> = {
   EMPTY_CART: "購物車不可為空",
   BANK_ACCOUNT_REQUIRED: "請選擇收款帳戶",
   INVALID_PAYMENT_METHOD: "付款方式不正確",
-  STORE_PAYMENT_BANK_TRANSFER_ONLY: "本站到店取貨與宅配訂單僅接受匯款／轉帳",
-  STORE_PAYMENT_ONLY_STORE_PICKUP: "本站到店取貨與宅配訂單僅接受匯款／轉帳",
+  // store_payment 內部標記只給賣貨便（7-11 外部收款）；到店取貨與宅配一律匯款／轉帳
+  STORE_PAYMENT_BANK_TRANSFER_ONLY: "本站到店取貨與宅配訂單僅接受匯款／轉帳，請改選匯款付款",
   STORE_PAYMENT_PREORDER_NOT_ALLOWED: "預購商品必須先匯款支付訂金",
   SELLER_BANK_PREORDER_ONLY: "賣貨便匯款訂單僅適用預購商品",
   MIXED_ORDER_NOT_ALLOWED: "現貨與預購需分開建立訂單，請回購物車分組結帳",

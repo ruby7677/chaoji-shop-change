@@ -3,7 +3,7 @@
 // Storage 全部以假的 globalThis.fetch 取代；邊緣快取以記憶體 Map 假冒 Cache API（Node 沒有全域 caches）。
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { baseEnv, ctx, jsonResponse, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
+import { baseEnv, ctx, formDataRequestInit, jsonResponse, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
 
 const worker = await loadWorker();
 const storage = await loadSourceModule("product-image-storage");
@@ -86,11 +86,14 @@ function fakeSupabase({ productRow = { id: PRODUCT_ID, image_path: null, image_u
   return { state, calls };
 }
 
-function uploadRequest(formData) {
+async function uploadRequest(formData) {
+  // A real browser upload sends a Content-Length header; a Request built
+  // directly from a FormData body in Node does not, so it has to be computed.
+  const { body, headers } = await formDataRequestInit(formData);
   return worker.fetch(new Request(`https://shop.test/api/admin/products/${PRODUCT_ID}/image`, {
     method: "POST",
-    headers: { Authorization: "Bearer admin-access-token" },
-    body: formData
+    headers: { Authorization: "Bearer admin-access-token", ...headers },
+    body
   }), baseEnv, ctx());
 }
 

@@ -140,3 +140,51 @@ select tests.login(tests.id('member_a'));
 select tests.place_order(tests.id('variant_stock'), 2);
 select tests.expect_error($$select tests.place_order(tests.id('variant_stock'), 1)$$, 'PURCHASE_LIMIT_EXCEEDED', 'purchase limit counts earlier orders');
 rollback;
+
+-- 賣貨便現貨：以賣貨便外部付款（本站無銀行帳戶）建立待確認訂單，本站不收款，
+-- deposit_due = 0，付款期限維持 3 個月，供管理員核對賣貨便外部訂單後再確認。
+begin;
+select tests.seed();
+select tests.login(tests.id('member_a'));
+create temp table t_order on commit drop as select public.create_delivery_order(
+    tests.order_items(tests.id('variant_stock'), 1), 'together', 'seller_delivery', null, 0,
+    null, null, null, null, null) as id;
+select tests.logout();
+select tests.assert((select status = 'pending_payment' and subtotal = 1000 and amount_due = 1000 and deposit_due = 0
+                            and bank_account_id is null and payment_last_five is null and delivery_method = 'seller_delivery'
+                       from public.orders where id = (select id from t_order)),
+                    'seller-delivery store-payment order has zero deposit and no bank account');
+select tests.assert((select payment_deadline = now() + interval '3 months' from public.orders where id = (select id from t_order)),
+                    'seller-delivery store-payment order keeps a 3 month payment deadline');
+rollback;
+
+-- 賣貨便預購：先在本站以匯款支付訂金（非賣貨便外部付款），訂金 50%、付款期限 2 小時。
+begin;
+select tests.seed();
+select tests.login(tests.id('member_a'));
+create temp table t_order on commit drop as select public.create_delivery_order(
+    tests.order_items(tests.id('variant_pre'), 1), 'together', 'seller_delivery', null, 0,
+    tests.id('bank'), null, null, null, null) as id;
+select tests.logout();
+select tests.assert((select amount_due = 2000 and deposit_due = 1000 and bank_account_id = tests.id('bank')
+                            and delivery_method = 'seller_delivery'
+                       from public.orders where id = (select id from t_order)),
+                    'seller-delivery preorder bank-transfer order has a 50% deposit');
+select tests.assert((select payment_deadline = now() + interval '2 hours' from public.orders where id = (select id from t_order)),
+                    'seller-delivery preorder bank-transfer order has a 2 hour payment deadline');
+rollback;
+
+-- 到店支付（無銀行帳戶）僅限賣貨便；宅配一律匯款，其餘一律拒絕。
+-- 賣貨便同時帶「到店支付」標記與銀行帳戶的組合無法在此 RPC 表達：p_bank_account_id 為 null
+-- 即代表到店支付，本身就與「附上銀行帳戶」互斥，該組合的檢查屬於 Worker 請求驗證層，不在此測試。
+begin;
+select tests.seed();
+select tests.login(tests.id('member_a'));
+select tests.expect_error(
+  $$select public.create_delivery_order(
+      tests.order_items(tests.id('variant_stock'), 1), 'together', 'home_delivery', null, 0,
+      null, null, '台南市', '王小明', '0912345678')$$,
+  'STORE_PAYMENT_BANK_TRANSFER_ONLY', 'home delivery must be paid by bank transfer');
+select tests.logout();
+select tests.assert((select count(*) = 0 from public.orders), 'rejected home-delivery store-payment order leaves no rows');
+rollback;

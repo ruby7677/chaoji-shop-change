@@ -1,7 +1,7 @@
 // 前台型錄、商品主圖代理與上傳、前端 runtime config。
-import { IMAGE_CACHE_CONTROL, IMAGE_STALE_VERSION_CACHE_CONTROL, PRODUCT_IMAGE_BUCKET, PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_TYPES, hasImageSignature, imageContentType, productImageCacheKey, productImageEdgeCache, purgeProductImageCache, requestedImageVersion, storageObjectUrl, thumbnailPathFor } from "./product-image-storage";
+import { IMAGE_CACHE_CONTROL, IMAGE_STALE_VERSION_CACHE_CONTROL, PRODUCT_IMAGE_BUCKET, PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_TYPES, PRODUCT_IMAGE_UPLOAD_MAX_REQUEST_BYTES, hasImageSignature, imageContentType, productImageCacheKey, productImageEdgeCache, purgeProductImageCache, requestedImageVersion, storageObjectUrl, thumbnailPathFor } from "./product-image-storage";
 import { requireAdmin } from "./auth";
-import { databaseError } from "./database-errors";
+import { databaseError, databaseErrors } from "./database-errors";
 import { type Env, type Product } from "./env";
 import { SECURITY_HEADERS, UPLOAD_TIMEOUT_MS, fetchWithTimeout, json, serviceHeaders } from "./http";
 
@@ -108,8 +108,12 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
   const admin = await requireAdmin(request, env);
   if (admin instanceof Response) return admin;
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "圖片服務尚未設定" }, { status: 503 });
-  const requestSize = Number(request.headers.get("Content-Length") || 0);
-  if (requestSize > PRODUCT_IMAGE_MAX_BYTES + 256 * 1024) return json({ error: "商品照片不可超過 5MB" }, { status: 413 });
+  // formData() 會依 Content-Length 緩衝整個請求；在解析前先用這個標頭擋下缺少大小
+  // 或明顯過大的請求，避免完全依賴用戶端提供的數字。
+  const contentLengthHeader = request.headers.get("Content-Length");
+  const requestSize = contentLengthHeader === null ? NaN : Number(contentLengthHeader);
+  if (!Number.isInteger(requestSize)) return json({ error: "上傳請求缺少檔案大小" }, { status: 411 });
+  if (requestSize > PRODUCT_IMAGE_UPLOAD_MAX_REQUEST_BYTES) return json({ error: databaseErrors.REQUEST_BODY_TOO_LARGE }, { status: 413 });
 
   let formData: FormData;
   try { formData = await request.formData(); }

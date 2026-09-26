@@ -7,21 +7,6 @@ import { adminData, adminFetch, invalidateAdminManagementOptions, refreshAdminSe
 import { renderAdminDiscountOptionBoxes } from "./admin-members-panel.js";
 import { prepareProductImage, uploadAdminProductImage, validateProductImage } from "./admin-product-image.js";
 
-export function removeLegacyShippingUI() {
-  document.querySelector("[data-admin-tab='shipping']")?.remove();
-  document.querySelector("[data-admin-panel='shipping']")?.remove();
-  const checkoutCopy = document.querySelector("#checkout-form > .dialog-copy");
-  if (checkoutCopy) checkoutCopy.textContent = "送出後會立即保留商品；購物車若含現貨與預購，會分開建立訂單與付款期限。本站匯款訂單請於預購 2 小時內、現貨 24 小時內回報末五碼；確認付款後才扣除庫存。預購賣貨便到貨後由客服通知並開立賣貨便，運費由 7-11 取貨時收取；宅配現貨付款確認後即可由客服確認尾款與運費，預購商品則於到貨後通知。";
-  const checkoutTerms = document.querySelector("#checkout-form > .terms");
-  if (checkoutTerms) checkoutTerms.textContent = "送出後將立即保留本組商品庫存；預購須於 2 小時內、現貨須於 24 小時內完成匯款，逾期未回報付款將自動取消並釋放保留量，確認付款後才扣除庫存。付款完成視同同意代購規則；賣貨便運費由 7-11 於取貨時收取，宅配現貨付款確認後由客服確認尾款與運費，預購商品到貨後通知，確認入帳後才安排寄出，任何原因不接受退換貨。";
-  const productCopy = document.querySelector("[data-admin-panel='products'] > .dialog-copy");
-  if (productCopy) productCopy.textContent = "新增商品時可先上傳 1 張主圖；建立後可在商品卡「編輯商品資料與照片」批量上傳，最多 10 張。JPG、PNG、WebP 會優先保留比例、縮放並轉成 WebP，若瀏覽器不支援轉換則保留原始格式；單張上限 5MB。";
-  const orderCopy = document.querySelector("[data-admin-panel='orders'] > .dialog-copy");
-  if (orderCopy) orderCopy.textContent = "建立訂單會先保留庫存；確認訂金／付款後才會扣除庫存。未扣庫存的取消會釋放保留量；已扣庫存且尚未完成交付的取消會反轉原銷售異動。賣貨便運費由 7-11 向客戶收取，不計入訂單；現貨宅配付款確認後即可填寫實際運費，預購宅配則於到貨後更新狀態，再確認尾款與運費入帳後安排寄出。";
-  const ordersCopy = document.querySelector("#orders-dialog .dialog-copy");
-  if (ordersCopy) ordersCopy.textContent = "可查看訂單狀態，匯款訂單可補填匯款帳號末五碼；賣貨便訂單會先顯示為待確認，待管理員人工核對。";
-}
-
 function sortedAdminCategories() {
   return (adminData?.categories || []).slice().sort((left, right) => Number(left.display_order || 0) - Number(right.display_order || 0) || String(left.name || "").localeCompare(String(right.name || ""), "zh-Hant"));
 }
@@ -164,7 +149,6 @@ export function renderAdminProducts() {
   ensureAdminPointsEligibilityUI();
   ensureAdminPricingUI();
   renderAdminProductsTable();
-  removeLegacyShippingUI();
 }
 
 export function renderAdminMovements() {

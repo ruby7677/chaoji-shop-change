@@ -19,6 +19,7 @@ export interface Env {
   API_ORDER_RATE_LIMITER?: RateLimit;
   API_MEMBER_RATE_LIMITER?: RateLimit;
   API_ADMIN_RATE_LIMITER?: RateLimit;
+  API_AUTH_IP_RATE_LIMITER?: RateLimit;
 }
 
 export type Product = {

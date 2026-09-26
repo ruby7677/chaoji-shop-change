@@ -3,7 +3,7 @@
 import { handleSessionExpired } from "./auth-expiry.js";
 import { auth, showDialog, showToast } from "./app-core.js";
 import { products } from "./storefront-catalog.js";
-import { refreshAdminManagementOptionControls, removeLegacyShippingUI, renderAdminCategories, renderAdminLowStock, renderAdminMovements, renderAdminProducts, renderAdminSelects } from "./admin-catalog-panel.js";
+import { refreshAdminManagementOptionControls, renderAdminCategories, renderAdminLowStock, renderAdminMovements, renderAdminProducts, renderAdminSelects } from "./admin-catalog-panel.js";
 import { renderAdminOrderStatusFilter, renderAdminOrders } from "./admin-orders-panel.js";
 import { ensureDiscountAdminUI, renderAdminDiscounts, renderAdminMembers } from "./admin-members-panel.js";
 import { renderAdminAccounts, renderAdminAudit, renderAdminNotifications } from "./admin-system-panel.js";
@@ -247,7 +247,6 @@ function renderAdminSection(section) {
     renderAdminCategories();
     renderAdminProducts();
     renderAdminSelects({ preserveSelection: true });
-    removeLegacyShippingUI();
     renderAdminPagination(section);
     return;
   }
@@ -375,5 +374,4 @@ function renderAdminData() {
   renderAdminLowStock();
   renderAdminSelects();
   renderAdminDiscounts();
-  removeLegacyShippingUI();
 }
