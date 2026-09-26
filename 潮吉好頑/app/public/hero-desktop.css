@@ -80,3 +80,7 @@
   .hero-slide-intro { font-size: .9rem; -webkit-line-clamp: 3; }
   .hero-slide-more { min-height: 40px; margin-top: 12px; }
 }
+
+/* 購物流程重點（現貨／預購／到貨）：業主要求文字加大 2px（原 12.8px／12px，各斷點相同） */
+.hero > .hero-proof b { font-size: 14.8px; }
+.hero > .hero-proof small { font-size: 14px; }

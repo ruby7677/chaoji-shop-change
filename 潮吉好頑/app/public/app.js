@@ -9,7 +9,7 @@ import { addToCartWithFeedback, addVariantQuantityToCart, buyNowFromCard, cart, 
 import { bankAccounts, clearCheckoutFieldErrorFor, openCheckoutReview, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields, syncPaymentFields } from "./checkout-form.js";
 import { checkLineFriendship, handleLineFriendRequest, showLineFriendDialog } from "./member-benefits.js";
 import { currentOrders, openOrders, showPaymentDialog, submitPayment } from "./member-orders.js";
-import { loadProducts, openProductDetail, products, renderHeroSpotlight, renderProducts, search, waitForHeroImageDecode } from "./storefront-catalog.js";
+import { loadProducts, openProductDetail, products, renderHeroSpotlight, renderProducts, search, selectCategory, waitForHeroImageDecode } from "./storefront-catalog.js";
 import { failAuthBoot, finishAuthBoot, startAuthBoot } from "./auth-boot.js";
 import { restoreAuthReturnState } from "./auth-return-state.js";
 import { activeCheckoutScope, openCheckout, showCheckoutError, submitOrder } from "./checkout-flow.js";
@@ -18,7 +18,6 @@ import { beginLineLogin, loadMember, showProfileDialog, submitProfile } from "./
 
 let authBootstrapInFlight = null;
 let initialPageRendered = false;
-export let activeCategory = "all";
 
 document.addEventListener("click", (event) => {
   const copyAccount = event.target.closest("[data-copy-bank-account]");
@@ -120,7 +119,11 @@ initAuthExpiry({
   closeDialog,
   showToast
 });
-document.querySelectorAll(".filter").forEach((button) => button.addEventListener("click", () => { activeCategory = button.dataset.category; document.querySelectorAll(".filter").forEach((item) => item.classList.toggle("active", item === button)); renderProducts(); }));
+// 分類按鈕由 storefront-catalog.js 依型錄動態產生，以事件委派處理
+document.querySelector(".filter-row")?.addEventListener("click", (event) => {
+  const button = event.target.closest(".filter[data-category]");
+  if (button) selectCategory(button.dataset.category);
+});
 search.addEventListener("input", renderProducts);
 document.querySelector("#checkout-form").addEventListener("submit", async (event) => {
   event.preventDefault();

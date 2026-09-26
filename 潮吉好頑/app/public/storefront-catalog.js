@@ -1,10 +1,10 @@
 // 前台型錄：商品列表與搜尋、首頁 Hero 輪播、商品頁入口與載入型錄。
-import { escapeHtml, productAvailability, productMark, productPriceMarkup } from "./product-format.js";
+import { escapeHtml, isPreorderItem, productAvailability, productMark, productPriceMarkup } from "./product-format.js";
 import { productCardMarkup } from "./product-card.js";
 import { mountHeroCarousel } from "./hero-carousel.js";
 import { selectHeroSlides } from "./hero-slides.js";
 import { showToast } from "./app-core.js";
-import { activeCategory, productPage } from "./app.js";
+import { productPage } from "./app.js";
 
 export let products = [
   { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", icon: "🌀", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" },
@@ -61,7 +61,31 @@ function renderSingleHeroSpotlight() {
     addButton.textContent = available ? "加入購物車" : "目前無庫存";
   }
 }
+// 分類篩選按鈕依型錄實際有的分類產生（依商品排序先後），後台新增分類後不用改 HTML
+let activeCategory = "all";
+const PREORDER_FILTER = "預購";
+const filterLabel = (category) => category.replace(/^([A-Za-z0-9]+)(系列)$/, "$1 $2");
+
+export function selectCategory(category) {
+  activeCategory = category || "all";
+  renderProducts();
+}
+
+function renderCategoryFilters() {
+  const row = document.querySelector(".filter-row");
+  if (!row) return;
+  const categories = [...new Set(products.map((product) => product.category).filter(Boolean))];
+  const hasPreorder = products.some(isPreorderItem);
+  const values = ["all", ...categories, ...(hasPreorder ? [PREORDER_FILTER] : [])];
+  if (!values.includes(activeCategory)) activeCategory = "all";
+  row.innerHTML = values.map((value) => {
+    const label = value === "all" ? "全部" : value === PREORDER_FILTER ? PREORDER_FILTER : filterLabel(value);
+    return `<button class="filter${value === activeCategory ? " active" : ""}" type="button" data-category="${escapeHtml(value)}" aria-pressed="${value === activeCategory}">${escapeHtml(label)}</button>`;
+  }).join("");
+}
+
 export function renderProducts() {
+  renderCategoryFilters();
   const keyword = search.value.trim().toLowerCase();
   const visible = products.filter((product) => (activeCategory === "all" || product.category === activeCategory || product.type === activeCategory) && `${product.category}${product.name}`.toLowerCase().includes(keyword));
   grid.innerHTML = visible.length ? visible.map(productCardMarkup).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
