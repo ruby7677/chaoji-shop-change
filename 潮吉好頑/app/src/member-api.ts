@@ -2,7 +2,8 @@
 import { requireUser } from "./auth";
 import { databaseError, databaseErrors } from "./database-errors";
 import { type Env } from "./env";
-import { MAX_JSON_REQUEST_BYTES, enforceRateLimit, json, serviceHeaders } from "./http";
+import { MAX_JSON_REQUEST_BYTES, enforceRateLimit, fetchWithTimeout, json, serviceHeaders } from "./http";
+import { invalidateCatalogCache } from "./catalog";
 
 const MAX_ORDER_ITEMS = 50;
 
@@ -21,7 +22,7 @@ async function setLineFriendVerification(env: Env, userId: string, verified: boo
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return false;
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/profiles`);
   url.searchParams.set("id", `eq.${userId}`);
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: "PATCH",
     headers: serviceHeaders(env, "return=minimal"),
     body: JSON.stringify({ line_friend_verified_at: verified ? new Date().toISOString() : null })
@@ -32,8 +33,10 @@ async function setLineFriendVerification(env: Env, userId: string, verified: boo
 export async function listBankAccounts(request: Request, env: Env): Promise<Response> {
   const authResult = await requireUser(request, env);
   if (authResult instanceof Response) return authResult;
+  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `bank-accounts:${authResult.user.id}`);
+  if (rateLimitResponse) return rateLimitResponse;
   if (!env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "收款帳戶服務尚未設定" }, { status: 503 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/bank_accounts?select=id,label,bank_name,account_name,account_number&is_active=eq.true&order=display_order.asc`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/bank_accounts?select=id,label,bank_name,account_name,account_number&is_active=eq.true&order=display_order.asc`, {
     headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` }
   });
   if (!response.ok) return json({ error: "收款帳戶暫時無法載入" }, { status: 503 });
@@ -58,7 +61,7 @@ async function attachBankAccounts(env: Env, orders: MemberOrderRow[]): Promise<b
     const url = new URL(`${env.SUPABASE_URL}/rest/v1/bank_accounts`);
     url.searchParams.set("select", "id,label,bank_name,account_name,account_number");
     url.searchParams.set("id", `in.(${ids.join(",")})`);
-    const response = await fetch(url, { headers: serviceHeaders(env) });
+    const response = await fetchWithTimeout(url, { headers: serviceHeaders(env) });
     if (!response.ok) return false;
     for (const { id, ...account } of await response.json() as BankAccountRow[]) accounts.set(id, account);
   }
@@ -72,7 +75,7 @@ async function loadOrder(env: Env, orderId: string, memberId: string, authorizat
   url.searchParams.set("select", MEMBER_ORDER_SELECT);
   url.searchParams.set("id", `eq.${orderId}`);
   url.searchParams.set("member_id", `eq.${memberId}`);
-  const response = await fetch(url, { headers: memberHeaders(env, authorization) });
+  const response = await fetchWithTimeout(url, { headers: memberHeaders(env, authorization) });
   if (!response.ok) return null;
   const rows = await response.json() as MemberOrderRow[];
   if (!rows[0] || !await attachBankAccounts(env, rows)) return null;
@@ -82,13 +85,15 @@ async function loadOrder(env: Env, orderId: string, memberId: string, authorizat
 export async function listOrders(request: Request, env: Env): Promise<Response> {
   const authResult = await requireUser(request, env);
   if (authResult instanceof Response) return authResult;
+  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `orders-read:${authResult.user.id}`);
+  if (rateLimitResponse) return rateLimitResponse;
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "訂單服務尚未設定" }, { status: 503 });
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
   url.searchParams.set("select", MEMBER_ORDER_SELECT);
   url.searchParams.set("member_id", `eq.${authResult.user.id}`);
   url.searchParams.set("order", "created_at.desc");
   url.searchParams.set("limit", "50");
-  const response = await fetch(url, { headers: memberHeaders(env, authResult.authorization) });
+  const response = await fetchWithTimeout(url, { headers: memberHeaders(env, authResult.authorization) });
   if (!response.ok) return json({ error: "訂單紀錄暫時無法載入" }, { status: 503 });
   const orders = await response.json() as MemberOrderRow[];
   if (!await attachBankAccounts(env, orders)) return json({ error: "訂單紀錄暫時無法載入" }, { status: 503 });
@@ -108,7 +113,7 @@ export async function listMemberCart(request: Request, env: Env): Promise<Respon
   url.searchParams.set("member_id", `eq.${authResult.user.id}`);
   url.searchParams.set("order", "updated_at.desc");
   url.searchParams.set("limit", String(MAX_CART_ITEMS));
-  const response = await fetch(url, { headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authResult.authorization } });
+  const response = await fetchWithTimeout(url, { headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authResult.authorization } });
   if (!response.ok) return json({ error: "會員購物車暫時無法載入" }, { status: 503 });
   const rows = await response.json() as MemberCartRow[];
   return json({ items: rows.map((row) => ({ variant_id: row.variant_id, quantity: row.quantity })) });
@@ -131,7 +136,7 @@ export async function replaceMemberCart(request: Request, env: Env): Promise<Res
     ids.add(id);
     return false;
   })) return json({ error: databaseErrors.CART_ITEM_INVALID }, { status: 400 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/replace_member_cart`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/replace_member_cart`, {
     method: "POST",
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authResult.authorization, "Content-Type": "application/json" },
     body: JSON.stringify({ p_items: items.map((item) => ({ variant_id: item.variant_id, quantity: item.quantity })) })
@@ -143,19 +148,21 @@ export async function replaceMemberCart(request: Request, env: Env): Promise<Res
 export async function memberPoints(request: Request, env: Env): Promise<Response> {
   const authResult = await requireUser(request, env);
   if (authResult instanceof Response) return authResult;
+  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `points:${authResult.user.id}`);
+  if (rateLimitResponse) return rateLimitResponse;
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "點數服務尚未設定" }, { status: 503 });
   const headers = serviceHeaders(env);
   const member = memberHeaders(env, authResult.authorization);
   const [balanceResponse, ledgerResponse, settingsResponse, couponsResponse] = await Promise.all([
-    fetch(`${env.SUPABASE_URL}/rest/v1/rpc/member_point_balance`, {
+    fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/member_point_balance`, {
       method: "POST",
       headers: { ...member, "Content-Type": "application/json" },
       body: "{}"
     }),
     // 點數紀錄以會員 JWT 讀取（RLS：members view own point ledger）；點數設定是全店共用設定，仍由 service role 讀。
-    fetch(`${env.SUPABASE_URL}/rest/v1/point_ledger?select=id,kind,points,reason,created_at,orders(order_number)&member_id=eq.${authResult.user.id}&order=created_at.desc&limit=100`, { headers: member }),
-    fetch(`${env.SUPABASE_URL}/rest/v1/point_settings?select=earn_amount_per_point,point_value,min_redeem_points,max_redeem_mode,max_redeem_value&id=eq.true`, { headers }),
-    fetch(`${env.SUPABASE_URL}/rest/v1/rpc/member_available_coupons`, { method: "POST", headers: { ...member, "Content-Type": "application/json" }, body: "{}" })
+    fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/point_ledger?select=id,kind,points,reason,created_at,orders(order_number)&member_id=eq.${authResult.user.id}&order=created_at.desc&limit=100`, { headers: member }),
+    fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/point_settings?select=earn_amount_per_point,point_value,min_redeem_points,max_redeem_mode,max_redeem_value&id=eq.true`, { headers }),
+    fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/member_available_coupons`, { method: "POST", headers: { ...member, "Content-Type": "application/json" }, body: "{}" })
   ]);
   if (!balanceResponse.ok || !ledgerResponse.ok || !settingsResponse.ok || !couponsResponse.ok) return json({ error: "點數與優惠券資料暫時無法載入" }, { status: 503 });
   const balance = Number(await balanceResponse.json());
@@ -174,7 +181,7 @@ export async function memberLineFriendship(request: Request, env: Env): Promise<
   profileUrl.searchParams.set("select", "line_user_id,line_friend_verified_at");
   profileUrl.searchParams.set("id", `eq.${authResult.user.id}`);
   profileUrl.searchParams.set("limit", "1");
-  const profileResponse = await fetch(profileUrl, { headers: serviceHeaders(env) });
+  const profileResponse = await fetchWithTimeout(profileUrl, { headers: serviceHeaders(env) });
   if (!profileResponse.ok) return json({ error: "無法讀取 LINE 會員資料" }, { status: 503 });
   const profiles = await profileResponse.json() as Array<{ line_user_id?: string | null; line_friend_verified_at?: string | null }>;
   const lineUserId = profiles[0]?.line_user_id;
@@ -189,8 +196,8 @@ export async function memberLineFriendship(request: Request, env: Env): Promise<
   }
   if (lineLoginAccessToken.length > 4096) return json({ error: "LINE 登入授權格式不正確" }, { status: 400 });
   const [friendshipResponse, profileCheckResponse] = await Promise.all([
-    fetch("https://api.line.me/friendship/v1/status", { headers: { Authorization: `Bearer ${lineLoginAccessToken}` } }),
-    fetch("https://api.line.me/v2/profile", { headers: { Authorization: `Bearer ${lineLoginAccessToken}` } })
+    fetchWithTimeout("https://api.line.me/friendship/v1/status", { headers: { Authorization: `Bearer ${lineLoginAccessToken}` } }),
+    fetchWithTimeout("https://api.line.me/v2/profile", { headers: { Authorization: `Bearer ${lineLoginAccessToken}` } })
   ]);
   if (friendshipResponse.ok && profileCheckResponse.ok) {
     const friendship = await friendshipResponse.json() as { friendFlag?: boolean };
@@ -240,7 +247,7 @@ export async function createOrder(request: Request, env: Env): Promise<Response>
     if (!shippingPhone || !/^09\d{8}$/.test(shippingPhone)) return json({ error: "宅配請填寫有效的收件人手機號碼" }, { status: 400 });
     if (!body.shipping_address?.trim()) return json({ error: "宅配請填寫收件地址" }, { status: 400 });
   }
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/create_delivery_order`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/create_delivery_order`, {
     method: "POST",
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authorization, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -257,6 +264,8 @@ export async function createOrder(request: Request, env: Env): Promise<Response>
     })
   });
   if (!response.ok) return databaseError(response);
+  // 建單會保留庫存，前台型錄的可售量隨之減少
+  invalidateCatalogCache();
   const orderId = await response.json() as string;
   const order = await loadOrder(env, orderId, user.id, authorization);
   if (!order) return json({ error: "訂單已建立，但明細載入失敗，請至我的訂單查看" }, { status: 502 });
@@ -273,7 +282,7 @@ export async function submitOrderPayment(request: Request, env: Env, orderId: st
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   if (!body.bank_account_id || !body.payment_last_five) return json({ error: "請選擇收款帳戶並填寫末五碼" }, { status: 400 });
   if (!/^\d{5}$/.test(body.payment_last_five)) return json({ error: "匯款帳號末五碼須為 5 位數字" }, { status: 400 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/submit_order_payment`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/submit_order_payment`, {
     method: "POST",
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authResult.authorization, "Content-Type": "application/json" },
     body: JSON.stringify({ p_order_id: orderId, p_bank_account_id: body.bank_account_id, p_payment_last_five: body.payment_last_five })

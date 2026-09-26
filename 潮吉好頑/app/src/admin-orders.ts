@@ -1,8 +1,9 @@
 // 後台訂單操作：狀態轉換、宅配尾款／運費、退貨驗收。
+import { invalidateCatalogCache } from "./catalog";
 import { requireAdmin } from "./auth";
 import { databaseError, databaseErrors } from "./database-errors";
 import { type Env } from "./env";
-import { json, serviceHeaders } from "./http";
+import { fetchWithTimeout, json, serviceHeaders } from "./http";
 
 const adminOrderStatuses = ["pending_payment", "pending_review", "confirmed", "partially_ready", "ready_for_pickup", "completed", "cancelled", "refund_pending", "refunded"] as const;
 
@@ -19,7 +20,7 @@ export async function transitionAdminOrder(request: Request, env: Env, orderId: 
     orderUrl.searchParams.set("select", "delivery_method,pickup_plan,order_items(kind)");
     orderUrl.searchParams.set("id", `eq.${orderId}`);
     orderUrl.searchParams.set("limit", "1");
-    const orderResponse = await fetch(orderUrl, { headers: serviceHeaders(env) });
+    const orderResponse = await fetchWithTimeout(orderUrl, { headers: serviceHeaders(env) });
     if (!orderResponse.ok) return json({ error: "訂單資料暫時無法讀取" }, { status: 503 });
     const orderRows = await orderResponse.json() as Array<{ delivery_method?: string; pickup_plan?: string; order_items?: Array<{ kind?: string }> }>;
     const order = orderRows[0];
@@ -36,12 +37,14 @@ export async function transitionAdminOrder(request: Request, env: Env, orderId: 
       return json({ error: "現貨宅配付款確認後直接填寫尾款與運費，無需更新備貨狀態" }, { status: 400 });
     }
   }
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_transition_order`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_transition_order`, {
     method: "POST",
     headers: serviceHeaders(env),
     body: JSON.stringify({ p_actor_id: admin.user.id, p_order_id: orderId, p_target_status: targetStatus, p_note: body.note?.trim() || null })
   });
   if (!response.ok) return databaseError(response);
+  // 取消會釋放保留量，改變前台型錄的可售量
+  invalidateCatalogCache();
   return json({ order: await response.json() });
 }
 
@@ -53,7 +56,7 @@ export async function updateAdminOrderFulfillment(request: Request, env: Env, or
   if (!Number.isInteger(body.shipping_fee) || (body.shipping_fee as number) < 0) return json({ error: "實際運費必須是 0 或正整數" }, { status: 400 });
   if (body.final_payment_last_five && !/^\d{5}$/.test(body.final_payment_last_five)) return json({ error: "尾款匯款末五碼須為 5 位數字" }, { status: 400 });
   if ((body.note || "").length > 1000) return json({ error: "管理備註不可超過 1000 字" }, { status: 400 });
-  const orderLookup = await fetch(`${env.SUPABASE_URL}/rest/v1/orders?select=status,delivery_method,order_items(kind)&id=eq.${orderId}&limit=1`, { headers: serviceHeaders(env) });
+  const orderLookup = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/orders?select=status,delivery_method,order_items(kind)&id=eq.${orderId}&limit=1`, { headers: serviceHeaders(env) });
   if (!orderLookup.ok) return json({ error: "訂單資料暫時無法讀取" }, { status: 503 });
   const orderRows = await orderLookup.json() as Array<{ status?: string; delivery_method?: string; order_items?: Array<{ kind?: string }> }>;
   if (!orderRows.length) return json({ error: "找不到訂單" }, { status: 404 });
@@ -68,7 +71,7 @@ export async function updateAdminOrderFulfillment(request: Request, env: Env, or
   }
   if (sellerDelivery && body.shipping_fee !== 0) return json({ error: "賣貨便運費由 7-11 向客戶收取，不計入訂單" }, { status: 400 });
   if (sellerDelivery && body.final_payment_confirmed === true) return json({ error: "賣貨便付款由外部平台處理，不需在本站確認尾款" }, { status: 400 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_order_fulfillment`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_order_fulfillment`, {
     method: "POST",
     headers: serviceHeaders(env),
     body: JSON.stringify({
@@ -105,7 +108,7 @@ export async function confirmAdminOrderReturn(request: Request, env: Env, orderI
     return json({ error: databaseErrors.INVALID_RETURN_QUANTITY }, { status: 400 });
   }
   if ((body.note || "").length > 1000) return json({ error: "退貨驗收備註不可超過 1000 字" }, { status: 400 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_confirm_order_return`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_confirm_order_return`, {
     method: "POST",
     headers: serviceHeaders(env),
     body: JSON.stringify({
@@ -118,5 +121,7 @@ export async function confirmAdminOrderReturn(request: Request, env: Env, orderI
     })
   });
   if (!response.ok) return databaseError(response);
+  // 退貨驗收會把可再售數量回補庫存，影響前台型錄的可售量。
+  invalidateCatalogCache();
   return json({ return_confirmation: await response.json() });
 }

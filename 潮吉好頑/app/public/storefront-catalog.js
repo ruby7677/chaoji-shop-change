@@ -52,7 +52,7 @@ function renderSingleHeroSpotlight() {
   if (nameNode) nameNode.textContent = productName;
   if (priceNode) priceNode.innerHTML = productPriceMarkup(product);
   visual.innerHTML = product.image_url
-    ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(productName)}" />`
+    ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(productName)}" fetchpriority="high" decoding="async" />`
     : `<div class="hero-placeholder"><span>${productMark(product)}</span><small>${product.type === "現貨" ? "READY TO PLAY" : "COMING FROM AFAR"}</small></div>`;
   if (addButton) {
     const available = Number(product.stock || 0) > 0;

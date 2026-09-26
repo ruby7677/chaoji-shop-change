@@ -2,7 +2,7 @@
 // 回應格式與改動前相同（訂單仍帶 bank_accounts 物件）。
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { baseEnv, ctx, jsonResponse, loadWorker, stubFetch } from "./harness.mjs";
+import { baseEnv, ctx, deniedRateLimit, jsonResponse, loadWorker, stubFetch } from "./harness.mjs";
 
 const worker = await loadWorker();
 const MEMBER_ID = "00000000-0000-4000-8000-0000000000a1";
@@ -85,4 +85,30 @@ test("point history is read with the member's token; shared point settings with 
   assert.equal(byPath["/rest/v1/rpc/member_point_balance"].auth, MEMBER_TOKEN);
   assert.equal(byPath["/rest/v1/rpc/member_available_coupons"].auth, MEMBER_TOKEN);
   assert.equal(byPath["/rest/v1/point_settings"].auth, "Bearer service-key");
+});
+
+// listBankAccounts、listOrders、memberPoints 原本沒有速率限制，其餘會員端點都有；
+// 三者都在通過登入驗證後、實際讀取店家資料前擋下超量請求。
+const deniedEnv = { ...baseEnv, API_MEMBER_RATE_LIMITER: deniedRateLimit };
+const getWithEnv = (path, env) => worker.fetch(new Request(`https://shop.test${path}`, { headers: { Authorization: MEMBER_TOKEN } }), env, ctx());
+
+test("GET /api/bank-accounts is rate limited after login", async () => {
+  const calls = fakeSupabase();
+  const response = await getWithEnv("/api/bank-accounts", deniedEnv);
+  assert.equal(response.status, 429);
+  assert.equal(calls.some((call) => call.path === "/rest/v1/bank_accounts"), false, "a rate-limited request never reaches the bank account table");
+});
+
+test("GET /api/orders is rate limited after login", async () => {
+  const calls = fakeSupabase();
+  const response = await getWithEnv("/api/orders", deniedEnv);
+  assert.equal(response.status, 429);
+  assert.equal(calls.some((call) => call.path === "/rest/v1/orders"), false, "a rate-limited request never reaches the orders table");
+});
+
+test("GET /api/member/points is rate limited after login", async () => {
+  const calls = fakeSupabase();
+  const response = await getWithEnv("/api/member/points", deniedEnv);
+  assert.equal(response.status, 429);
+  assert.equal(calls.some((call) => call.path === "/rest/v1/rpc/member_point_balance"), false, "a rate-limited request never reaches the point balance RPC");
 });

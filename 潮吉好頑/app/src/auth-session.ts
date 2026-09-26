@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from "./http";
+
 const SESSION_COOKIE = "__Host-cj-session";
 const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
@@ -151,7 +153,7 @@ export async function requestSupabaseRefresh(
 ): Promise<SupabaseRefreshResult> {
   let response: Response;
   try {
-    response = await fetch(supabaseUrl + "/auth/v1/token?grant_type=refresh_token", {
+    response = await fetchWithTimeout(supabaseUrl + "/auth/v1/token?grant_type=refresh_token", {
       method: "POST",
       headers: {
         apikey: anonKey,
@@ -173,7 +175,7 @@ export async function refreshSupabaseSession(
   anonKey: string,
   refreshToken: string
 ): Promise<SupabaseRefreshSession | null> {
-  const response = await fetch(supabaseUrl + "/auth/v1/token?grant_type=refresh_token", {
+  const response = await fetchWithTimeout(supabaseUrl + "/auth/v1/token?grant_type=refresh_token", {
     method: "POST",
     headers: {
       apikey: anonKey,

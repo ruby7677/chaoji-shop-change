@@ -3,7 +3,7 @@ import { type LinePushMessage, type OrderNotificationEventType, buildBirthdayCou
 import { type DeliveryResult, deliverLineNotification, deliverTelegramNotification } from "./notification-delivery";
 import { requireAdmin } from "./auth";
 import { type Env } from "./env";
-import { json, serviceHeaders } from "./http";
+import { fetchWithTimeout, json, serviceHeaders } from "./http";
 
 const lineOrderStatusLabels: Record<string, string> = {
   pending_payment: "待付款", pending_review: "待確認款項", confirmed: "已確認付款",
@@ -55,7 +55,11 @@ async function loadOrderNotification(env: Env, orderId: string) {
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
   url.searchParams.set("select", "id,order_number,status,delivery_method,bank_account_id,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,paid_amount,final_payment_last_five,final_payment_confirmed_at,updated_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,profiles!orders_member_id_fkey(full_name,line_user_id,is_admin),order_items(product_name,variant_name,quantity,kind)");
   url.searchParams.set("id", `eq.${orderId}`);
-  const response = await fetch(url, { headers: serviceHeaders(env) });
+  let response: Response;
+  // 這裡沒有上層 try/catch（呼叫端以 ctx.waitUntil 執行），逾時或網路錯誤需自行吞掉，
+  // 否則會變成未處理的 rejection；失敗一律視為「這次通知讀不到訂單」，回 null。
+  try { response = await fetchWithTimeout(url, { headers: serviceHeaders(env) }); }
+  catch { return null; }
   if (!response.ok) return null;
   const rows = await response.json() as unknown[];
   return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; shipping_address?: string | null; shipping_recipient_name?: string | null; shipping_phone?: string | null; shipping_fee_notified_at?: string | null; paid_amount?: number; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string; is_admin?: boolean }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number; kind?: string }> };
@@ -119,8 +123,8 @@ export async function notifyLowStock(env: Env) {
   const headers = serviceHeaders(env);
   // 低庫存唯一定義在資料庫 low_stock_variants（商品與規格都上架、庫存 ≤ 安全庫存），與後台統計、清單一致。
   const [lowResponse, statesResponse] = await Promise.all([
-    fetch(`${base}/rest/v1/rpc/low_stock_variants`, { method: "POST", headers, body: "{}" }),
-    fetch(`${base}/rest/v1/line_low_stock_states?select=variant_id,last_notified_stock,last_notified_at`, { headers })
+    fetchWithTimeout(`${base}/rest/v1/rpc/low_stock_variants`, { method: "POST", headers, body: "{}" }),
+    fetchWithTimeout(`${base}/rest/v1/line_low_stock_states?select=variant_id,last_notified_stock,last_notified_at`, { headers })
   ]);
   if (!lowResponse.ok || !statesResponse.ok) return;
   const low = await lowResponse.json() as Array<{ id: string; name: string; sku: string; product_name: string | null; stock_on_hand: number; safety_stock: number }>;
@@ -134,7 +138,7 @@ export async function notifyLowStock(env: Env) {
   // 已通知過、但現在不在低庫存名單（補貨或下架）的規格重設狀態，之後再低於門檻會重新通知。
   const recovered = states.filter((state) => state.last_notified_stock != null && !lowIds.has(state.variant_id)).map((state) => state.variant_id);
   if (recovered.length) {
-    await fetch(`${base}/rest/v1/line_low_stock_states?variant_id=in.(${recovered.join(",")})`, { method: "PATCH", headers: serviceHeaders(env, "return=minimal"), body: JSON.stringify({ last_notified_stock: null, last_notified_at: null, updated_at: new Date().toISOString() }) });
+    await fetchWithTimeout(`${base}/rest/v1/line_low_stock_states?variant_id=in.(${recovered.join(",")})`, { method: "PATCH", headers: serviceHeaders(env, "return=minimal"), body: JSON.stringify({ last_notified_stock: null, last_notified_at: null, updated_at: new Date().toISOString() }) });
   }
   if (!toNotify.length) return;
   const lines = toNotify.map((variant) => `• ${variant.product_name || "商品"} · ${variant.name} (${variant.sku})：剩 ${variant.stock_on_hand} 件`);
@@ -143,7 +147,7 @@ export async function notifyLowStock(env: Env) {
   const sent = await Promise.all(recipients.map((chatId) => notifyTelegram(env, eventKey, chatId, "low_stock", buildLowStockMessage(env.STORE_NAME, lines))));
   if (sent.some((result) => result.sent)) {
     for (const variant of toNotify) {
-      await fetch(`${base}/rest/v1/line_low_stock_states`, { method: "POST", headers: serviceHeaders(env, "resolution=merge-duplicates,return=minimal"), body: JSON.stringify({ variant_id: variant.id, last_notified_stock: variant.stock_on_hand, last_notified_at: new Date().toISOString(), updated_at: new Date().toISOString() }) });
+      await fetchWithTimeout(`${base}/rest/v1/line_low_stock_states`, { method: "POST", headers: serviceHeaders(env, "resolution=merge-duplicates,return=minimal"), body: JSON.stringify({ variant_id: variant.id, last_notified_stock: variant.stock_on_hand, last_notified_at: new Date().toISOString(), updated_at: new Date().toISOString() }) });
     }
   }
 }
@@ -164,7 +168,7 @@ export async function notifyBirthdayCoupons(env: Env) {
   url.searchParams.set("select", "id,code,name,discount_amount,coupon_members(member_id,profiles(line_user_id))");
   url.searchParams.set("is_birthday", "eq.true");
   url.searchParams.set("created_at", `gte.${start.toISOString()}`);
-  const response = await fetch(url, { headers: serviceHeaders(env) });
+  const response = await fetchWithTimeout(url, { headers: serviceHeaders(env) });
   if (!response.ok) return;
   const coupons = await response.json() as Array<{ id: string; code: string; name: string; discount_amount: number; coupon_members?: Array<{ profiles?: { line_user_id?: string } }> }>;
   for (const coupon of coupons) for (const member of coupon.coupon_members || []) if (member.profiles?.line_user_id) {
@@ -200,7 +204,7 @@ async function notifyRecentlyCancelledOrders(env: Env) {
     if (lastCancelledAt && lastId) {
       url.searchParams.set("or", `(cancelled_at.gt.${lastCancelledAt},and(cancelled_at.eq.${lastCancelledAt},id.gt.${lastId}))`);
     }
-    const response = await fetch(url, { headers });
+    const response = await fetchWithTimeout(url, { headers });
     if (!response.ok) return;
     const rows = await response.json() as Array<{ id?: string; cancelled_at?: string | null }>;
     const validRows = rows.filter((row): row is { id: string; cancelled_at: string } => typeof row.id === "string" && typeof row.cancelled_at === "string");
@@ -217,7 +221,7 @@ async function notifyRecentlyCancelledOrders(env: Env) {
       markUrl.searchParams.set("id", `in.(${handledIds.join(",")})`);
       markUrl.searchParams.set("status", "eq.cancelled");
       markUrl.searchParams.set("cancellation_notified_at", "is.null");
-      await fetch(markUrl, {
+      await fetchWithTimeout(markUrl, {
         method: "PATCH",
         headers: serviceHeaders(env, "return=minimal"),
         body: JSON.stringify({ cancellation_notified_at: new Date().toISOString() })

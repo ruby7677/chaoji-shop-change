@@ -11,7 +11,8 @@
 - 無 MFA 管理模式：管理 API 要求 LINE provider identity、綁定的 `profiles.line_user_id` 與 `is_admin=true` 三者一致。
 - Worker Rate Limiting API：
   - `API_ORDER_RATE_LIMITER`：每會員 10 次／60 秒。
-  - `API_MEMBER_RATE_LIMITER`：每會員好友驗證／付款 30 次／60 秒。
+  - `API_MEMBER_RATE_LIMITER`：每會員好友驗證／付款 30 次／60 秒；購物車、收款帳戶、我的訂單、點數查詢各自以會員 id 分開計數，同樣 30 次／60 秒（2026-09-26 補上讀取類路由）。
+  - `GET /api/catalog` 不限流：Worker 記憶體快取 30 秒（每個 isolate 最多 30 秒查一次 Supabase，管理端改型錄、會員建單、管理員變更訂單狀態後立即失效；pg_cron 逾期取消由 30 秒 TTL 自然更新），瀏覽器端維持 `no-store`。
   - `API_ADMIN_RATE_LIMITER`：每位管理員 API 60 次／60 秒（2026-09-25 由 20 次調高；以通過驗證的管理員 id 計數）。
 - Worker 安全標頭：CSP、HSTS、X-Frame-Options、X-Content-Type-Options、Referrer-Policy、Permissions-Policy。
 - 最新 Worker：Version ID `16d93c0c-02e6-458d-be77-55adc2ca1a01`（2026-09-24 部署：每小時取消訂單通知只掃描 `cancellation_notified_at` 為空的訂單，migration `202609250001` 已先套用；之前 `4cee25b2` 為電腦版「管理後台」另開 `/admin` 分頁，權限仍由伺服器檢查、登入資料未改存 localStorage；之前 `f12d9aeb` 為登入過期處理、`d3241da1` 為畫面內確認視窗、`b62ef7b4` 為商品與規格頁改版與 iOS Safari 修正，其間另有首頁輪播版面調整；歷次版本見 `ADMIN_REDESIGN_PLAN.md`、`PRODUCT_SHOWCASE_PLAN.md`）。
@@ -86,6 +87,13 @@ Worker 也已加入 provider allowlist；目前 Email provider 已關閉，非 L
 部署前不可刪除 `wrangler.jsonc` 的三個 `ratelimits` binding。若未來改用正式網域，仍可額外在該 zone 建立 WAF／Ruleset rate-limit 規則，但要先確認只匹配商店 hostname，不要套到同一 zone 的其他服務。
 
 官方說明：[Workers Rate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)
+
+## 回復程序（部署或 migration 出錯時）
+
+- 單一 deployment owner 執行回復，避免多個代理平行操作互相覆蓋；完成後在本清單記錄實際 Version ID／migration 檔名與處理結果。
+- **Worker 回復**：先 `$env:WRANGLER_WRITE_LOGS='0'`，以 `npx wrangler deployments list --json` 找出前一個正常版本的 Version ID，再執行 `npx wrangler rollback <version-id>` 回退。回復前先確認舊版 Worker 相容目前資料庫 schema（Worker 回復不會復原已套用的 migration，若新 migration 已改變欄位或移除舊 RPC，舊版程式碼可能無法運作）。回復後依 AGENTS.md 的 post-deploy smoke 檢查（`deployments list --json` 確認流量 100%、Node `fetch` 驗證 health／config／catalog／首頁與本次相關 route）。
+- **資料庫回復**：migration 一律只能往前疊加，不可重跑或修改已套用檔案。若已套用的 migration 造成問題，撰寫新的 incremental migration 修正（依 AGENTS.md 部署流程走完整檢查與 `test:db`）；執行有風險的 migration 前，先在 Supabase Dashboard 確認專案的 backup／point-in-time recovery 可用狀態，作為復原的最後手段，不假設特定方案功能已啟用。
+- 若懷疑資料已損壞且無法以新 migration 修正，先停止繼續套用變更並回報範圍，再由店主／有權限者依 Supabase Dashboard 的備份功能評估還原，不在本清單自行執行資料庫還原。
 
 ## D. 上線前人工驗收
 

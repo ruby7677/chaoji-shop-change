@@ -3,17 +3,32 @@ import { IMAGE_CACHE_CONTROL, IMAGE_STALE_VERSION_CACHE_CONTROL, PRODUCT_IMAGE_B
 import { requireAdmin } from "./auth";
 import { databaseError } from "./database-errors";
 import { type Env, type Product } from "./env";
-import { SECURITY_HEADERS, json, serviceHeaders } from "./http";
+import { SECURITY_HEADERS, UPLOAD_TIMEOUT_MS, fetchWithTimeout, json, serviceHeaders } from "./http";
 
 const demoProducts: Product[] = [
   { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", seller_link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" },
   { id: "ux20", category: "UX系列", name: "UX20 榮耀戰神 亞洲版", price: 1350, stock: 23, type: "現貨", seller_link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" }
 ];
 
-export async function publicCatalog(env: Env): Promise<Product[]> {
-  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return demoProducts;
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,hero_rank,hero_tagline&is_published=eq.true&order=display_order.asc`, {
-    headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
+// 前台型錄放 Worker isolate 內的記憶體快取（*.workers.dev 網域不可用 Cache API）：TTL 30 秒，
+// 併發請求共用同一個 in-flight promise，讀取失敗不快取。回應給瀏覽器的 Cache-Control 仍是 no-store，
+// 這個快取只影響 Worker 內部是否重打 Supabase。
+const CATALOG_CACHE_TTL_MS = 30_000;
+let catalogCache: { data: Product[]; expiresAt: number } | null = null;
+let catalogInflight: Promise<Product[]> | null = null;
+// 失效時遞增：失效前就開始的讀取完成後不可把舊資料寫回快取
+let catalogGeneration = 0;
+
+/** 任何會改變前台型錄資料的管理端寫入成功後呼叫，強制下一次 publicCatalog() 重新讀取。 */
+export function invalidateCatalogCache() {
+  catalogGeneration += 1;
+  catalogCache = null;
+  catalogInflight = null;
+}
+
+async function loadPublicCatalog(env: Env): Promise<Product[]> {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,hero_rank,hero_tagline&is_published=eq.true&order=display_order.asc`, {
+    headers: { apikey: env.SUPABASE_ANON_KEY as string, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
   });
   if (!response.ok) throw new Error("Unable to load catalog");
   const rows = await response.json() as Array<Product & { has_image?: boolean; image_updated_at?: string }>;
@@ -23,6 +38,26 @@ export async function publicCatalog(env: Env): Promise<Product[]> {
       ? `/api/product-images/${product.product_id}?v=${encodeURIComponent(image_updated_at || "1")}`
       : undefined
   }));
+}
+
+export async function publicCatalog(env: Env): Promise<Product[]> {
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return demoProducts;
+  const now = Date.now();
+  if (catalogCache && catalogCache.expiresAt > now) return catalogCache.data;
+  if (catalogInflight) return catalogInflight;
+  const generation = catalogGeneration;
+  const inflight = loadPublicCatalog(env).then((data) => {
+    if (generation === catalogGeneration) {
+      catalogCache = { data, expiresAt: Date.now() + CATALOG_CACHE_TTL_MS };
+      catalogInflight = null;
+    }
+    return data;
+  }).catch((error) => {
+    if (generation === catalogGeneration) catalogInflight = null;
+    throw error;
+  });
+  catalogInflight = inflight;
+  return inflight;
 }
 
 export async function serveProductImage(request: Request, env: Env, productId: string, ctx: ExecutionContext): Promise<Response> {
@@ -35,7 +70,7 @@ export async function serveProductImage(request: Request, env: Env, productId: s
   const cached = await edgeCache.match(cacheKey);
   if (cached) return cached;
   // Unpublished product images must not be exposed by guessing an old UUID.
-  const productResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/products?select=image_path,image_updated_at&id=eq.${productId}&is_published=eq.true&limit=1`, {
+  const productResponse = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/products?select=image_path,image_updated_at&id=eq.${productId}&is_published=eq.true&limit=1`, {
     headers: serviceHeaders(env)
   });
   if (!productResponse.ok) return json({ error: "圖片暫時無法載入" }, { status: 503 });
@@ -43,9 +78,9 @@ export async function serveProductImage(request: Request, env: Env, productId: s
   const imagePath = products[0]?.image_path;
   const isCurrentVersion = version === (products[0]?.image_updated_at || "1");
   if (!imagePath) return json({ error: "商品尚未上傳照片" }, { status: 404 });
-  const imageResponse = await fetch(storageObjectUrl(env, imagePath), {
+  const imageResponse = await fetchWithTimeout(storageObjectUrl(env, imagePath), {
     headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` }
-  });
+  }, UPLOAD_TIMEOUT_MS);
   if (!imageResponse.ok || !imageResponse.body) return json({ error: "圖片暫時無法載入" }, { status: imageResponse.status === 404 ? 404 : 503 });
   const imageHeaders = new Headers(SECURITY_HEADERS);
   imageHeaders.set("Content-Type", imageContentType(imagePath, imageResponse.headers.get("Content-Type")));
@@ -76,7 +111,7 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
   if (!image.size || image.size > PRODUCT_IMAGE_MAX_BYTES) return json({ error: "商品照片必須小於 5MB" }, { status: 400 });
   if (!(await hasImageSignature(image, image.type))) return json({ error: "照片格式與檔案內容不一致" }, { status: 400 });
 
-  const productResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/products?select=id,image_path,image_updated_at&id=eq.${productId}&limit=1`, { headers: serviceHeaders(env) });
+  const productResponse = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/products?select=id,image_path,image_updated_at&id=eq.${productId}&limit=1`, { headers: serviceHeaders(env) });
   if (!productResponse.ok) return json({ error: "無法確認商品資料" }, { status: 503 });
   const productRows = await productResponse.json() as Array<{ id: string; image_path?: string; image_updated_at?: string | null }>;
   if (!productRows.length) return json({ error: "找不到商品" }, { status: 404 });
@@ -84,7 +119,7 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
   const previousVersion = productRows[0].image_updated_at || "1";
 
   const imagePath = `${productId}/primary.${extension}`;
-  const uploadResponse = await fetch(storageObjectUrl(env, imagePath), {
+  const uploadResponse = await fetchWithTimeout(storageObjectUrl(env, imagePath), {
     method: "POST",
     headers: {
       apikey: env.SUPABASE_SERVICE_ROLE_KEY,
@@ -93,19 +128,20 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
       "x-upsert": "true"
     },
     body: image
-  });
+  }, UPLOAD_TIMEOUT_MS);
   if (!uploadResponse.ok) return json({ error: "照片上傳失敗，請稍後重試" }, { status: 502 });
 
   const updatedAt = new Date().toISOString();
-  const updateResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_product_image`, {
+  const updateResponse = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_product_image`, {
     method: "POST",
     headers: serviceHeaders(env),
     body: JSON.stringify({ p_actor_id: admin.user.id, p_product_id: productId, p_image_path: imagePath, p_image_updated_at: updatedAt })
   });
   if (!updateResponse.ok) return databaseError(updateResponse);
+  invalidateCatalogCache();
   await purgeProductImageCache(request, productId, undefined, previousVersion);
   if (previousImagePath && previousImagePath !== imagePath) {
-    await fetch(`${env.SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}`, {
+    await fetchWithTimeout(`${env.SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}`, {
       method: "DELETE",
       headers: serviceHeaders(env),
       body: JSON.stringify({ prefixes: [previousImagePath] })

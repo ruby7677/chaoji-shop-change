@@ -3,7 +3,7 @@ import { loadAdminOverview } from "./admin-overview";
 import { requireAdmin } from "./auth";
 import { databaseError } from "./database-errors";
 import { type Env } from "./env";
-import { json, serviceHeaders } from "./http";
+import { fetchWithTimeout, json, serviceHeaders } from "./http";
 
 type AdminDashboardSection = "overview" | "orders" | "members" | "products" | "inventory" | "discounts" | "settings";
 
@@ -31,7 +31,7 @@ function adminResourceUrl(base: string, resource: string, select: string, params
 }
 
 async function fetchAdminRows(url: URL, headers: Record<string, string>) {
-  const response = await fetch(url, { headers });
+  const response = await fetchWithTimeout(url, { headers });
   if (!response.ok) throw new Error("管理資料暫時無法載入");
   return await response.json() as unknown[];
 }
@@ -70,7 +70,7 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
     if (section === "orders") {
       const page = adminPage(request, 100);
       const params = new URL(request.url).searchParams;
-      const searchResponse = await fetch(`${base}/rest/v1/rpc/admin_search_order_ids`, {
+      const searchResponse = await fetchWithTimeout(`${base}/rest/v1/rpc/admin_search_order_ids`, {
         method: "POST",
         headers,
         body: JSON.stringify({
@@ -96,7 +96,7 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
     if (section === "members") {
       const page = adminPage(request, 100);
       const params = new URL(request.url).searchParams;
-      const searchResponse = await fetch(`${base}/rest/v1/rpc/admin_search_member_ids`, {
+      const searchResponse = await fetchWithTimeout(`${base}/rest/v1/rpc/admin_search_member_ids`, {
         method: "POST",
         headers,
         body: JSON.stringify({ p_actor_id: actorId, p_query: params.get("query")?.trim().slice(0, 100) || "", p_page: page.page, p_page_size: page.pageSize })
@@ -118,9 +118,9 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
       const page = adminPage(request, 100);
       const params = new URL(request.url).searchParams;
       const [searchResponse, optionsResponse] = await Promise.all([
-        fetch(`${base}/rest/v1/rpc/admin_search_product_ids`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId, p_query: params.get("query")?.trim().slice(0, 100) || "", p_status: params.get("status") || "all", p_page: page.page, p_page_size: page.pageSize }) }),
+        fetchWithTimeout(`${base}/rest/v1/rpc/admin_search_product_ids`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId, p_query: params.get("query")?.trim().slice(0, 100) || "", p_status: params.get("status") || "all", p_page: page.page, p_page_size: page.pageSize }) }),
         includeManagementOptions
-          ? fetch(`${base}/rest/v1/rpc/admin_management_options`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) })
+          ? fetchWithTimeout(`${base}/rest/v1/rpc/admin_management_options`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) })
           : Promise.resolve(null)
       ]);
       if (!searchResponse.ok) return databaseError(searchResponse);
@@ -134,9 +134,9 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
     if (section === "inventory") {
       const page = adminPage(request, 100);
       const [searchResponse, optionsResponse] = await Promise.all([
-        fetch(`${base}/rest/v1/rpc/admin_search_inventory_movement_ids`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId, p_variant_id: null, p_page: page.page, p_page_size: page.pageSize }) }),
+        fetchWithTimeout(`${base}/rest/v1/rpc/admin_search_inventory_movement_ids`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId, p_variant_id: null, p_page: page.page, p_page_size: page.pageSize }) }),
         includeManagementOptions
-          ? fetch(`${base}/rest/v1/rpc/admin_management_options`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) })
+          ? fetchWithTimeout(`${base}/rest/v1/rpc/admin_management_options`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) })
           : Promise.resolve(null)
       ]);
       if (!searchResponse.ok) return databaseError(searchResponse);
@@ -150,9 +150,9 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
     if (section === "discounts") {
       const page = adminPage(request, 100);
       const [searchResponse, optionsResponse, birthdaySettings] = await Promise.all([
-        fetch(`${base}/rest/v1/rpc/admin_search_coupon_ids`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId, p_query: "", p_page: page.page, p_page_size: page.pageSize }) }),
+        fetchWithTimeout(`${base}/rest/v1/rpc/admin_search_coupon_ids`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId, p_query: "", p_page: page.page, p_page_size: page.pageSize }) }),
         includeManagementOptions
-          ? fetch(`${base}/rest/v1/rpc/admin_management_options`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) })
+          ? fetchWithTimeout(`${base}/rest/v1/rpc/admin_management_options`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) })
           : Promise.resolve(null),
         rows("birthday_coupon_settings", "enabled,discount_amount,issue_days_before,valid_days,combinable_with_points,updated_at", { id: "eq.true", limit: "1" })
       ]);
@@ -197,7 +197,7 @@ export async function adminAuditLogs(request: Request, env: Env): Promise<Respon
   query.searchParams.set("offset", String(page.offset));
   if (resource) query.searchParams.set("resource", `eq.${resource}`);
   if (action) query.searchParams.set("action", `eq.${action}`);
-  const response = await fetch(query, { headers: serviceHeaders(env) });
+  const response = await fetchWithTimeout(query, { headers: serviceHeaders(env) });
   if (!response.ok) return databaseError(response);
   const rows = await response.json() as unknown[];
   // 前端 renderAdminAudit() 讀 auditLogs、分頁依區塊存在 pagination.audit（與通知紀錄 API 相同格式）。
@@ -212,7 +212,7 @@ export async function adminNotificationDeliveries(request: Request, env: Env): P
   const channel = url.searchParams.get("channel") || "all";
   const status = url.searchParams.get("status") || "all";
   if (!["all", "line", "telegram"].includes(channel) || !["all", "pending", "processing", "sent", "failed"].includes(status)) return json({ error: "通知篩選條件不正確" }, { status: 400 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_list_notification_deliveries`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_list_notification_deliveries`, {
     method: "POST",
     headers: serviceHeaders(env),
     body: JSON.stringify({ p_actor_id: admin.user.id, p_channel: channel, p_status: status, p_page: page.page, p_page_size: page.pageSize })
@@ -225,7 +225,7 @@ export async function adminNotificationDeliveries(request: Request, env: Env): P
 export async function requeueAdminNotificationDelivery(request: Request, env: Env, channel: string, notificationId: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
   if (admin instanceof Response) return admin;
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_requeue_notification_delivery`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_requeue_notification_delivery`, {
     method: "POST",
     headers: serviceHeaders(env),
     body: JSON.stringify({ p_actor_id: admin.user.id, p_channel: channel, p_id: notificationId })

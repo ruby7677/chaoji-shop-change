@@ -1,4 +1,4 @@
-import { serviceHeaders } from "./http";
+import { fetchWithTimeout, serviceHeaders } from "./http";
 export type NotificationChannel = "line" | "telegram";
 
 export interface NotificationDeliveryEnv {
@@ -60,7 +60,7 @@ function parseRetryAfter(value: string | null) {
 
 async function rpc<T>(env: NotificationDeliveryEnv, name: string, body: Record<string, unknown>): Promise<T | null> {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/${name}`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/${name}`, {
     method: "POST",
     headers: serviceHeaders(env),
     body: JSON.stringify(body)
@@ -116,7 +116,7 @@ async function sendLine(
     return { sent: false, statusCode: null, retryable: false, retryAfterSeconds: 0, errorMessage: "LINE token missing" };
   }
   try {
-    const response = await fetch("https://api.line.me/v2/bot/message/push", {
+    const response = await fetchWithTimeout("https://api.line.me/v2/bot/message/push", {
       method: "POST",
       headers: { Authorization: `Bearer ${env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}`, "Content-Type": "application/json" },
       body: JSON.stringify({ to: recipientId, messages: payload.messages })
@@ -153,7 +153,7 @@ async function sendTelegram(
     return { sent: false, statusCode: null, retryable: false, retryAfterSeconds: 0, errorMessage: "Telegram token missing" };
   }
   try {
-    const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const response = await fetchWithTimeout(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: recipientId, text: String(payload.text || "").slice(0, 4096) })

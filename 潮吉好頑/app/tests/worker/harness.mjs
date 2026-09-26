@@ -69,3 +69,6 @@ export function stubFetch(handler) {
 
 export const LINE_USER_ID = "U" + "a".repeat(32);
 export const lineUser = (id) => ({ id, identities: [{ provider: "custom:line-web", identity_data: { sub: LINE_USER_ID } }] });
+
+/** A RateLimit binding fake that always reports the limit as exceeded. */
+export const deniedRateLimit = { limit: async () => ({ success: false }) };

@@ -2,7 +2,7 @@
 import { type SupabaseRefreshSession, clearRefreshSessionCookie, openRefreshToken, readRefreshSessionCookie, refreshSessionCookie, refreshSupabaseSession, sealRefreshToken } from "./auth-session";
 import { deleteVaultedSession, readVaultedSession, storeVaultedSession } from "./liff-session-vault";
 import { type AuthUser, type Env } from "./env";
-import { bearerToken, enforceRateLimit, json, serviceHeaders } from "./http";
+import { bearerToken, enforceRateLimit, fetchWithTimeout, json, serviceHeaders } from "./http";
 
 function lineIdentityId(user: AuthUser, env: Env) {
   const expectedProvider = (env.SUPABASE_CUSTOM_PROVIDER || "custom:line-web").toLowerCase();
@@ -35,7 +35,7 @@ type VerifiedLiffIdentity = {
 async function verifyLiffIdToken(env: Env, idToken: string): Promise<VerifiedLiffIdentity | null> {
   const channelId = env.LINE_LOGIN_CHANNEL_ID?.trim();
   if (!channelId) return null;
-  const response = await fetch("https://api.line.me/oauth2/v2.1/verify", {
+  const response = await fetchWithTimeout("https://api.line.me/oauth2/v2.1/verify", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ id_token: idToken, client_id: channelId })
@@ -79,7 +79,7 @@ export async function verifyLiffIdentity(request: Request, env: Env): Promise<Re
 export async function refreshedAuthUser(env: Env, session: SupabaseRefreshSession): Promise<AuthUser | null> {
   if (session.user && typeof session.user === "object") return session.user as AuthUser;
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return null;
-  const response = await fetch(env.SUPABASE_URL + "/auth/v1/user", {
+  const response = await fetchWithTimeout(env.SUPABASE_URL + "/auth/v1/user", {
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: "Bearer " + session.access_token }
   });
   if (!response.ok) return null;
@@ -208,7 +208,7 @@ export async function requireUser(request: Request, env: Env): Promise<{ authori
   const authorization = bearerToken(request);
   if (!authorization) return json({ error: "需要會員登入" }, { status: 401 });
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return json({ error: "會員系統尚未設定" }, { status: 503 });
-  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/auth/v1/user`, {
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authorization }
   });
   if (!response.ok) return json({ error: "登入已過期，請重新登入" }, { status: 401 });
@@ -221,7 +221,7 @@ export async function requireAdmin(request: Request, env: Env): Promise<{ author
   const authResult = await requireUser(request, env);
   if (authResult instanceof Response) return authResult;
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "管理服務尚未設定" }, { status: 503 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/profiles?select=is_admin,line_user_id&id=eq.${authResult.user.id}`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/profiles?select=is_admin,line_user_id&id=eq.${authResult.user.id}`, {
     headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` }
   });
   if (!response.ok) return json({ error: "無法確認管理員權限" }, { status: 503 });
@@ -243,7 +243,7 @@ async function syncLineIdentity(env: Env, user: AuthUser) {
   const profileUrl = new URL(`${env.SUPABASE_URL}/rest/v1/profiles`);
   profileUrl.searchParams.set("id", `eq.${user.id}`);
   profileUrl.searchParams.set("line_user_id", "is.null");
-  const response = await fetch(profileUrl, {
+  const response = await fetchWithTimeout(profileUrl, {
     method: "PATCH",
     headers: serviceHeaders(env, "return=minimal"),
     body: JSON.stringify({ line_user_id: lineId })

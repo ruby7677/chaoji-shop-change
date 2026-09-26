@@ -1,9 +1,10 @@
 // 後台商品管理：分類、商品、規格與庫存調整。
+import { invalidateCatalogCache } from "./catalog";
 import { purgeProductImageCache } from "./product-image-storage";
 import { requireAdmin } from "./auth";
 import { databaseError } from "./database-errors";
 import { type Env } from "./env";
-import { json, serviceHeaders } from "./http";
+import { fetchWithTimeout, json, serviceHeaders } from "./http";
 
 type CategoryInput = { name?: string; display_order?: number; is_active?: boolean };
 
@@ -22,12 +23,13 @@ export async function createAdminCategory(request: Request, env: Env): Promise<R
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   const validated = validateCategory(body);
   if ("error" in validated) return json({ error: validated.error }, { status: 400 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_category`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_category`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
       p_actor_id: admin.user.id, p_name: validated.value.name, p_display_order: validated.value.display_order, p_is_active: validated.value.is_active
     })
   });
   if (!response.ok) return databaseError(response);
+  invalidateCatalogCache();
   return json({ category: await response.json() }, { status: 201 });
 }
 
@@ -38,13 +40,14 @@ export async function updateAdminCategory(request: Request, env: Env, categoryId
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   const validated = validateCategory(body);
   if ("error" in validated) return json({ error: validated.error }, { status: 400 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_category`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_category`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
       p_actor_id: admin.user.id, p_category_id: categoryId, p_name: validated.value.name,
       p_display_order: validated.value.display_order, p_is_active: validated.value.is_active
     })
   });
   if (!response.ok) return databaseError(response);
+  invalidateCatalogCache();
   return json({ category: await response.json() });
 }
 
@@ -63,7 +66,7 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
   const categoryId = body.category_id?.trim() || "";
   if (categoryId) {
     if (!/^[0-9a-f-]{36}$/i.test(categoryId)) return json({ error: "商品分類資料不正確" }, { status: 400 });
-    const categoryResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/categories?select=id,name,is_active&id=eq.${categoryId}&limit=1`, { headers: serviceHeaders(env) });
+    const categoryResponse = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/categories?select=id,name,is_active&id=eq.${categoryId}&limit=1`, { headers: serviceHeaders(env) });
     if (!categoryResponse.ok) return json({ error: "無法確認商品分類" }, { status: 503 });
     const categories = await categoryResponse.json() as Array<{ id: string; name: string; is_active?: boolean }>;
     if (!categories[0]) return json({ error: "找不到商品分類" }, { status: 400 });
@@ -78,7 +81,7 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
   if (body.purchase_limit != null && (!Number.isInteger(body.purchase_limit) || body.purchase_limit < 1)) return json({ error: "限購數量必須為正整數或不限購" }, { status: 400 });
   if (!['in_stock', 'preorder'].includes(body.kind || '')) return json({ error: "商品類型不正確" }, { status: 400 });
   const depositRate = body.kind === "preorder" ? 0.5 : Number(body.deposit_rate ?? 0);
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_product`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_product`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
       p_actor_id: admin.user.id,
       p_category_name: categoryName,
@@ -99,6 +102,7 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
     })
   });
   if (!response.ok) return databaseError(response);
+  invalidateCatalogCache();
   const ids = await response.json() as { product_id?: string; variant_id?: string };
   return json({ ids }, { status: 201 });
 }
@@ -135,7 +139,7 @@ export async function createVariant(request: Request, env: Env): Promise<Respons
   const validated = normalizedVariant(body, true);
   if ("error" in validated) return json({ error: validated.error }, { status: 400 });
   const payload = validated.value;
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_variant`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_variant`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
       p_actor_id: admin.user.id, p_product_id: payload.product_id, p_name: payload.name, p_sku: payload.sku,
       p_kind: payload.kind, p_price: payload.price, p_compare_at_price: payload.compare_at_price,
@@ -145,6 +149,7 @@ export async function createVariant(request: Request, env: Env): Promise<Respons
     })
   });
   if (!response.ok) return databaseError(response);
+  invalidateCatalogCache();
   return json({ variant: await response.json() }, { status: 201 });
 }
 
@@ -156,7 +161,7 @@ export async function updateVariant(request: Request, env: Env, variantId: strin
   const validated = normalizedVariant(body);
   if ("error" in validated) return json({ error: validated.error }, { status: 400 });
   const payload = { ...validated.value };
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_variant`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_variant`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
       p_actor_id: admin.user.id, p_variant_id: variantId, p_name: payload.name, p_sku: payload.sku,
       p_kind: payload.kind, p_price: payload.price, p_compare_at_price: payload.compare_at_price ?? null,
@@ -166,6 +171,7 @@ export async function updateVariant(request: Request, env: Env, variantId: strin
     })
   });
   if (!response.ok) return databaseError(response);
+  invalidateCatalogCache();
   return json({ variant: await response.json() });
 }
 
@@ -176,7 +182,7 @@ export async function updateProduct(request: Request, env: Env, productId: strin
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   if (!body.name?.trim()) return json({ error: "請填寫商品名稱" }, { status: 400 });
   if (body.purchase_limit != null && (!Number.isInteger(body.purchase_limit) || body.purchase_limit < 1)) return json({ error: "限購數量必須為正整數或不限購" }, { status: 400 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_product`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_product`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
       p_actor_id: admin.user.id, p_product_id: productId, p_name: body.name.trim(), p_description: body.description || "",
       p_category_id: body.category_id || null, p_purchase_limit: body.purchase_limit ?? null,
@@ -185,6 +191,7 @@ export async function updateProduct(request: Request, env: Env, productId: strin
     })
   });
   if (!response.ok) return databaseError(response);
+  invalidateCatalogCache();
   const product = await response.json() as { image_updated_at?: string | null };
   // This mutation includes is_published; purge the current primary image here.
   // Other data centers drop it within the edge TTL (s-maxage) after unpublishing.
@@ -198,9 +205,10 @@ export async function adjustInventory(request: Request, env: Env, variantId: str
   let body: { quantity_delta?: number; reason?: string };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   if (!Number.isInteger(body.quantity_delta) || body.quantity_delta === 0 || !body.reason?.trim()) return json({ error: "請填寫非 0 的異動數量與原因" }, { status: 400 });
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/admin_adjust_inventory`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_adjust_inventory`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({ p_actor_id: admin.user.id, p_variant_id: variantId, p_quantity_delta: body.quantity_delta, p_reason: body.reason.trim() })
   });
   if (!response.ok) return databaseError(response);
+  invalidateCatalogCache();
   return json({ stock_on_hand: await response.json() });
 }

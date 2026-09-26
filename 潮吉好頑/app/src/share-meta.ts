@@ -1,6 +1,7 @@
 // 分享預覽：LINE、Facebook 等抓取網址時不執行 JavaScript，
 // 因此由 Worker 回傳 index.html 時以 HTMLRewriter 寫入標題、描述與 Open Graph 標籤。
 // 只讀取已上架商品（storefront_variants + anon key），查詢失敗時退回全站預設值，不影響頁面本身。
+import { fetchWithTimeout } from "./http";
 
 export interface ShareMetaEnv {
   ASSETS: Fetcher;
@@ -31,7 +32,7 @@ function summarize(text: string | null | undefined) {
 
 async function productMeta(env: ShareMetaEnv, productId: string): Promise<ShareMeta | null> {
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return null;
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=product_name,description,has_image,image_updated_at&product_id=eq.${productId}&is_published=eq.true&order=display_order.asc&limit=1`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=product_name,description,has_image,image_updated_at&product_id=eq.${productId}&is_published=eq.true&order=display_order.asc&limit=1`, {
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
   });
   if (!response.ok) return null;

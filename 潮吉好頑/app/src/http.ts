@@ -25,6 +25,17 @@ export function json(data: unknown, init: ResponseInit = {}) {
 
 export const MAX_JSON_REQUEST_BYTES = 128 * 1024;
 
+// 對外連線逾時：Supabase、LINE、Telegram 預設 10 秒；上傳或下載圖片檔案 30 秒
+export const UPSTREAM_TIMEOUT_MS = 10_000;
+export const UPLOAD_TIMEOUT_MS = 30_000;
+
+// 呼叫當下才取用全域 fetch（測試會替換 globalThis.fetch）；呼叫端自帶的 signal 與逾時任一觸發都會中止
+export function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = UPSTREAM_TIMEOUT_MS): Promise<Response> {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const signal = init.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal;
+  return fetch(input, { ...init, signal });
+}
+
 export async function enforceRateLimit(limiter: RateLimit | undefined, key: string): Promise<Response | null> {
   if (!limiter) return null;
   try {
