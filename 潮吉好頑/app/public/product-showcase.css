@@ -447,9 +447,9 @@
 }
 .policy-full .policy-full-copy { padding: 0; }
 .policy-full .policy-full-copy p { font-size: .85rem; }
-/* 錨點落點：「我已閱讀，回商品區」→ 搜尋列；導航列「購物須知」→「下單前…」標題。
+/* 錨點落點：導航列「商品」與「我已閱讀，回商品區」→ QUICK PICK 好頑選物；導航列「購物須知」→「下單前…」標題。
    預留固定導航列高度，避免目標被導航列蓋住。 */
-#product-search-bar,
+#quick-pick,
 #policy-title { scroll-margin-top: 100px; }
 /* 點 Logo（#top）回到頁面最頂端：main 在固定導航列下方，直接捲到 main 會被導航列蓋住輪播上緣；
    給足夠大的預留值，捲動位置會被限制在 0。 */
@@ -459,7 +459,7 @@
   .hero { gap: 18px; padding: 12px 20px 32px; }
   .hero-product-spotlight.hero-carousel { max-width: none; }
   .policy-full { margin-top: 24px; padding-top: 18px; }
-  #product-search-bar,
+  #quick-pick,
   #policy-title { scroll-margin-top: 128px; }
   /* 業主要求：手機圖片離螢幕左右各 10px。圖片框突破首頁內距（20–24px），
      寬度 = 螢幕寬 − 20px 並置中；高度上限放寬，讓直式盒裝圖也能撐滿寬度。

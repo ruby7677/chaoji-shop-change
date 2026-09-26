@@ -53,7 +53,7 @@ document.addEventListener("click", (event) => {
   if (event.target.closest("[data-profile-close]")) closeDialog(document.querySelector("#profile-dialog"));
   if (event.target.closest("[data-orders-open]")) openOrders();
   if (event.target.closest("[data-orders-close]")) closeDialog(document.querySelector("#orders-dialog"));
-  if (event.target.closest("[data-orders-shop]")) { closeDialog(document.querySelector("#orders-dialog")); scrollToAnchor("product-search-bar"); }
+  if (event.target.closest("[data-orders-shop]")) { closeDialog(document.querySelector("#orders-dialog")); scrollToAnchor("quick-pick"); }
   const lineFriendRequest = event.target.closest("[data-line-friend-request]");
   if (lineFriendRequest && canRequestLineFriendship()) {
     event.preventDefault();

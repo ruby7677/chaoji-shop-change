@@ -358,6 +358,11 @@ alter table public.products
 - 輪播文字區加圓角細框（1.5px 深色、16px 圓角、半透明白底），並以 overflow 讓分層文字在框內浮上。
 - 本機 390×844 實測：各回商品入口搜尋列皆在導航列下方 20px、Logo 後 scrollY=0 且輪播圖完整露出；正式站 marker 5 項全過。
 
+### 上線後調整第六輪（2026-09-26）
+**Status**：Complete
+- 店主決定：所有「回商品區」入口改落在「QUICK PICK 好頑選物」（`.shelf-toolbar#quick-pick`），不再停在搜尋列：導航列「商品」、購物須知「我已閱讀，回商品區」、我的訂單「去逛逛」、商品頁麵包屑分類與「回到商品列表」。`scroll-margin-top`（手機 128px、桌機 100px）改掛在 `#quick-pick`；搜尋列保留 `id="product-search-bar"` 但已無連結指向。
+- 本機實測：桌機與 375px 手機，QUICK PICK 皆停在導航列下方 20px。
+
 ### 上線後調整第六輪（2026-09-24）
 **Status**：Complete（部署 Version ID `7f55e55e-e876-42a9-a27c-fabaf3856b3a`；前一版 `a18dcc3b-fd26-43d2-8953-b02a6c01860b`）
 - 店主 iPhone 回報導航列「商品」仍未停在搜尋列；Chromium 實測正確，研判為 iOS Safari 錨點跳轉處理差異或手機仍開著舊版頁面。改為不依賴 CSS `scroll-margin-top`：新增 `public/anchor-scroll.js`，攔截頁內 `a[href^="#"]` 點擊，依導航列實際高度計算落點（導航列下方 20px），並以 pushState 保留上一頁行為；商品頁回首頁、我的訂單「去逛逛」改用同一函式。`scroll-margin-top` 保留作為直接開啟帶 hash 網址時的後備。

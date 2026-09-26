@@ -170,7 +170,7 @@ export function createProductPage(deps) {
   }
 
   function renderMissing() {
-    page.innerHTML = '<div class="pp-missing"><h1 id="pp-title" tabindex="-1">商品已下架或不存在</h1><p>這個商品目前無法購買，看看其他選物吧。</p><a class="primary-button" href="/#product-search-bar" data-pp-home="product-search-bar">回到商品列表</a></div>';
+    page.innerHTML = '<div class="pp-missing"><h1 id="pp-title" tabindex="-1">商品已下架或不存在</h1><p>這個商品目前無法購買，看看其他選物吧。</p><a class="primary-button" href="/#quick-pick" data-pp-home="quick-pick">回到商品列表</a></div>';
     setMeta(`找不到商品｜潮吉好頑`, home.description);
     page.querySelector("#pp-title")?.focus({ preventScroll: true });
   }
@@ -186,7 +186,7 @@ export function createProductPage(deps) {
     const variant = variants.find((item) => item.id === variantId) || variants.find((item) => Number(item.stock) > 0) || variants[0];
     state = { productId, variants, variantId: variant.id, quantity: 1, detail: detailCache.get(productId) || null };
     const name = variant.product_name || variant.name;
-    page.innerHTML = `<nav class="pp-breadcrumb" aria-label="目前位置"><a href="/" data-pp-home="">首頁</a><span aria-hidden="true">/</span><a href="/#product-search-bar" data-pp-home="product-search-bar">${escapeHtml(variant.category || "商品")}</a><span aria-hidden="true">/</span><span aria-current="page">${escapeHtml(name)}</span></nav><div class="pp-main"><div class="pp-media" data-pp-gallery></div><div class="pp-buy" data-pp-buy></div></div><section class="pp-section" data-reveal aria-labelledby="pp-details-title"><h2 id="pp-details-title">商品介紹</h2><div class="pp-details" data-pp-details></div></section><section class="pp-section" data-reveal data-pp-rec-section aria-labelledby="pp-rec-title"><h2 id="pp-rec-title">您可能也喜歡</h2><div class="product-grid" data-pp-recommend></div></section><div class="pp-sticky-cta" data-pp-sticky inert></div>`;
+    page.innerHTML = `<nav class="pp-breadcrumb" aria-label="目前位置"><a href="/" data-pp-home="">首頁</a><span aria-hidden="true">/</span><a href="/#quick-pick" data-pp-home="quick-pick">${escapeHtml(variant.category || "商品")}</a><span aria-hidden="true">/</span><span aria-current="page">${escapeHtml(name)}</span></nav><div class="pp-main"><div class="pp-media" data-pp-gallery></div><div class="pp-buy" data-pp-buy></div></div><section class="pp-section" data-reveal aria-labelledby="pp-details-title"><h2 id="pp-details-title">商品介紹</h2><div class="pp-details" data-pp-details></div></section><section class="pp-section" data-reveal data-pp-rec-section aria-labelledby="pp-rec-title"><h2 id="pp-rec-title">您可能也喜歡</h2><div class="product-grid" data-pp-recommend></div></section><div class="pp-sticky-cta" data-pp-sticky inert></div>`;
     renderGallery();
     renderBuy();
     renderDetails();
