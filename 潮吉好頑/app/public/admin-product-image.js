@@ -26,6 +26,8 @@ export function validateProductImage(file) {
 const PRODUCT_IMAGE_MAX_DIMENSION = 1600;
 const PRODUCT_IMAGE_MAX_PIXELS = 40_000_000;
 const PRODUCT_IMAGE_WEBP_QUALITY = 0.86;
+const PRODUCT_THUMBNAIL_MAX_DIMENSION = 640;
+const PRODUCT_THUMBNAIL_WEBP_QUALITY = 0.82;
 
 async function decodeProductImage(file) {
   if (typeof createImageBitmap === "function") {
@@ -63,6 +65,45 @@ function productImageWebpName(name) {
   return `${baseName}.webp`;
 }
 
+function productThumbnailWebpName(name) {
+  const baseName = String(name || "product-image").replace(/\.[^/.]+$/, "").trim() || "product-image";
+  return `${baseName}.thumb.webp`;
+}
+
+// 用同一個已解碼來源畫第二張縮圖（最長邊 640px、不放大），只在主圖已成功轉成 WebP 時才呼叫；
+// 任何一步失敗都回傳 null，讓呼叫端略過縮圖、只上傳主圖。
+async function buildProductThumbnail(decoded, sourceName) {
+  const longestSide = Math.max(decoded.width, decoded.height);
+  if (longestSide <= PRODUCT_THUMBNAIL_MAX_DIMENSION) return null;
+  const scale = PRODUCT_THUMBNAIL_MAX_DIMENSION / longestSide;
+  const width = Math.max(1, Math.round(decoded.width * scale));
+  const height = Math.max(1, Math.round(decoded.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  try {
+    context.drawImage(decoded.source, 0, 0, width, height);
+  } catch {
+    return null;
+  }
+  let blob;
+  try {
+    blob = await new Promise((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("縮圖轉換失敗")), "image/webp", PRODUCT_THUMBNAIL_WEBP_QUALITY));
+  } catch {
+    return null;
+  }
+  if (!(blob instanceof Blob) || blob.type !== "image/webp") return null;
+  try {
+    return new File([blob], productThumbnailWebpName(sourceName), { type: "image/webp", lastModified: Date.now() });
+  } catch {
+    return null;
+  }
+}
+
 export async function prepareProductImage(file) {
   if (!file) return null;
   validateProductImage(file);
@@ -96,20 +137,25 @@ export async function prepareProductImage(file) {
       return { file, converted: false, width: decoded.width, height: decoded.height };
     }
     if (!(blob instanceof Blob) || blob.type !== "image/webp" || blob.size > 5 * 1024 * 1024) return { file, converted: false, width: decoded.width, height: decoded.height };
+    let preparedFile;
     try {
-      return { file: new File([blob], productImageWebpName(file.name), { type: "image/webp", lastModified: Date.now() }), converted: true, width, height };
+      preparedFile = new File([blob], productImageWebpName(file.name), { type: "image/webp", lastModified: Date.now() });
     } catch {
       return { file, converted: false, width: decoded.width, height: decoded.height };
     }
+    // 縮圖用同一個已解碼來源產生；瀏覽器不支援 WebP 轉換時（上面已 return）不會走到這裡，符合「無法編碼就跳過縮圖」。
+    const thumbnailFile = await buildProductThumbnail(decoded, file.name);
+    return { file: preparedFile, thumbnailFile, converted: true, width, height };
   } finally {
     decoded.close();
   }
 }
 
-export async function uploadAdminProductImage(productId, file) {
+export async function uploadAdminProductImage(productId, file, thumbnailFile) {
   if (!file) return;
   validateProductImage(file);
   const formData = new FormData();
   formData.append("image", file, file.name);
+  if (thumbnailFile instanceof File) formData.append("thumbnail", thumbnailFile, thumbnailFile.name);
   await adminFetch(`/api/admin/products/${productId}/image`, { method: "POST", body: formData });
 }

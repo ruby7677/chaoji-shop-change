@@ -1,18 +1,10 @@
 import { canRequestLineFriendship, liffState, preloadLiffSdk } from "./liff-auth.js";
 import { createProductPage } from "./product-page.js";
 import { initAnchorScroll, scrollToAnchor } from "./anchor-scroll.js";
-import { initAdminProductGallery } from "./admin-product-gallery.js";
-import { initAdminProductsTable } from "./admin-products-table.js";
-import { initAdminShell } from "./admin-shell.js";
 import { initAuthExpiry } from "./auth-expiry.js";
 import { initAdminTab, openAdminFromRoute, openAdminInNewTab } from "./admin-tab.js";
-import { adminOrderStatusLabel, auth, closeDialog, formatDateTime, showDialog, showToast, syncPageScrollLock } from "./app-core.js";
-import { adminData, adminFetch, applyAdminQuickFilter, changeAdminPage, invalidateAdminManagementOptions, loadAdminData, loadAdminSection, openAdmin, reloadAdminList, switchAdminTab, testTelegramNotification } from "./admin-app.js";
-import { submitAdminOrderFulfillment, submitAdminOrderReturn, submitAdminOrderTransition } from "./admin-orders-panel.js";
-import { editCoupon, issueBirthdayCouponsNow, resetCouponForm, submitBirthdaySettings, submitCoupon, submitMemberPointAdjustment, submitPointSettings, syncPointMaxHint } from "./admin-members-panel.js";
-import { editAccount, requeueAdminNotification, resetAccountForm, submitAdminAccount } from "./admin-system-panel.js";
-import { adminCategoryOptions, editAdminCategory, focusAdminCategoryForm, removeLegacyShippingUI, resetAdminCategoryForm, splitPreorderArrival, submitAdminCategory, submitAdminProduct, submitDynamicAdminForm, submitInventoryAdjustment, submitNewVariant, syncDepositField } from "./admin-catalog-panel.js";
-import { adminProductImageFallbackMarkup, handleAdminProductImageError, prepareProductImage } from "./admin-product-image.js";
+import { openAdminLazy } from "./admin-loader.js";
+import { auth, closeDialog, showDialog, showToast, syncPageScrollLock } from "./app-core.js";
 import { addToCartWithFeedback, addVariantQuantityToCart, buyNowFromCard, cart, handleCartCheckout, loadLocalCart, removeLegacySellerCheckoutOption, renderCart, saveCart, setCartDeliveryMethod, setCartGroupDeliveryMethod, toggleCart } from "./cart.js";
 import { bankAccounts, clearCheckoutFieldErrorFor, openCheckoutReview, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields, syncPaymentFields } from "./checkout-form.js";
 import { checkLineFriendship, handleLineFriendRequest, showLineFriendDialog } from "./member-benefits.js";
@@ -52,16 +44,8 @@ document.addEventListener("click", (event) => {
   const scopedCheckout = event.target.closest("[data-checkout-scope]");
   if (scopedCheckout) handleCartCheckout(scopedCheckout.dataset.checkoutScope);
   else if (event.target.closest("[data-checkout]")) handleCartCheckout();
-  if (event.target.closest("[data-admin-open]") && !openAdminInNewTab()) openAdmin();
+  if (event.target.closest("[data-admin-open]") && !openAdminInNewTab()) openAdminLazy();
   if (event.target.closest("[data-admin-close]")) closeDialog(document.querySelector("#admin-dialog"));
-  const adminQuickFilter = event.target.closest("[data-admin-quick-filter]");
-  if (adminQuickFilter) applyAdminQuickFilter(adminQuickFilter.dataset.adminQuickFilter);
-  const lowStockVariant = event.target.closest("[data-admin-low-stock-variant]");
-  if (lowStockVariant) {
-    const variantSelect = document.querySelector("#admin-inventory-variant");
-    if (variantSelect) variantSelect.value = lowStockVariant.dataset.adminLowStockVariant;
-    document.querySelector("#admin-inventory-delta")?.focus();
-  }
   if (event.target.closest("[data-checkout-close]")) closeDialog(document.querySelector("#checkout-dialog"));
   if (event.target.closest("[data-checkout-review-next]")) openCheckoutReview();
   if (event.target.closest("[data-checkout-details-back]")) setCheckoutStage("details");
@@ -91,51 +75,14 @@ document.addEventListener("click", (event) => {
       lineFriendCheck.textContent = "我已加入，重新檢查";
     });
   }
-  const adminTab = event.target.closest("[data-admin-tab]");
-  if (adminTab) switchAdminTab(adminTab.dataset.adminTab);
-  if (event.target.closest("[data-admin-refresh]")) loadAdminData().catch((error) => showToast(error.message, "error"));
-  if (event.target.closest("[data-telegram-test]")) testTelegramNotification().catch((error) => showToast(error.message, "error"));
-  if (event.target.closest("[data-birthday-issue]")) issueBirthdayCouponsNow().catch((error) => showToast(error.message, "error"));
-  const adminPageButton = event.target.closest("[data-admin-page]");
-  if (adminPageButton) {
-    const section = adminPageButton.dataset.adminPage;
-    const delta = Number(adminPageButton.dataset.adminPageDelta || 0);
-    adminPageButton.disabled = true;
-    changeAdminPage(section, delta).catch((error) => showToast(error.message, "error")).finally(() => { adminPageButton.disabled = false; });
-    return;
-  }
-  const notificationRequeueButton = event.target.closest("[data-admin-notification-requeue]");
-  if (notificationRequeueButton) {
-    requeueAdminNotification(notificationRequeueButton).catch((error) => showToast(error.message, "error"));
-    return;
-  }
-  if (event.target.closest("[data-admin-category-focus]")) focusAdminCategoryForm();
-  if (event.target.closest("[data-admin-category-cancel]")) resetAdminCategoryForm();
-  const categoryEdit = event.target.closest("[data-admin-category-edit]");
-  if (categoryEdit) editAdminCategory(categoryEdit.dataset.adminCategoryEdit);
-  const accountEdit = event.target.closest("[data-account-edit]");
-  if (accountEdit) editAccount(accountEdit.dataset.accountEdit);
-  if (event.target.closest("[data-account-cancel]")) resetAccountForm();
-  if (event.target.closest("[data-coupon-reset]")) resetCouponForm();
-  const couponEdit = event.target.closest("[data-coupon-edit]");
-  if (couponEdit) editCoupon(couponEdit.dataset.couponEdit);
   const paymentOrderButton = event.target.closest("[data-order-payment]");
   if (paymentOrderButton) {
     const order = currentOrders.find((item) => item.id === paymentOrderButton.dataset.orderPayment);
     if (order) { closeDialog(document.querySelector("#orders-dialog")); showPaymentDialog(order); }
   }
 });
-document.addEventListener("error", handleAdminProductImageError, true);
 document.addEventListener("change", (event) => {
   if (event.target.closest("#checkout-form")) clearCheckoutFieldErrorFor(event.target);
-  if (event.target.matches("#admin-order-status-filter")) reloadAdminList("orders", true);
-  if (event.target.matches("#admin-product-status")) reloadAdminList("products", true);
-  if (event.target.matches("#admin-audit-resource, #admin-audit-action")) reloadAdminList("audit", true);
-  if (event.target.matches("#admin-notification-channel, #admin-notification-status")) reloadAdminList("notifications", true);
-  if (event.target.matches("#point-max-mode")) syncPointMaxHint();
-  if (event.target.matches("#admin-kind")) syncDepositField(event.target, document.querySelector("#admin-deposit-rate"));
-  if (event.target.matches("#admin-new-kind")) syncDepositField(event.target, document.querySelector("#admin-new-deposit-rate"));
-  if (event.target.matches("[data-edit-variant-form] select[name='kind']")) syncDepositField(event.target, event.target.form.elements.deposit_rate);
   if (event.target.matches("input[name='delivery_method']")) {
     if (activeCheckoutScope) setCartGroupDeliveryMethod(activeCheckoutScope, event.target.value);
     syncDeliveryFields();
@@ -145,46 +92,10 @@ document.addEventListener("change", (event) => {
   if (event.target.matches("input[name='payment_method']")) syncPaymentFields();
 });
 document.addEventListener("input", (event) => {
-  if (event.target.matches("#admin-order-search")) reloadAdminList("orders");
-  if (event.target.matches("#admin-member-search")) reloadAdminList("members");
-  if (event.target.matches("#admin-product-search")) reloadAdminList("products");
   if (event.target.matches("#checkout-points")) renderCheckoutSummary();
   if (event.target.matches("#checkout-coupon-code")) renderCheckoutSummary();
   if (event.target.matches("#checkout-address")) renderCheckoutSummary();
   if (event.target.closest("#checkout-form")) clearCheckoutFieldErrorFor(event.target);
-});
-document.addEventListener("submit", async (event) => {
-  if (event.target.matches("#admin-coupon-form")) {
-    try { await submitCoupon(event); } catch (error) { showToast(error.message, "error"); }
-    return;
-  }
-  if (event.target.matches("#birthday-coupon-form")) {
-    try { await submitBirthdaySettings(event); } catch (error) { showToast(error.message, "error"); }
-    return;
-  }
-  if (event.target.matches("[data-admin-points-form]")) {
-    try { await submitMemberPointAdjustment(event); }
-    catch (error) { showToast(error.message, "error"); }
-    return;
-  }
-  if (event.target.matches("[data-admin-order-form]")) {
-    try { await submitAdminOrderTransition(event); }
-    catch (error) { showToast(error.message, "error"); }
-    return;
-  }
-  if (event.target.matches("[data-admin-return-form]")) {
-    try { await submitAdminOrderReturn(event); }
-    catch (error) { showToast(error.message, "error"); }
-    return;
-  }
-  if (event.target.matches("[data-admin-fulfillment-form]")) {
-    try { await submitAdminOrderFulfillment(event); }
-    catch (error) { showToast(error.message, "error"); }
-    return;
-  }
-  if (!event.target.matches("[data-edit-product-form], [data-edit-variant-form]")) return;
-  try { await submitDynamicAdminForm(event); }
-  catch (error) { showToast(error.message, "error"); }
 });
 initAnchorScroll();
 export const productPage = createProductPage({
@@ -194,18 +105,11 @@ export const productPage = createProductPage({
   showDialog,
   closeDialog
 });
-initAdminProductGallery({
-  adminFetch,
-  prepareProductImage,
-  showToast,
-  getProduct: (id) => (adminData?.products || []).find((product) => product.id === id),
-  fallbackMarkup: adminProductImageFallbackMarkup
-});
 initAdminTab({
   isLiffClient: () => Boolean(liffState.isInClient),
   isLoggedIn: () => Boolean(auth.user && auth.accessToken),
   isAdmin: () => auth.profile?.is_admin === true,
-  openAdmin,
+  openAdmin: openAdminLazy,
   showToast
 });
 initAuthExpiry({
@@ -215,25 +119,6 @@ initAuthExpiry({
   clearSession: clearStoredAuthSession,
   closeDialog,
   showToast
-});
-initAdminProductsTable({
-  getProducts: () => adminData?.products || [],
-  adminFetch,
-  showToast,
-  adminCategoryOptions,
-  splitPreorderArrival,
-  fallbackMarkup: adminProductImageFallbackMarkup,
-  onCatalogChanged: invalidateAdminManagementOptions
-});
-initAdminShell({
-  getStats: () => (adminData?.stats && Object.keys(adminData.stats).length ? adminData.stats : null),
-  getOverview: () => adminData?.overview || null,
-  switchAdminTab,
-  reloadAdminList,
-  loadAdminSection,
-  adminFetch,
-  formatDateTime,
-  orderStatusLabel: (order) => adminOrderStatusLabel(order)
 });
 document.querySelectorAll(".filter").forEach((button) => button.addEventListener("click", () => { activeCategory = button.dataset.category; document.querySelectorAll(".filter").forEach((item) => item.classList.toggle("active", item === button)); renderProducts(); }));
 search.addEventListener("input", renderProducts);
@@ -257,12 +142,6 @@ document.querySelector("#checkout-form").addEventListener("submit", async (event
 });
 document.querySelector("#payment-form").addEventListener("submit", submitPayment);
 document.querySelector("#profile-form").addEventListener("submit", submitProfile);
-document.querySelector("#admin-account-form").addEventListener("submit", async (event) => { try { await submitAdminAccount(event); } catch (error) { showToast(error.message, "error"); } });
-document.querySelector("#admin-category-form").addEventListener("submit", async (event) => { try { await submitAdminCategory(event); } catch (error) { showToast(error.message, "error"); } });
-document.querySelector("#admin-product-form").addEventListener("submit", async (event) => { try { await submitAdminProduct(event); } catch (error) { showToast(error.message, "error"); } });
-document.querySelector("#admin-variant-form").addEventListener("submit", async (event) => { try { await submitNewVariant(event); } catch (error) { showToast(error.message, "error"); } });
-document.querySelector("#admin-inventory-form").addEventListener("submit", async (event) => { try { await submitInventoryAdjustment(event); } catch (error) { showToast(error.message, "error"); } });
-document.querySelector("#admin-point-settings-form").addEventListener("submit", async (event) => { try { await submitPointSettings(event); } catch (error) { showToast(error.message, "error"); } });
 document.querySelector("#profile-dialog").addEventListener("cancel", (event) => {
   if (event.currentTarget.dataset.required === "true") event.preventDefault();
 });
@@ -282,7 +161,6 @@ function renderInitialPageOnce() {
 async function bootstrapAuth() {
   if (authBootstrapInFlight) return authBootstrapInFlight;
   authBootstrapInFlight = (async () => {
-    removeLegacyShippingUI();
     removeLegacySellerCheckoutOption();
     const bootUrl = new URL(location.href);
     // Overlap the LIFF SDK download with /api/config for LINE launches only;

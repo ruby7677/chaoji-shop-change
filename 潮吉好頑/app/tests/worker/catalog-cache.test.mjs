@@ -1,7 +1,7 @@
 // 前台型錄 publicCatalog() 的 Worker 內記憶體快取：TTL 內共用、併發請求合併成一個 in-flight
 // promise、讀取失敗不快取，以及 invalidateCatalogCache() 強制下一次重新讀取。
-// *.workers.dev 網域不能用 Cache API，所以這層只存在 Worker isolate 記憶體內，回應給瀏覽器的
-// Cache-Control 維持 no-store（見 routes.test.mjs／index.ts），此處只驗證模組內快取本身。
+// 這層只存在 Worker isolate 記憶體內，回應給瀏覽器的 Cache-Control 維持 no-store
+// （見 routes.test.mjs／index.ts），此處只驗證模組內快取本身。
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { jsonResponse, loadSourceModule, stubFetch } from "./harness.mjs";

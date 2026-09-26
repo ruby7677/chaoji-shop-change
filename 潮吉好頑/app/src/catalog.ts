@@ -1,5 +1,5 @@
 // 前台型錄、商品主圖代理與上傳、前端 runtime config。
-import { IMAGE_CACHE_CONTROL, IMAGE_STALE_VERSION_CACHE_CONTROL, PRODUCT_IMAGE_BUCKET, PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_TYPES, hasImageSignature, imageContentType, productImageCacheKey, productImageEdgeCache, purgeProductImageCache, requestedImageVersion, storageObjectUrl } from "./product-image-storage";
+import { IMAGE_CACHE_CONTROL, IMAGE_STALE_VERSION_CACHE_CONTROL, PRODUCT_IMAGE_BUCKET, PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_TYPES, hasImageSignature, imageContentType, productImageCacheKey, productImageEdgeCache, purgeProductImageCache, requestedImageVersion, storageObjectUrl, thumbnailPathFor } from "./product-image-storage";
 import { requireAdmin } from "./auth";
 import { databaseError } from "./database-errors";
 import { type Env, type Product } from "./env";
@@ -10,7 +10,7 @@ const demoProducts: Product[] = [
   { id: "ux20", category: "UX系列", name: "UX20 榮耀戰神 亞洲版", price: 1350, stock: 23, type: "現貨", seller_link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" }
 ];
 
-// 前台型錄放 Worker isolate 內的記憶體快取（*.workers.dev 網域不可用 Cache API）：TTL 30 秒，
+// 前台型錄放 Worker isolate 內的記憶體快取：TTL 30 秒，
 // 併發請求共用同一個 in-flight promise，讀取失敗不快取。回應給瀏覽器的 Cache-Control 仍是 no-store，
 // 這個快取只影響 Worker 內部是否重打 Supabase。
 const CATALOG_CACHE_TTL_MS = 30_000;
@@ -64,8 +64,10 @@ export async function serveProductImage(request: Request, env: Env, productId: s
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "圖片服務尚未設定" }, { status: 503 });
   // The edge key includes the version query (see product-image-storage.ts), so
   // a changed primary image is served under a new key in every data center.
+  // size=thumb 也併入 cache key，避免縮圖與完整圖共用同一份邊緣快取。
   const version = requestedImageVersion(request);
-  const cacheKey = productImageCacheKey(request, productId, undefined, version);
+  const wantsThumbnail = new URL(request.url).searchParams.get("size") === "thumb";
+  const cacheKey = productImageCacheKey(request, productId, undefined, version, wantsThumbnail ? "thumb" : undefined);
   const edgeCache = productImageEdgeCache();
   const cached = await edgeCache.match(cacheKey);
   if (cached) return cached;
@@ -78,12 +80,20 @@ export async function serveProductImage(request: Request, env: Env, productId: s
   const imagePath = products[0]?.image_path;
   const isCurrentVersion = version === (products[0]?.image_updated_at || "1");
   if (!imagePath) return json({ error: "商品尚未上傳照片" }, { status: 404 });
-  const imageResponse = await fetchWithTimeout(storageObjectUrl(env, imagePath), {
-    headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` }
-  }, UPLOAD_TIMEOUT_MS);
+
+  const storageObjectHeaders = { apikey: env.SUPABASE_SERVICE_ROLE_KEY as string, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` };
+  const fetchImageObject = (path: string) => fetchWithTimeout(storageObjectUrl(env, path), { headers: storageObjectHeaders }, UPLOAD_TIMEOUT_MS);
+
+  let servedPath = imagePath;
+  // 縮圖不存在時 Supabase Storage 回 400（不是 404）；縮圖讀不到一律改用主圖
+  let imageResponse = wantsThumbnail ? await fetchImageObject(thumbnailPathFor(imagePath)).catch(() => null) : null;
+  if (imageResponse && (!imageResponse.ok || !imageResponse.body)) imageResponse = null;
+  if (imageResponse) servedPath = thumbnailPathFor(imagePath);
+  else imageResponse = await fetchImageObject(imagePath);
+
   if (!imageResponse.ok || !imageResponse.body) return json({ error: "圖片暫時無法載入" }, { status: imageResponse.status === 404 ? 404 : 503 });
   const imageHeaders = new Headers(SECURITY_HEADERS);
-  imageHeaders.set("Content-Type", imageContentType(imagePath, imageResponse.headers.get("Content-Type")));
+  imageHeaders.set("Content-Type", imageContentType(servedPath, imageResponse.headers.get("Content-Type")));
   imageHeaders.set("Cache-Control", isCurrentVersion ? IMAGE_CACHE_CONTROL : IMAGE_STALE_VERSION_CACHE_CONTROL);
   const response = new Response(imageResponse.body, {
     headers: imageHeaders
@@ -111,6 +121,17 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
   if (!image.size || image.size > PRODUCT_IMAGE_MAX_BYTES) return json({ error: "商品照片必須小於 5MB" }, { status: 400 });
   if (!(await hasImageSignature(image, image.type))) return json({ error: "照片格式與檔案內容不一致" }, { status: 400 });
 
+  // 縮圖是選填欄位，但一旦附上就套用與主圖相同的驗證（另加限定 WebP）；
+  // 驗證在任何 storage 寫入之前失敗，讓整個請求連同主圖一起被拒絕，管理員才會注意到問題。
+  const thumbnailField = formData.get("thumbnail");
+  let thumbnail: File | null = null;
+  if (thumbnailField instanceof File && thumbnailField.size > 0) {
+    if (thumbnailField.type !== "image/webp") return json({ error: "縮圖僅支援 WebP" }, { status: 400 });
+    if (thumbnailField.size > PRODUCT_IMAGE_MAX_BYTES) return json({ error: "縮圖檔案必須小於 5MB" }, { status: 400 });
+    if (!(await hasImageSignature(thumbnailField, "image/webp"))) return json({ error: "縮圖格式與檔案內容不一致" }, { status: 400 });
+    thumbnail = thumbnailField;
+  }
+
   const productResponse = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/products?select=id,image_path,image_updated_at&id=eq.${productId}&limit=1`, { headers: serviceHeaders(env) });
   if (!productResponse.ok) return json({ error: "無法確認商品資料" }, { status: 503 });
   const productRows = await productResponse.json() as Array<{ id: string; image_path?: string; image_updated_at?: string | null }>;
@@ -119,6 +140,7 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
   const previousVersion = productRows[0].image_updated_at || "1";
 
   const imagePath = `${productId}/primary.${extension}`;
+  const thumbnailPath = thumbnailPathFor(imagePath);
   const uploadResponse = await fetchWithTimeout(storageObjectUrl(env, imagePath), {
     method: "POST",
     headers: {
@@ -140,13 +162,51 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
   if (!updateResponse.ok) return databaseError(updateResponse);
   invalidateCatalogCache();
   await purgeProductImageCache(request, productId, undefined, previousVersion);
+  await purgeProductImageCache(request, productId, undefined, previousVersion, "thumb");
   if (previousImagePath && previousImagePath !== imagePath) {
+    const previousThumbnailPath = thumbnailPathFor(previousImagePath);
+    const prefixes = previousThumbnailPath === thumbnailPath ? [previousImagePath] : [previousImagePath, previousThumbnailPath];
     await fetchWithTimeout(`${env.SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}`, {
       method: "DELETE",
       headers: serviceHeaders(env),
-      body: JSON.stringify({ prefixes: [previousImagePath] })
+      body: JSON.stringify({ prefixes })
     });
   }
+
+  // 縮圖上傳採最佳努力：主圖已成功，縮圖失敗只記錄、不讓整個請求失敗。
+  // 縮圖路徑固定，沒有新縮圖（未附上或上傳失敗）時要刪掉同路徑的舊縮圖，
+  // 否則 size=thumb 會服務到與新主圖不一致的舊照片；刪除不存在的物件不會回錯。
+  let thumbnailStored = false;
+  if (thumbnail) {
+    try {
+      const thumbnailUploadResponse = await fetchWithTimeout(storageObjectUrl(env, thumbnailPath), {
+        method: "POST",
+        headers: {
+          apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+          "Content-Type": "image/webp",
+          "x-upsert": "true"
+        },
+        body: thumbnail
+      }, UPLOAD_TIMEOUT_MS);
+      thumbnailStored = thumbnailUploadResponse.ok;
+      if (!thumbnailStored) console.error(`商品縮圖上傳失敗 productId=${productId} status=${thumbnailUploadResponse.status}`);
+    } catch (error) {
+      console.error(`商品縮圖上傳發生例外 productId=${productId}`, error);
+    }
+  }
+  if (!thumbnailStored) {
+    try {
+      await fetchWithTimeout(`${env.SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}`, {
+        method: "DELETE",
+        headers: serviceHeaders(env),
+        body: JSON.stringify({ prefixes: [thumbnailPath] })
+      }, UPLOAD_TIMEOUT_MS);
+    } catch (error) {
+      console.error(`清除舊商品縮圖發生例外 productId=${productId}`, error);
+    }
+  }
+
   return json({ image_url: `/api/product-images/${productId}?v=${encodeURIComponent(updatedAt)}` });
 }
 

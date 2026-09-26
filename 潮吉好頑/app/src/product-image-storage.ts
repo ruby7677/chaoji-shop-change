@@ -38,6 +38,17 @@ export function imageContentType(path: string, fallback: string | null) {
   return imageType || fallback || "application/octet-stream";
 }
 
+// 縮圖固定存在主圖同一資料夾，副檔名固定 .thumb.webp，與主圖副檔名（jpg/png/webp）無關；
+// 因此同一商品 id 下的縮圖路徑在更換主圖格式時維持不變，見 catalog.ts uploadProductImage 的清理邏輯。
+export function thumbnailPathFor(imagePath: string): string {
+  const lastSlash = imagePath.lastIndexOf("/");
+  const dir = lastSlash >= 0 ? imagePath.slice(0, lastSlash + 1) : "";
+  const fileName = lastSlash >= 0 ? imagePath.slice(lastSlash + 1) : imagePath;
+  const lastDot = fileName.lastIndexOf(".");
+  const baseName = lastDot > 0 ? fileName.slice(0, lastDot) : fileName;
+  return `${dir}${baseName}.thumb.webp`;
+}
+
 // Cache API 只存在處理請求的機房，cache.delete 無法清除其他機房；因此：
 // 1. 快取 key 含版本（?v=），圖片變動後前台自動改用新網址，不依賴 purge；
 // 2. 邊緣快取最多保留 1 天（s-maxage），已刪除或下架的圖片最遲 1 天在各機房失效；
@@ -49,10 +60,13 @@ export function requestedImageVersion(request: Request) {
   return new URL(request.url).searchParams.get("v") || "";
 }
 
-export function productImageCacheKey(request: Request, productId: string, imageId: string | undefined, version: string) {
+export function productImageCacheKey(request: Request, productId: string, imageId: string | undefined, version: string, size?: string) {
   const url = new URL(request.url);
   url.pathname = imageId ? `/api/product-images/${productId}/${imageId}` : `/api/product-images/${productId}`;
-  url.search = `?v=${encodeURIComponent(version)}`;
+  // size 併入 key 是 query string 的一部分，讓 size=thumb 與完整圖使用不同的邊緣快取項目。
+  const params = new URLSearchParams({ v: version });
+  if (size) params.set("size", size);
+  url.search = `?${params.toString()}`;
   url.hash = "";
   return new Request(url.toString(), { method: "GET" });
 }
@@ -62,6 +76,6 @@ export function productImageEdgeCache() {
 }
 
 // 只清除本機房（通常是管理員所在機房）的指定版本；其他機房靠版本 key 與 s-maxage 失效。
-export async function purgeProductImageCache(request: Request, productId: string, imageId: string | undefined, version: string) {
-  await productImageEdgeCache().delete(productImageCacheKey(request, productId, imageId, version));
+export async function purgeProductImageCache(request: Request, productId: string, imageId: string | undefined, version: string, size?: string) {
+  await productImageEdgeCache().delete(productImageCacheKey(request, productId, imageId, version, size));
 }

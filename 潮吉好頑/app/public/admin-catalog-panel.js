@@ -262,7 +262,7 @@ export async function submitAdminProduct(event) {
     const preparedImage = selectedImage ? await prepareProductImage(selectedImage) : null;
     const result = await adminFetch("/api/admin/products", { method: "POST", body: JSON.stringify(productFormBody()) });
     invalidateAdminManagementOptions();
-    await uploadAdminProductImage(result.ids.product_id, preparedImage?.file);
+    await uploadAdminProductImage(result.ids.product_id, preparedImage?.file, preparedImage?.thumbnailFile);
     form.reset();
     document.querySelector("#admin-variant-name").value = "單一規格";
     document.querySelector("#admin-stock").value = "0";
@@ -360,7 +360,7 @@ export async function submitDynamicAdminForm(event) {
       const purchaseLimit = String(formData.get("purchase_limit") || "").trim();
       await adminFetch(`/api/admin/products/${productId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), description: formData.get("description"), category_id: String(formData.get("category_id") || "").trim() || null, purchase_limit: purchaseLimit ? Number(purchaseLimit) : null, points_eligible: formData.get("points_excluded") !== "on", display_order: Number(formData.get("display_order") || 0), is_published: formData.get("is_published") === "on" }) });
       invalidateAdminManagementOptions();
-      if (preparedImage) await uploadAdminProductImage(productId, preparedImage.file);
+      if (preparedImage) await uploadAdminProductImage(productId, preparedImage.file, preparedImage.thumbnailFile);
       event.target.dataset.imageFallback = preparedImage && !preparedImage.converted ? "true" : "false";
     } finally {
       if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; }

@@ -1,10 +1,16 @@
 // 商品卡標記：首頁商品格與商品頁「您可能也喜歡」共用同一份 HTML。
 import { escapeHtml, hasProductDiscount, preorderStockMarkup, productAvailability, productAvailabilityBadge, productMark, productPriceMarkup, productPromotionBadge, productTagMarkup } from "./product-format.js";
 
+// 商品卡只需要縮圖（實際渲染約 180–300 CSS px），完整原圖留給 srcset 的高解析度分支；
+// image_url 本身可能已帶 ?v= 版本參數，用 & 或 ? 接上 size=thumb 視情況而定。
+function withThumbnailQuery(imageUrl) {
+  return `${imageUrl}${imageUrl.includes("?") ? "&" : "?"}size=thumb`;
+}
+
 function productCardImageMarkup(product) {
-  return product.image_url
-    ? `<img src="${escapeHtml(product.image_url)}" alt="${escapeHtml(product.name)}" loading="lazy" />`
-    : `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`;
+  if (!product.image_url) return `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`;
+  const thumbnailUrl = withThumbnailQuery(product.image_url);
+  return `<img src="${escapeHtml(thumbnailUrl)}" srcset="${escapeHtml(thumbnailUrl)} 640w, ${escapeHtml(product.image_url)} 1600w" sizes="(min-width: 768px) 25vw, 50vw" alt="${escapeHtml(product.name)}" loading="lazy" />`;
 }
 
 export function productCardMarkup(product) {
