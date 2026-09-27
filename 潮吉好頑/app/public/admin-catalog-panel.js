@@ -6,6 +6,7 @@ import { products } from "./storefront-catalog.js";
 import { adminData, adminFetch, invalidateAdminManagementOptions, refreshAdminSections, relationOne, switchAdminTab } from "./admin-app.js";
 import { renderAdminDiscountOptionBoxes } from "./admin-members-panel.js";
 import { prepareProductImage, uploadAdminProductImage, validateProductImage } from "./admin-product-image.js";
+import { movementMatches } from "./admin-stock-math.js";
 
 function sortedAdminCategories() {
   return (adminData?.categories || []).slice().sort((left, right) => Number(left.display_order || 0) - Number(right.display_order || 0) || String(left.name || "").localeCompare(String(right.name || ""), "zh-Hant"));
@@ -109,13 +110,27 @@ export function renderAdminSelects({ preserveSelection = false } = {}) {
     productSelect.innerHTML = productOptions || '<option value="">請先建立商品</option>';
     if (selectedProduct && [...productSelect.options].some((option) => option.value === selectedProduct)) productSelect.value = selectedProduct;
   }
-  const variantOptions = products.flatMap((product) => (product.product_variants || []).map((variant) => `<option value="${variant.id}">${escapeHtml(product.name)} · ${escapeHtml(variant.name)}（庫存 ${variant.stock_on_hand}）</option>`)).join("");
+  // data-sku 供庫存異動頁的搜尋框比對，不顯示在選項文字內
+  const variantOptions = products.flatMap((product) => (product.product_variants || []).map((variant) => `<option value="${variant.id}" data-sku="${escapeHtml(variant.sku || "")}">${escapeHtml(product.name)} · ${escapeHtml(variant.name)}（庫存 ${variant.stock_on_hand}）</option>`)).join("");
   const variantSelect = document.querySelector("#admin-inventory-variant");
   const selectedVariant = preserveSelection ? variantSelect?.value : "";
   if (variantSelect) {
     variantSelect.innerHTML = variantOptions || '<option value="">目前沒有商品規格</option>';
     if (selectedVariant && [...variantSelect.options].some((option) => option.value === selectedVariant)) variantSelect.value = selectedVariant;
+    filterAdminInventoryOptions(document.querySelector("#admin-inventory-search")?.value || "");
   }
+}
+
+// 庫存異動頁的搜尋框：依商品、規格或 SKU 過濾既有 <select> 的選項（renderAdminSelects 產生），不改變 select 本身的載入邏輯
+export function filterAdminInventoryOptions(keyword) {
+  const select = document.querySelector("#admin-inventory-variant");
+  if (!(select instanceof HTMLSelectElement)) return;
+  const kw = String(keyword || "").trim().toLowerCase();
+  [...select.options].forEach((option) => {
+    if (!option.value) { option.hidden = false; return; }
+    const haystack = `${option.textContent} ${option.dataset.sku || ""}`.toLowerCase();
+    option.hidden = Boolean(kw) && !haystack.includes(kw);
+  });
 }
 
 export function refreshAdminManagementOptionControls() {
@@ -151,15 +166,29 @@ export function renderAdminProducts() {
   renderAdminProductsTable();
 }
 
+// 篩選只作用在目前這頁已載入的異動紀錄，不觸發重新分頁載入
+let adminMovementFilterKeyword = "";
+
+export function setAdminMovementFilter(keyword) {
+  adminMovementFilterKeyword = String(keyword || "");
+  renderAdminMovements();
+}
+
 export function renderAdminMovements() {
   const container = document.querySelector("#admin-movement-list");
-  const movements = adminData.movements || [];
-  container.innerHTML = movements.length ? movements.map((movement) => {
+  const rows = (adminData.movements || []).map((movement) => {
     const variant = relationOne(movement.product_variants);
     const product = relationOne(variant?.products);
+    return { movement, variant, product };
+  }).filter(({ movement, variant, product }) => movementMatches(movement, adminMovementFilterKeyword, product?.name, `${variant?.name || ""} ${variant?.sku || ""}`));
+  if (!rows.length) {
+    container.innerHTML = `<div class="empty-state">${adminMovementFilterKeyword ? "沒有符合篩選條件的異動紀錄。" : "目前沒有庫存異動紀錄。"}</div>`;
+    return;
+  }
+  container.innerHTML = rows.map(({ movement, variant, product }) => {
     const positive = movement.quantity_delta > 0;
     return `<div class="admin-card"><div><strong>${escapeHtml(product?.name || "商品")} · ${escapeHtml(variant?.name || variant?.sku || "規格")}</strong><small>${escapeHtml(movement.reason)} · ${formatDateTime(movement.created_at)}</small></div><strong class="${positive ? "movement-positive" : "movement-negative"}">${positive ? "+" : ""}${movement.quantity_delta}</strong></div>`;
-  }).join("") : '<div class="empty-state">目前沒有庫存異動紀錄。</div>';
+  }).join("");
 }
 
 function ensureAdminLowStockUI() {
@@ -289,39 +318,6 @@ export async function submitNewVariant(event) {
   await refreshAdminSections(["products", "inventory", "overview"]);
   switchAdminTab("products");
   showToast("商品規格已新增", "success");
-}
-
-export async function submitInventoryAdjustment(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const button = form.querySelector("button[type='submit']");
-  const variantId = document.querySelector("#admin-inventory-variant").value;
-  if (!variantId) throw new Error("請先選擇商品規格");
-  if (button instanceof HTMLButtonElement) {
-    button.disabled = true;
-    button.textContent = "更新中…";
-  }
-  try {
-    const result = await adminFetch(`/api/admin/variants/${variantId}/inventory`, { method: "POST", body: JSON.stringify({ quantity_delta: Number(document.querySelector("#admin-inventory-delta").value), reason: document.querySelector("#admin-inventory-reason").value }) });
-    invalidateAdminManagementOptions();
-    form.reset();
-    await refreshAdminSections(["inventory", "products", "overview"]);
-    switchAdminTab("inventory");
-    const variantSelect = document.querySelector("#admin-inventory-variant");
-    if (variantSelect) variantSelect.value = variantId;
-    const variantLabel = variantSelect?.selectedOptions?.[0]?.textContent?.trim() || "商品規格";
-    const feedback = document.querySelector("#admin-inventory-feedback");
-    if (feedback) {
-      feedback.textContent = `${variantLabel} 已更新，最新庫存 ${Number(result.stock_on_hand ?? 0)} 件。`;
-      feedback.classList.remove("hidden");
-    }
-    showToast(`庫存已更新：${variantLabel} ${Number(result.stock_on_hand ?? 0)} 件`, "success");
-  } finally {
-    if (button instanceof HTMLButtonElement) {
-      button.disabled = false;
-      button.textContent = "確認調整庫存";
-    }
-  }
 }
 
 export async function submitDynamicAdminForm(event) {

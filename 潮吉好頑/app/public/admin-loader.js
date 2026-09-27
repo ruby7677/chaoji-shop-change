@@ -15,6 +15,7 @@ let adminMembersPanel = null;
 let adminSystemPanel = null;
 let adminCatalogPanel = null;
 let adminProductImage = null;
+let adminStockAdjust = null;
 
 function activateAdminStylesheets() {
   const links = Array.from(document.querySelectorAll(ADMIN_CSS_LINK_SELECTOR));
@@ -39,9 +40,10 @@ async function importAdminModules() {
     import("./admin-members-panel.js"),
     import("./admin-system-panel.js"),
     import("./admin-catalog-panel.js"),
-    import("./admin-product-image.js")
+    import("./admin-product-image.js"),
+    import("./admin-stock-adjust.js")
   ]);
-  [adminApp, adminShellModule, adminProductGallery, adminProductsTable, adminOrdersPanel, adminMembersPanel, adminSystemPanel, adminCatalogPanel, adminProductImage] = modules;
+  [adminApp, adminShellModule, adminProductGallery, adminProductsTable, adminOrdersPanel, adminMembersPanel, adminSystemPanel, adminCatalogPanel, adminProductImage, adminStockAdjust] = modules;
 }
 
 function bindAdminClickDelegation() {
@@ -49,14 +51,17 @@ function bindAdminClickDelegation() {
     const adminQuickFilter = event.target.closest("[data-admin-quick-filter]");
     if (adminQuickFilter) adminApp.applyAdminQuickFilter(adminQuickFilter.dataset.adminQuickFilter);
     const lowStockVariant = event.target.closest("[data-admin-low-stock-variant]");
-    if (lowStockVariant) {
-      const variantSelect = document.querySelector("#admin-inventory-variant");
-      if (variantSelect) variantSelect.value = lowStockVariant.dataset.adminLowStockVariant;
-      document.querySelector("#admin-inventory-delta")?.focus();
+    if (lowStockVariant) adminStockAdjust.openStockAdjust(lowStockVariant.dataset.adminLowStockVariant, lowStockVariant);
+    if (event.target.closest("#admin-inventory-adjust-button")) {
+      const variantId = document.querySelector("#admin-inventory-variant")?.value;
+      if (!variantId) showToast("請先選擇商品規格", "error");
+      else adminStockAdjust.openStockAdjust(variantId, event.target.closest("#admin-inventory-adjust-button"));
     }
     const adminTab = event.target.closest("[data-admin-tab]");
     if (adminTab) adminApp.switchAdminTab(adminTab.dataset.adminTab);
     if (event.target.closest("[data-admin-refresh]")) adminApp.loadAdminData().catch((error) => showToast(error.message, "error"));
+    const quickConfirmButton = event.target.closest("[data-admin-order-quick-confirm]");
+    if (quickConfirmButton) adminOrdersPanel.quickConfirmAdminOrder(quickConfirmButton.dataset.adminOrderQuickConfirm, quickConfirmButton).catch((error) => showToast(error.message, "error"));
     if (event.target.closest("[data-telegram-test]")) adminApp.testTelegramNotification().catch((error) => showToast(error.message, "error"));
     if (event.target.closest("[data-birthday-issue]")) adminMembersPanel.issueBirthdayCouponsNow().catch((error) => showToast(error.message, "error"));
     const adminPageButton = event.target.closest("[data-admin-page]");
@@ -104,6 +109,8 @@ function bindAdminInputDelegation() {
     if (event.target.matches("#admin-order-search")) adminApp.reloadAdminList("orders");
     if (event.target.matches("#admin-member-search")) adminApp.reloadAdminList("members");
     if (event.target.matches("#admin-product-search")) adminApp.reloadAdminList("products");
+    if (event.target.matches("#admin-inventory-search")) adminCatalogPanel.filterAdminInventoryOptions(event.target.value);
+    if (event.target.matches("#admin-movement-filter")) adminCatalogPanel.setAdminMovementFilter(event.target.value);
   });
 }
 
@@ -137,6 +144,11 @@ function bindAdminSubmitDelegation() {
       catch (error) { showToast(error.message, "error"); }
       return;
     }
+    if (event.target.matches("#admin-stock-form")) {
+      try { await adminStockAdjust.submitStockAdjust(event); }
+      catch (error) { showToast(error.message, "error"); }
+      return;
+    }
     if (!event.target.matches("[data-edit-product-form], [data-edit-variant-form]")) return;
     try { await adminCatalogPanel.submitDynamicAdminForm(event); }
     catch (error) { showToast(error.message, "error"); }
@@ -148,7 +160,6 @@ function bindAdminDirectFormListeners() {
   document.querySelector("#admin-category-form").addEventListener("submit", async (event) => { try { await adminCatalogPanel.submitAdminCategory(event); } catch (error) { showToast(error.message, "error"); } });
   document.querySelector("#admin-product-form").addEventListener("submit", async (event) => { try { await adminCatalogPanel.submitAdminProduct(event); } catch (error) { showToast(error.message, "error"); } });
   document.querySelector("#admin-variant-form").addEventListener("submit", async (event) => { try { await adminCatalogPanel.submitNewVariant(event); } catch (error) { showToast(error.message, "error"); } });
-  document.querySelector("#admin-inventory-form").addEventListener("submit", async (event) => { try { await adminCatalogPanel.submitInventoryAdjustment(event); } catch (error) { showToast(error.message, "error"); } });
   document.querySelector("#admin-point-settings-form").addEventListener("submit", async (event) => { try { await adminMembersPanel.submitPointSettings(event); } catch (error) { showToast(error.message, "error"); } });
 }
 

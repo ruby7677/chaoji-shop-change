@@ -4,6 +4,7 @@ import { adminConfirm } from "./admin-confirm.js";
 import { adminOrderStatusLabel, deliveryMethodLabels, formatDateTime, orderIncludesPreorder, orderInventoryTypeLabel, showToast } from "./app-core.js";
 import { loadProducts, renderProducts } from "./storefront-catalog.js";
 import { adminData, adminFetch, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
+import { confirmationAmount, isQuickConfirmable, moneySummary, paymentConfirmation } from "./admin-order-payment.js";
 
 const adminOrderTransitions = {
   pending_payment: [{ value: "confirmed", label: "確認到店付款", storePaymentOnly: true }, { value: "cancelled", label: "取消未付款訂單" }],
@@ -123,7 +124,19 @@ export function renderAdminOrders() {
     const deliveryLabel = deliveryMethodLabels[order.delivery_method || "store_pickup"] || "到店取貨";
     const orderDeliveryLabel = `${orderInventoryTypeLabel(order)}．${deliveryLabel}`;
     const shippingInfo = order.delivery_method === "home_delivery" ? `<p class="admin-order-note">收件人：${escapeHtml(order.shipping_recipient_name || "未填寫")}<br />電話：${escapeHtml(order.shipping_phone || "未填寫")}<br />地址：${escapeHtml(order.shipping_address || "未填寫")}</p>` : "";
-    return `<article class="admin-order-card"><header><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(orderDeliveryLabel)}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(adminOrderStatusLabel(order))}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div><div class="admin-order-payment"><span class="admin-order-total">總額 <b>${money(order.amount_due)}</b></span><span class="admin-order-payment-method">運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span class="admin-order-deposit">訂金應付 <b>${money(order.deposit_due)}</b></span><span class="admin-order-paid">已確認 <b>${money(order.paid_amount || 0)}</b></span><span class="admin-order-balance">待收尾款 <b>${money(balance)}</b></span><span class="admin-order-discount admin-order-coupon">優惠券折抵 <b>${adminDiscountLabel(couponDiscount)}</b></span><span class="admin-order-discount admin-order-points">點數折抵 <b>${adminDiscountLabel(pointDiscount)}</b></span></div>${shippingInfo}<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span>匯款末五碼：<b>${escapeHtml(order.payment_last_five || "尚未回報")}</b></span></div>${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status">${options}</select></label><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消與退款相關操作必填；其他操作可選填"></textarea></label><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>'}${renderAdminReturnPanel(order)}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
+    // 一鍵確認：店主最常做、也最重要的動作（確認收款／賣貨便訂單）獨立成主按鈕，不必先展開金額明細與下拉選單。
+    const quick = isQuickConfirmable(order, transitions);
+    const isSellerExternal = order.delivery_method === "seller_delivery" && !order.bank_account_id;
+    const quickButtonLabel = isSellerExternal ? "確認賣貨便訂單" : `確認收到 ${money(confirmationAmount(order))}`;
+    const quickInfoLine = isSellerExternal ? "" : `<small>末五碼 ${escapeHtml(order.payment_last_five || "尚未回報")} · ${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</small>`;
+    const quickBlock = quick ? `<div class="admin-order-quick"><button class="primary-button admin-order-quick-button" type="button" data-admin-order-quick-confirm="${escapeHtml(order.id)}">${escapeHtml(quickButtonLabel)}</button>${quickInfoLine}</div>` : "";
+    const moneyGrid = `<details class="admin-order-money"><summary>${escapeHtml(moneySummary(order))}</summary><div class="admin-order-payment"><span class="admin-order-total">總額 <b>${money(order.amount_due)}</b></span><span class="admin-order-payment-method">運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span class="admin-order-deposit">訂金應付 <b>${money(order.deposit_due)}</b></span><span class="admin-order-paid">已確認 <b>${money(order.paid_amount || 0)}</b></span><span class="admin-order-balance">待收尾款 <b>${money(balance)}</b></span><span class="admin-order-discount admin-order-coupon">優惠券折抵 <b>${adminDiscountLabel(couponDiscount)}</b></span><span class="admin-order-discount admin-order-points">點數折抵 <b>${adminDiscountLabel(pointDiscount)}</b></span></div></details>`;
+    // 一鍵確認卡片已在上方顯示末五碼／收款帳戶，這裡不重複顯示匯款列
+    const bankRow = quick ? "" : `<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span>匯款末五碼：<b>${escapeHtml(order.payment_last_five || "尚未回報")}</b></span></div>`;
+    const transitionForm = transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status">${options}</select></label><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消與退款相關操作必填；其他操作可選填"></textarea></label><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>';
+    // 一鍵確認卡片把其餘操作（取消、備註）收進 details，避免與主按鈕搶注意力
+    const actionBlock = quick && transitions.length ? `<details class="admin-order-more"><summary>其他操作（取消訂單、備註）</summary>${transitionForm}</details>` : transitionForm;
+    return `<article class="admin-order-card"><header><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(orderDeliveryLabel)}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(adminOrderStatusLabel(order))}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div>${quickBlock}${moneyGrid}${shippingInfo}${bankRow}${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${actionBlock}${renderAdminReturnPanel(order)}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
   }).join("");
   renderAdminPagination("orders");
   container.querySelectorAll(".admin-order-card").forEach((card, index) => {
@@ -140,7 +153,9 @@ export function renderAdminOrders() {
       const currentStockHomePending = order.delivery_method === "home_delivery" && !hasPreorder && order.status === "pending_review";
       const canUpdateFulfillment = currentStockHomePending || ["partially_ready", "ready_for_pickup"].includes(order.status);
       const terminalStatuses = ["completed", "cancelled", "refund_pending", "refunded"];
-      const insertBefore = card.querySelector(".admin-order-action") || card.querySelector(".admin-order-history");
+      // 一鍵確認卡片把 .admin-order-action 表單包進 <details class="admin-order-more">，不再是 card 的直接子節點；
+      // insertBefore 要求錨點必須是直接子節點，改以 :scope 依序找可用的直接子錨點。
+      const insertBefore = card.querySelector(":scope > .admin-order-more, :scope > .admin-order-action, :scope > .admin-order-history");
       if (canUpdateFulfillment) {
         const form = document.createElement("form");
         form.className = "admin-fulfillment-form";
@@ -200,6 +215,17 @@ export function renderAdminOrders() {
   });
 }
 
+// submitAdminOrderTransition 與 quickConfirmAdminOrder 共用：送出同一個 transition API 並刷新同一組畫面。
+// 後端行為不變，仍是 POST /api/admin/orders/:id/transition，body 為 { target_status, note }。
+async function postAdminOrderTransition(orderId, targetStatus, note) {
+  await adminFetch(`/api/admin/orders/${orderId}/transition`, { method: "POST", body: JSON.stringify({ target_status: targetStatus, note }) });
+  await refreshAdminSections(["orders", "overview", "inventory", "products"]);
+  switchAdminTab("orders");
+  showToast("訂單狀態已更新", "success");
+  await loadProducts();
+  renderProducts();
+}
+
 export async function submitAdminOrderTransition(event) {
   event.preventDefault();
   const form = event.target;
@@ -211,9 +237,13 @@ export async function submitAdminOrderTransition(event) {
   const note = noteField.value.trim();
   if (["cancelled", "refund_pending", "refunded"].includes(targetStatus) && !note) throw new Error("取消或退款相關操作必須填寫原因");
   const currentOrder = (adminData.orders || []).find((order) => order.id === form.dataset.adminOrderForm);
-  const warning = targetStatus === "confirmed"
-    ? "確認款項後會正式扣除商品庫存。"
-    : targetStatus === "completed"
+  let confirmed;
+  if (targetStatus === "confirmed" && currentOrder) {
+    // 確認款項：改用附金額、末五碼與收款帳戶的加強版確認框，取代看不出金額的通用文字
+    const { title, details, confirmLabel, warnings } = paymentConfirmation(currentOrder);
+    confirmed = await adminConfirm({ title, details, message: warnings, confirmLabel, trigger: event.submitter });
+  } else {
+    const warning = targetStatus === "completed"
       ? "完成訂單代表商品已取走且尾款已收訖。"
       : targetStatus === "cancelled" && ["pending_payment", "pending_review"].includes(currentOrder?.status)
         ? "此訂單尚未扣除實體庫存；取消後會釋放保留量。"
@@ -222,18 +252,29 @@ export async function submitAdminOrderTransition(event) {
       : ["refund_pending", "refunded"].includes(targetStatus)
         ? "退款流程不會自動回補庫存；收到實物後，請在已退款訂單逐項驗收並分為可再售或報廢。"
         : "";
-  if (!(await adminConfirm({ title: "確定更新此訂單狀態？", message: warning, confirmLabel: "確定更新", danger: ["cancelled", "refund_pending", "refunded"].includes(targetStatus), trigger: event.submitter }))) return;
+    confirmed = await adminConfirm({ title: "確定更新此訂單狀態？", message: warning, confirmLabel: "確定更新", danger: ["cancelled", "refund_pending", "refunded"].includes(targetStatus), trigger: event.submitter });
+  }
+  if (!confirmed) return;
   const button = form.querySelector("button[type='submit']");
   button.disabled = true;
   try {
-    await adminFetch(`/api/admin/orders/${form.dataset.adminOrderForm}/transition`, { method: "POST", body: JSON.stringify({ target_status: targetStatus, note }) });
-    await refreshAdminSections(["orders", "overview", "inventory", "products"]);
-    switchAdminTab("orders");
-    showToast("訂單狀態已更新", "success");
-    await loadProducts();
-    renderProducts();
+    await postAdminOrderTransition(form.dataset.adminOrderForm, targetStatus, note);
   } finally {
     button.disabled = false;
+  }
+}
+
+// 訂單卡上的一鍵確認按鈕：直接送出「確認款項並扣除庫存」，行為與下拉選單選「confirmed」後送出表單相同。
+export async function quickConfirmAdminOrder(orderId, trigger) {
+  const order = (adminData.orders || []).find((item) => item.id === orderId);
+  if (!order) throw new Error("找不到此訂單，請重新整理後再試");
+  const { title, details, confirmLabel, warnings } = paymentConfirmation(order);
+  if (!(await adminConfirm({ title, details, message: warnings, confirmLabel, trigger }))) return;
+  if (trigger instanceof HTMLButtonElement) trigger.disabled = true;
+  try {
+    await postAdminOrderTransition(orderId, "confirmed", "");
+  } finally {
+    if (trigger instanceof HTMLButtonElement) trigger.disabled = false;
   }
 }
 

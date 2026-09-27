@@ -3,6 +3,7 @@
 // 待辦與低庫存由伺服器依條件精準篩選，不受訂單或商品筆數影響。
 import { adminIcon } from "./admin-icons.js";
 import { escapeHtml, money } from "./product-format.js";
+import { openStockAdjust } from "./admin-stock-adjust.js";
 
 // 後台 API 每位管理員每分鐘限 60 次（API_ADMIN_RATE_LIMITER），概況以較長快取避免佔用額度；
 // 按右上角重新整理可強制更新
@@ -99,20 +100,10 @@ function isVisible() {
   return panel.closest("dialog")?.open && !panel.classList.contains("hidden");
 }
 
-function openRestock(variantId) {
-  deps.switchAdminTab("inventory");
-  // 庫存頁的規格選單在資料載入後才會有選項，稍後再選取並聚焦數量欄
-  const trySelect = (attempt = 0) => {
-    const select = document.querySelector("#admin-inventory-variant");
-    const option = select && [...select.options].find((item) => item.value === variantId);
-    if (option) {
-      select.value = variantId;
-      document.querySelector("#admin-inventory-delta")?.focus();
-    } else if (attempt < 20) {
-      window.setTimeout(() => trySelect(attempt + 1), 150);
-    }
-  };
-  trySelect();
+// 直接開啟共用的庫存調整面板，停留在概況頁（不再切到庫存頁面）；概況頁的 lowStock 一定已載入，
+// openStockAdjust 找不到規格清單裡的資料時仍會 fallback 到 adminData.overview.lowStock。
+function openRestock(variantId, trigger) {
+  openStockAdjust(variantId, trigger);
 }
 
 export function initAdminOverview(dependencies) {
@@ -133,7 +124,7 @@ export function initAdminOverview(dependencies) {
     const orderButton = event.target.closest("[data-admin-dash-order]");
     if (orderButton) return deps.openOrder(orderButton.dataset.adminDashOrder);
     const restock = event.target.closest("[data-admin-dash-restock]");
-    if (restock) return openRestock(restock.dataset.adminDashRestock);
+    if (restock) return openRestock(restock.dataset.adminDashRestock, restock);
     if (event.target.closest("[data-admin-refresh]") && isVisible()) load({ force: true });
   });
 }

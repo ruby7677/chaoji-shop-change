@@ -1,0 +1,27 @@
+/* 庫存調整滑出面板（admin-stock-adjust.js）與庫存異動頁選規格／篩選歷史的樣式；沿用 admin-shell.css 的 CSS 變數。 */
+#admin-dialog.admin-app .admin-stock-current { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--admin-border); border-radius: 12px; background: var(--admin-surface-subtle); font-size: 14px; }
+#admin-dialog.admin-app .admin-stock-current strong { font-size: 16px; }
+
+#admin-dialog.admin-app .admin-stock-segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 16px; }
+#admin-dialog.admin-app .admin-stock-segment { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 12px; border: 1px solid var(--admin-border); border-radius: 10px; font-weight: 700; cursor: pointer; transition: border-color 150ms ease, background 150ms ease; }
+#admin-dialog.admin-app .admin-stock-segment input { accent-color: #141414; }
+#admin-dialog.admin-app .admin-stock-segment.is-selected { border-color: #141414; background: var(--admin-brand-sun); }
+#admin-dialog.admin-app .admin-stock-segment:has(input:focus-visible) { outline: 3px solid var(--admin-focus); outline-offset: 2px; }
+
+#admin-dialog.admin-app .admin-stock-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }
+#admin-dialog.admin-app .admin-stock-chip { min-height: 44px; padding: 6px 14px; border: 1px solid var(--admin-border); border-radius: 999px; background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: border-color 150ms ease; }
+#admin-dialog.admin-app .admin-stock-chip:hover { border-color: #141414; }
+
+#admin-dialog.admin-app .admin-stock-preview { margin: 0 0 20px; padding: 12px 14px; border: 1px dashed #141414; border-radius: 12px; background: #fffdf2; font-weight: 700; }
+#admin-dialog.admin-app .admin-stock-preview.is-error { border-color: #9a302a; background: #fdeceb; color: #9a302a; }
+
+/* ---------- 庫存異動頁：搜尋規格與篩選歷史 ---------- */
+#admin-dialog.admin-app [data-admin-panel="inventory"] #admin-inventory-search,
+#admin-dialog.admin-app [data-admin-panel="inventory"] #admin-inventory-variant,
+#admin-dialog.admin-app [data-admin-panel="inventory"] #admin-inventory-adjust-button { min-height: 44px; font-size: 16px; }
+#admin-dialog.admin-app [data-admin-panel="inventory"] .admin-movement-filter-field { display: block; margin: 12px 0 16px; font-size: 13px; color: var(--admin-text-muted); }
+#admin-dialog.admin-app [data-admin-panel="inventory"] .admin-movement-filter-field input { display: block; width: 100%; min-height: 44px; margin-top: 6px; padding: 0 12px; border: 1px solid var(--admin-border); border-radius: 10px; font-size: 16px; color: var(--admin-text); }
+
+@media (min-width: 640px) {
+  #admin-dialog.admin-app .admin-stock-segmented { max-width: 320px; }
+}

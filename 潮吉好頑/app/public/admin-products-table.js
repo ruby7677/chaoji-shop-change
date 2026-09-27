@@ -5,6 +5,7 @@ import { escapeHtml } from "./product-format.js";
 import { adminIcon } from "./admin-icons.js";
 import { createAdminSheet, openAdminSheetFor } from "./admin-sheets.js";
 import { adminConfirm } from "./admin-confirm.js";
+import { openStockAdjust } from "./admin-stock-adjust.js";
 import { discountPercent, editSheetMarkup, kindPill, priceFormMarkup, pricePreviewText, priceMarkup, relationOne } from "./admin-products-forms.js";
 
 const PRICE_SHEET_AUTO_CLOSE_MS = 15000;
@@ -79,6 +80,7 @@ function rowMarkup(product, variant, maxStock) {
     + `<td data-l="限購">${product.purchase_limit ?? "不限"}</td>`
     + `<td data-l="上架"><button class="admin-switch" type="button" role="switch" aria-checked="${variant.is_published ? "true" : "false"}" aria-label="${escapeHtml(label)} 上架" data-variant-publish="${escapeHtml(variant.id)}"></button></td>`
     + `<td data-l="操作"><span class="admin-row-actions"><button class="admin-row-button${sale ? " is-sale" : ""}" type="button" data-variant-price="${escapeHtml(variant.id)}" aria-label="設定「${escapeHtml(label)}」的優惠價">${adminIcon("tag")}<span>優惠價</span></button>`
+    + `<button class="admin-row-button" type="button" data-stock-adjust="${escapeHtml(variant.id)}" aria-label="調整「${escapeHtml(label)}」的庫存">${adminIcon("box")}<span>調整庫存</span></button>`
     + `<button class="admin-row-button" type="button" data-product-edit="${escapeHtml(product.id)}" aria-label="編輯「${escapeHtml(product.name)}」">${adminIcon("edit")}<span>編輯</span></button></span></td></tr>`;
 }
 
@@ -227,6 +229,8 @@ function bindEvents() {
     if (publish) return void togglePublish(publish);
     const price = target.closest("[data-variant-price]");
     if (price) return openPriceSheet(price.dataset.variantPrice, price);
+    const stockAdjust = target.closest("[data-stock-adjust]");
+    if (stockAdjust) return openStockAdjust(stockAdjust.dataset.stockAdjust, stockAdjust);
     const edit = target.closest("[data-product-edit]");
     if (edit) return openEditSheet(edit.dataset.productEdit, edit);
     const addVariant = target.closest("[data-products-add-variant]");

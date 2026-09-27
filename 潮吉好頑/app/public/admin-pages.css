@@ -83,10 +83,34 @@
 #admin-dialog.admin-app .admin-order-card.needs-action { border-left: 4px solid var(--admin-brand-tongue); }
 #admin-dialog.admin-app .admin-order-list { gap: 10px; }
 
+
+/* ---------- 一鍵確認款項（最重要、不可逆的店長操作，獨立成主按鈕） ---------- */
+#admin-dialog.admin-app .admin-order-quick { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+#admin-dialog.admin-app .admin-order-quick-button { min-height: 48px; padding: 0 16px; border: 1px solid #141414; border-radius: 12px; background: var(--admin-brand-sun); color: #141414; font-size: 15px; font-weight: 800; cursor: pointer; }
+#admin-dialog.admin-app .admin-order-quick-button:hover { background: var(--admin-brand-tongue); }
+#admin-dialog.admin-app .admin-order-quick small { color: var(--admin-text-muted); font-size: 12px; }
+
+/* ---------- 金額明細與其他操作收合（details/summary，減少捲動） ---------- */
+#admin-dialog.admin-app .admin-order-money > summary,
+#admin-dialog.admin-app .admin-order-more > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 4px 0; color: var(--admin-text-muted); font-size: 13px; font-weight: 700; cursor: pointer; list-style: none; }
+/* 展開符號沿用全站 styles.css 的 summary::after「＋」（與「狀態紀錄」一致），隱藏瀏覽器預設三角形 */
+#admin-dialog.admin-app .admin-order-money > summary::-webkit-details-marker,
+#admin-dialog.admin-app .admin-order-more > summary::-webkit-details-marker { display: none; }
+
+/* ---------- 確認框內的訂單明細（admin-confirm.js 的 dl） ---------- */
+#admin-dialog.admin-app .admin-confirm-details { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 14px; padding: 10px 12px; border-radius: 10px; background: var(--admin-surface-subtle); font-size: 13px; }
+#admin-dialog.admin-app .admin-confirm-details[hidden] { display: none; }
+/* 多條警語：行距收緊，整組與按鈕之間維持原本 18px */
+#admin-dialog.admin-app .admin-confirm .admin-confirm-message p { margin: 0 0 6px; }
+#admin-dialog.admin-app .admin-confirm .admin-confirm-message { margin-bottom: 18px; }
+#admin-dialog.admin-app .admin-confirm-details dt { color: var(--admin-text-muted); }
+#admin-dialog.admin-app .admin-confirm-details dd { margin: 0; overflow-wrap: anywhere; color: var(--admin-text); font-weight: 800; text-align: right; }
+
 @media (max-width: 760px) {
   #admin-dialog.admin-app .admin-status-tools { display: none; }
   #admin-dialog.admin-app .admin-order-card.is-collapsed .admin-order-summary { grid-template-columns: minmax(0, 1fr) auto; }
   #admin-dialog.admin-app .admin-order-summary-items { grid-column: 1 / -1; grid-row: 2; }
+  #admin-dialog.admin-app .admin-order-quick-button { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   #admin-dialog.admin-app .admin-order-toggle .admin-icon { transition: none; }

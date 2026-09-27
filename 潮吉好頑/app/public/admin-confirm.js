@@ -8,11 +8,12 @@ function build() {
   const scrim = document.createElement("div");
   scrim.className = "admin-confirm-scrim";
   scrim.hidden = true;
-  scrim.innerHTML = '<div class="admin-confirm" role="alertdialog" aria-modal="true" aria-labelledby="admin-confirm-title" aria-describedby="admin-confirm-message">'
-    + '<h3 id="admin-confirm-title"></h3><p id="admin-confirm-message"></p>'
+  scrim.innerHTML = '<div class="admin-confirm" role="alertdialog" aria-modal="true" aria-labelledby="admin-confirm-title" aria-describedby="admin-confirm-details admin-confirm-message">'
+    + '<h3 id="admin-confirm-title"></h3><dl id="admin-confirm-details" class="admin-confirm-details" hidden></dl><div id="admin-confirm-message" class="admin-confirm-message"></div>'
     + '<div class="admin-confirm-actions"><button class="secondary-button" type="button" data-confirm-cancel>取消</button><button class="primary-button" type="button" data-confirm-ok></button></div></div>';
   dialog.append(scrim);
   const title = scrim.querySelector("#admin-confirm-title");
+  const details = scrim.querySelector("#admin-confirm-details");
   const message = scrim.querySelector("#admin-confirm-message");
   const ok = scrim.querySelector("[data-confirm-ok]");
   let resolver = null;
@@ -35,12 +36,30 @@ function build() {
     finish(false);
   });
   return {
-    ask({ title: heading, message: text = "", confirmLabel = "確定", danger = false, trigger = null }) {
+    ask({ title: heading, message: text = "", details: rows = null, confirmLabel = "確定", danger = false, trigger = null }) {
       // 前一個確認尚未回覆就又被觸發：視為取消，避免遺留未完成的 Promise
       if (resolver) finish(false);
       title.textContent = heading;
-      message.textContent = text;
-      message.hidden = !text;
+      // details：[label, value] 陣列，畫成兩欄 dl；沒有內容就整個隱藏
+      details.replaceChildren();
+      const detailRows = Array.isArray(rows) ? rows : [];
+      detailRows.forEach(([label, value]) => {
+        const dt = document.createElement("dt");
+        dt.textContent = label;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        details.append(dt, dd);
+      });
+      details.hidden = detailRows.length === 0;
+      // message：單一字串或多行字串陣列（例如多條警語），各自獨立一行
+      message.replaceChildren();
+      const lines = (Array.isArray(text) ? text : [text]).filter(Boolean);
+      lines.forEach((line) => {
+        const paragraph = document.createElement("p");
+        paragraph.textContent = line;
+        message.append(paragraph);
+      });
+      message.hidden = lines.length === 0;
       ok.textContent = confirmLabel;
       ok.classList.toggle("is-danger", danger);
       returnFocus = trigger || (document.activeElement instanceof HTMLElement ? document.activeElement : null);
@@ -51,7 +70,7 @@ function build() {
   };
 }
 
-// options：{ title, message, confirmLabel, danger, trigger }（trigger：關閉後焦點回到的元素）
+// options：{ title, message, details, confirmLabel, danger, trigger }（message 可為字串或多行字串陣列；details 為 [label, value] 陣列；trigger：關閉後焦點回到的元素）
 export function adminConfirm(options) {
   box ||= build();
   return box.ask(options);
