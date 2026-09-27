@@ -2,10 +2,11 @@
 
 /* ---------- 滑出面板觸發按鈕（原 <summary>） ---------- */
 #admin-dialog.admin-app details.admin-sheet { margin: 0 0 12px; border: 0; background: transparent; }
-#admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px; border: 1px solid #141414; border-radius: 10px; background: var(--admin-brand-sun); color: #141414; font-size: 14px; font-weight: 800; list-style: none; cursor: pointer; }
+#admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px; border: 1px solid var(--admin-border); border-radius: 10px; background: #fff; color: #141414; font-size: 14px; font-weight: 700; list-style: none; cursor: pointer; transition: border-color 150ms ease; }
 #admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger::-webkit-details-marker { display: none; }
 #admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger::after { content: none; }
-#admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger:hover { background: #fff29a; }
+/* 次要樣式：品牌黃留給主要動作（確認收款、儲存），開啟面板的入口不搶眼 */
+#admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger:hover { border-color: #141414; }
 #admin-dialog.admin-app details.admin-sheet > summary .admin-icon { width: 16px; height: 16px; }
 
 /* ---------- 滑出面板 ---------- */
@@ -19,18 +20,26 @@
 #admin-dialog.admin-app .admin-sheet-head h3:focus { outline: none; }
 #admin-dialog.admin-app .admin-sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 20px calc(32px + env(safe-area-inset-bottom)); }
 #admin-dialog.admin-app .admin-sheet-body > .admin-form,
-#admin-dialog.admin-app .admin-sheet-body > form { margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+#admin-dialog.admin-app .admin-sheet-body > form,
+#admin-dialog.admin-app .admin-sheet-body [role="tabpanel"] > .admin-form,
+#admin-dialog.admin-app .admin-sheet-body [role="tabpanel"] > form { margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
 #admin-dialog.admin-app .admin-sheet-body .form-grid { grid-template-columns: 1fr 1fr; }
 #admin-dialog.admin-app .admin-sheet-body .form-grid .wide { grid-column: 1 / -1; }
+/* form 是 .admin-sheet-body 的子孫即可（不限直接子層），編輯面板分頁把表單包進 [role="tabpanel"] 後仍會命中 */
 #admin-dialog.admin-app .admin-sheet-body form > button[type="submit"],
 #admin-dialog.admin-app .admin-sheet-body form > .form-actions { position: sticky; bottom: -32px; z-index: 2; width: 100%; margin-top: 20px; box-shadow: 0 -16px 20px 8px #fff; }
 #admin-dialog.admin-app .admin-sheet-body form > .form-actions { justify-content: stretch; padding: 12px 0; border-top: 1px solid var(--admin-border); background: #fff; }
 #admin-dialog.admin-app .admin-sheet-body form > .form-actions > button { flex: 1; }
 
 /* ---------- 面板說明文字收合 ---------- */
-#admin-dialog.admin-app .admin-help { max-width: 80ch; margin-bottom: 4px; }
-#admin-dialog.admin-app .admin-help.is-clamped { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-#admin-dialog.admin-app .admin-help-toggle { margin: 0 0 16px; padding: 4px 0; border: 0; background: transparent; color: var(--admin-accent); font-size: 13px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+#admin-dialog.admin-app .admin-panel > h2:has(> .admin-help-toggle) { display: flex; align-items: center; gap: 6px; }
+#admin-dialog.admin-app .admin-help { max-width: 80ch; margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: var(--admin-surface-subtle); color: var(--admin-text-muted); font-size: 13px; line-height: 1.6; }
+#admin-dialog.admin-app .admin-help[hidden] { display: none; }
+#admin-dialog.admin-app .admin-help-toggle { position: relative; display: inline-grid; place-items: center; width: 32px; height: 32px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--admin-text-muted); cursor: pointer; }
+/* 視覺 32px，觸控範圍 44px */
+#admin-dialog.admin-app .admin-help-toggle::before { content: ""; position: absolute; inset: -6px; }
+#admin-dialog.admin-app .admin-help-toggle:hover,
+#admin-dialog.admin-app .admin-help-toggle[aria-expanded="true"] { background: var(--admin-surface-subtle); color: #141414; }
 
 /* ---------- 表單控制項（開啟中的面板會移到 .admin-panel 之外，選擇器需同時涵蓋 .admin-sheet-panel） ---------- */
 #admin-dialog.admin-app .admin-sheet-panel :is(small, span, label, button, select, input, textarea) { overflow-wrap: anywhere; }
@@ -65,6 +74,8 @@
 #admin-dialog.admin-app .empty-state { padding: 24px 16px; border: 1px dashed #cfc5ad; border-radius: 14px; background: transparent; color: var(--admin-text-muted); text-align: center; }
 #admin-dialog.admin-app .admin-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 16px 0; }
 #admin-dialog.admin-app .admin-order-toolbar label { color: var(--admin-text-muted); font-size: 13px; font-weight: 700; }
+/* 會員頁搜尋欄改由頂欄全域搜尋接手；toolbar 本身設了 display:grid，hidden 屬性需要這條規則才蓋得過去 */
+#admin-dialog.admin-app .admin-order-toolbar[hidden] { display: none; }
 
 /* 庫存頁：調整表單保持在頁面上（主要動作），以卡片包覆 */
 #admin-dialog.admin-app #admin-inventory-form,

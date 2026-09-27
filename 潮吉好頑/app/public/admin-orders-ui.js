@@ -34,7 +34,7 @@ function renderTabs() {
   tabBar.innerHTML = TABS.map(([value, label, count]) => {
     const n = count ? Number(count(stats) || 0) : 0;
     return `<button type="button" class="admin-status-tab" data-admin-status-tab="${value}" aria-pressed="${value === current}">${escapeHtml(label)}${n ? `<b>${n}</b>` : ""}</button>`;
-  }).join("") + `<span class="admin-status-tools"><button type="button" class="admin-status-tool" data-admin-orders-expand="all">全部展開</button><button type="button" class="admin-status-tool" data-admin-orders-expand="none">全部收合</button></span>`;
+  }).join("");
 }
 
 function syncTabState() {
@@ -119,7 +119,12 @@ export function initAdminOrdersUI(dependencies) {
   tabBar.className = "admin-status-tabs";
   tabBar.setAttribute("role", "toolbar");
   tabBar.setAttribute("aria-label", "訂單狀態");
-  toolbar.insertAdjacentElement("beforebegin", tabBar);
+  // 展開／收合工具放在捲動列之外，窄畫面不會被推到可捲動範圍的最右端
+  const bar = document.createElement("div");
+  bar.className = "admin-status-bar";
+  bar.append(tabBar);
+  bar.insertAdjacentHTML("beforeend", '<span class="admin-status-tools"><button type="button" class="admin-status-tool" data-admin-orders-expand="all">全部展開</button><button type="button" class="admin-status-tool" data-admin-orders-expand="none">全部收合</button></span>');
+  toolbar.insertAdjacentElement("beforebegin", bar);
   renderTabs();
   new MutationObserver(enhanceCards).observe(list, { childList: true });
   // 統計更新（載入結束）時刷新分頁數字

@@ -96,8 +96,33 @@ function closeSheets() {
   sheets().forEach((details) => { details.open = false; });
 }
 
+// 面板的「使用者主動關閉前」確認函式：details -> async () => boolean。
+const beforeCloseOf = new WeakMap();
+// 避免使用者在等待 beforeClose 回覆（例如未儲存修改的確認視窗）時連續按 ✕／Esc／遮罩，重複觸發確認。
+let closingSheet = null;
+
+// 使用者主動關閉「目前開啟的面板」的 3 條路徑（✕、點遮罩、Esc）都會走這裡：若該面板建立時有給
+// beforeClose，等待它回傳 true 才真的關閉，回傳 false 就保留原狀。其他會關閉面板的路徑——切換後台分頁、
+// 整個後台 <dialog> 關閉、開啟另一個面板（見 syncScrim 內把其他 details.open 設為 false）——都是直接呼叫
+// closeSheets() 或設定 details.open，不經過這裡，維持原本「不詢問」的行為（那些是系統性切換情境，不是
+// 使用者針對「這個面板」按下關閉）。
+async function requestCloseOpenSheet() {
+  const current = openSheet();
+  if (!current || closingSheet === current) return;
+  const guard = beforeCloseOf.get(current);
+  if (!guard) { current.open = false; return; }
+  closingSheet = current;
+  try {
+    const allowed = await guard();
+    if (allowed && current.open) current.open = false;
+  } finally {
+    if (closingSheet === current) closingSheet = null;
+  }
+}
+
 // 其他模組動態建立的面板（沒有觸發按鈕，例如商品列表每列的「編輯」「優惠價」），共用遮罩、Esc 與 iOS 修正。
-export function createAdminSheet(host, title) {
+// options.beforeClose：選填，使用者主動關閉此面板前呼叫的 async () => boolean，回傳 false 取消關閉。
+export function createAdminSheet(host, title, options = {}) {
   if (!dialog) throw new Error("後台面板尚未初始化");
   const details = document.createElement("details");
   details.className = "admin-create admin-sheet-dynamic";
@@ -106,6 +131,7 @@ export function createAdminSheet(host, title) {
   details.append(summary);
   host.append(details);
   enhanceSheet(details);
+  if (typeof options.beforeClose === "function") beforeCloseOf.set(details, options.beforeClose);
   const panel = panelOf.get(details);
   const heading = panel.querySelector(".admin-sheet-head h3");
   const closeButton = panel.querySelector("[data-admin-sheet-close]");
@@ -135,24 +161,26 @@ export function openAdminSheetFor(node, trigger = null) {
   return true;
 }
 
-// 面板頂部說明文字預設收合為兩行，保留原節點位置（app.js 以 > .dialog-copy 直接子選擇器更新文字）
+// 面板頂部說明文字預設隱藏，改由標題旁的「ⓘ」按鈕展開；保留原節點位置（其他模組以 > .dialog-copy 直接子選擇器更新文字）
 function enhanceHelpText() {
-  dialog.querySelectorAll(".admin-panel > .dialog-copy").forEach((copy) => {
+  dialog.querySelectorAll(".admin-panel > .dialog-copy").forEach((copy, index) => {
     if (copy.dataset.adminHelp) return;
+    const heading = copy.parentElement.querySelector(":scope > h2");
+    if (!heading) return;
     copy.dataset.adminHelp = "true";
-    copy.classList.add("admin-help", "is-clamped");
+    copy.id ||= `admin-help-${index}`;
+    copy.classList.add("admin-help");
+    copy.hidden = true;
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "admin-help-toggle";
-    toggle.dataset.adminHelpToggle = "";
+    toggle.dataset.adminHelpToggle = copy.id;
     toggle.setAttribute("aria-expanded", "false");
-    toggle.textContent = "展開說明";
-    copy.insertAdjacentElement("afterend", toggle);
-    // 面板隱藏時無法量高度；顯示後（尺寸變動）才判斷是否真的被截斷
-    new ResizeObserver(() => {
-      if (!copy.classList.contains("is-clamped") || !copy.clientHeight) return;
-      toggle.hidden = copy.scrollHeight <= copy.clientHeight + 1;
-    }).observe(copy);
+    toggle.setAttribute("aria-controls", copy.id);
+    toggle.setAttribute("aria-label", `${heading.textContent.trim()}說明`);
+    toggle.title = "說明";
+    toggle.innerHTML = adminIcon("info");
+    heading.append(toggle);
   });
 }
 
@@ -175,13 +203,13 @@ export function initAdminSheets() {
   dialog.addEventListener("click", (event) => {
     const trigger = event.target.closest(".admin-sheet-trigger");
     if (trigger) lastTrigger = trigger;
-    if (event.target.closest("[data-admin-sheet-close]")) return closeSheets();
+    if (event.target.closest("[data-admin-sheet-close]")) { requestCloseOpenSheet(); return; }
     const help = event.target.closest("[data-admin-help-toggle]");
     if (help) {
-      const copy = help.previousElementSibling;
-      const expanded = copy.classList.toggle("is-clamped") === false;
-      help.setAttribute("aria-expanded", String(expanded));
-      help.textContent = expanded ? "收合說明" : "展開說明";
+      const copy = document.getElementById(help.dataset.adminHelpToggle);
+      if (!copy) throw new Error(`找不到說明文字：${help.dataset.adminHelpToggle}`);
+      copy.hidden = !copy.hidden;
+      help.setAttribute("aria-expanded", String(!copy.hidden));
     }
   });
   // 優惠券「編輯」會把資料填入表單（app.js editCoupon），這裡負責把表單面板打開
@@ -212,11 +240,25 @@ export function initAdminSheets() {
     window.setTimeout(restoreAfterKeyboard, 320);
   });
   window.visualViewport?.addEventListener("resize", restoreAfterKeyboard);
-  // 面板開啟時 Esc 只關閉面板，不關閉整個後台
+  // 面板開啟時 Esc 只關閉面板，不關閉整個後台。
+  // 主要在 keydown 攔截：Chrome 的 close watcher 在缺少使用者啟用時會送出「不可取消」的 cancel，
+  // 只靠 cancel 的 preventDefault 會讓整個後台被關掉；取消 Esc 的 keydown 則不會產生關閉請求。
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented || !openSheet()) return;
+    // 確認框開著時交給 admin-confirm.js 處理（它也在 keydown 取消確認）
+    if (dialog.querySelector(".admin-confirm-scrim:not([hidden])")) return;
+    event.preventDefault();
+    window.setTimeout(() => { void requestCloseOpenSheet(); }, 0);
+  });
+  // 備援：非鍵盤觸發的關閉請求（例如 Android 返回鍵）仍走 cancel
   dialog.addEventListener("cancel", (event) => {
     if (!openSheet()) return;
     event.preventDefault();
-    closeSheets();
+    // 確認框開著時，Esc 只交給 admin-confirm.js 取消確認，不再發起新的關閉請求
+    if (dialog.querySelector(".admin-confirm-scrim:not([hidden])")) return;
+    // 延到這次 Esc 事件分派結束後才處理：beforeClose 會開 adminConfirm，而 admin-confirm.js 也監聽同一個 cancel，
+    // 若同步開啟，確認框會被同一次 Esc 立刻當成「取消」關掉
+    window.setTimeout(() => { void requestCloseOpenSheet(); }, 0);
   });
   // 切換分頁或關閉後台時收起面板
   // 只在作用中分頁實際改變時收起（徽章更新也會觸發 class 變動，不能誤關）

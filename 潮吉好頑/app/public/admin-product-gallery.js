@@ -199,6 +199,9 @@ async function saveShowcase(form) {
     const result = await deps.adminFetch(`/api/admin/products/${productId}/showcase`, { method: "PATCH", body: JSON.stringify({ details: String(formData.get("details") || ""), hero_rank: heroRank ? Number(heroRank) : null, hero_tagline: String(formData.get("hero_tagline") || "") }) });
     if (product) Object.assign(product, { details: result.details, hero_rank: result.hero_rank, hero_tagline: result.hero_tagline });
     deps.showToast("展示設定已儲存", "success");
+    // 展示設定不重新載入整份商品清單（見上方 rerender 只換這個 section），編輯面板的「未儲存修改」追蹤
+    // 需要另外收到成功訊號才會清除 dirty 狀態；由 admin-products-table.js 監聽這個事件。
+    form.dispatchEvent(new Event("admin:showcase-saved", { bubbles: true }));
   } catch (error) {
     deps.showToast(error.message || "展示設定儲存失敗", "error");
   } finally {

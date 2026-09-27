@@ -8,7 +8,6 @@
 #admin-dialog.admin-app .stats .stat-card:first-child { border-color: #141414; background: var(--admin-brand-sun); }
 #admin-dialog.admin-app .stats .stat-card:first-child small { color: #3a3630; }
 #admin-dialog.admin-app .stats .stat-card.stat-seller-pending { border-color: #f5d27a; background: #fff8e1; }
-#admin-dialog.admin-app [data-admin-panel="overview"] > .form-actions { justify-content: flex-start; margin: 0 0 20px; padding: 0; border: 0; }
 
 /* ---------- 概況：待辦／低庫存／最新訂單 ---------- */
 #admin-dialog.admin-app .admin-dash { display: grid; gap: 16px; }
@@ -25,12 +24,9 @@
 #admin-dialog.admin-app .admin-dash-list small { display: block; color: var(--admin-text-muted); font-size: 12px; }
 #admin-dialog.admin-app .admin-dash-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: #fff6b8; color: #141414; }
 #admin-dialog.admin-app .is-urgent .admin-dash-icon { background: var(--admin-danger-surface, #fdecec); color: #9a302a; }
-#admin-dialog.admin-app .admin-dash-action,
-#admin-dialog.admin-app .admin-dash-link { min-height: 36px; padding: 0 14px; border: 1px solid #141414; border-radius: 10px; background: var(--admin-brand-sun); color: #141414; font-size: 13px; font-weight: 800; white-space: nowrap; cursor: pointer; }
-#admin-dialog.admin-app .admin-dash-action.is-quiet,
-#admin-dialog.admin-app .admin-dash-link { border-color: var(--admin-border); background: #fff; }
-#admin-dialog.admin-app .admin-dash-action:hover,
-#admin-dialog.admin-app .admin-dash-link:hover { border-color: #141414; }
+#admin-dialog.admin-app .admin-dash-action { min-height: 36px; padding: 0 14px; border: 1px solid #141414; border-radius: 10px; background: var(--admin-brand-sun); color: #141414; font-size: 13px; font-weight: 800; white-space: nowrap; cursor: pointer; }
+#admin-dialog.admin-app .admin-dash-action.is-quiet { border-color: var(--admin-border); background: #fff; }
+#admin-dialog.admin-app .admin-dash-action:hover { border-color: #141414; }
 #admin-dialog.admin-app .admin-dash-list.is-compact > li { display: block; padding: 0; }
 #admin-dialog.admin-app .admin-dash-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 8px 16px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 #admin-dialog.admin-app .admin-dash-row:hover { background: #fffcea; }
@@ -55,17 +51,19 @@
 }
 
 /* ---------- 訂單：狀態分頁 ---------- */
-#admin-dialog.admin-app .admin-status-tabs { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; margin: 4px 0 12px; padding-bottom: 4px; overflow-x: auto; scrollbar-width: thin; }
+#admin-dialog.admin-app .admin-status-bar { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 12px; }
+#admin-dialog.admin-app .admin-status-tabs { display: flex; flex: 1; flex-wrap: nowrap; align-items: center; gap: 4px; min-width: 0; padding-bottom: 4px; overflow-x: auto; scrollbar-width: thin; }
 #admin-dialog.admin-app .admin-status-tab { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: 38px; padding: 0 14px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: #2b2926; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 #admin-dialog.admin-app .admin-status-tab:hover { border-color: var(--admin-border); background: #fff; }
 #admin-dialog.admin-app .admin-status-tab[aria-pressed="true"] { background: #141414; color: var(--admin-brand-sun); }
 #admin-dialog.admin-app .admin-status-tab b { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--admin-brand-tongue); color: #141414; font-size: 12px; text-align: center; }
 #admin-dialog.admin-app .admin-status-tab[aria-pressed="true"] b { background: var(--admin-brand-sun); }
-#admin-dialog.admin-app .admin-status-tools { display: inline-flex; flex: none; gap: 4px; margin-left: auto; padding-left: 8px; }
+#admin-dialog.admin-app .admin-status-tools { display: inline-flex; flex: none; align-items: center; gap: 4px; min-height: 38px; }
 #admin-dialog.admin-app .admin-status-tool { min-height: 34px; padding: 0 10px; border: 1px solid var(--admin-border); border-radius: 8px; background: #fff; color: var(--admin-text-muted); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 #admin-dialog.admin-app .admin-status-tool:hover { border-color: #141414; color: #141414; }
 #admin-dialog.admin-app .admin-orders-enhanced .admin-status-select-label { display: none; }
-#admin-dialog.admin-app .admin-orders-enhanced .admin-order-toolbar { grid-template-columns: minmax(0, 1fr); }
+/* 狀態改由分頁列、搜尋改由頂欄處理後，工具列已無可見內容：整列隱藏（欄位仍在 DOM 中保存篩選值），避免留下空白外距 */
+#admin-dialog.admin-app .admin-orders-enhanced .admin-order-toolbar { display: none; }
 
 /* ---------- 訂單：精簡列／展開 ---------- */
 #admin-dialog.admin-app .admin-order-card > header { position: relative; padding-right: 48px; cursor: pointer; }

@@ -29,7 +29,12 @@ function build() {
     if (event.target === scrim || event.target.closest("[data-confirm-cancel]")) finish(false);
     else if (event.target.closest("[data-confirm-ok]")) finish(true);
   });
-  // Esc 只取消確認，不關閉整個後台
+  // Esc 只取消確認，不關閉整個後台：在 keydown 就攔截（原因同 admin-sheets.js，cancel 可能不可取消）
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || scrim.hidden) return;
+    event.preventDefault();
+    finish(false);
+  });
   dialog.addEventListener("cancel", (event) => {
     if (scrim.hidden) return;
     event.preventDefault();

@@ -97,15 +97,38 @@ function variantDetailsMarkup(variant, helpers, open) {
     + `</summary>${variantFormMarkup(variant, helpers)}</details>`;
 }
 
-// openVariants：重新渲染前已展開的規格 id，保持展開
-export function editSheetMarkup(product, helpers, openVariants = new Set()) {
+const EDIT_TABS = [
+  { key: "product", label: "商品資料" },
+  { key: "media", label: "照片與展示" }
+  // 「規格 (N)」在 editSheetMarkup 內另外組字（需要 variants.length），不放在這個固定清單裡
+];
+
+function editTabButtonMarkup(key, label, active) {
+  // aria-selected／tabindex／面板 hidden 三者只在開啟或分頁切換時同步；實際切換行為在 admin-products-table.js
+  return `<button type="button" role="tab" id="admin-edit-tab-${key}" aria-controls="admin-edit-panel-${key}" aria-selected="${active}" tabindex="${active ? 0 : -1}" data-edit-tab="${key}">${label}`
+    + `<span class="admin-edit-tab-dot" data-edit-tab-dot hidden><span class="sr-only">有未儲存的修改</span></span></button>`;
+}
+
+function editTabPanelMarkup(key, active, inner) {
+  return `<div id="admin-edit-panel-${key}" class="admin-edit-panel" role="tabpanel" aria-labelledby="admin-edit-tab-${key}" data-edit-panel="${key}"${active ? "" : " hidden"}>${inner}</div>`;
+}
+
+// openVariants：重新渲染前已展開的規格 id（同一時間只會有一個，由 admin-products-table.js 的手風琴行為維持）。
+// activeTab：重新渲染前選取的分頁（"product"／"media"／"variants"），預設 "product"。
+export function editSheetMarkup(product, helpers, openVariants = new Set(), activeTab = "product") {
   const variants = [...(product.product_variants || [])].sort((a, b) => a.display_order - b.display_order);
-  return `<section class="admin-edit-section"><h4>商品資料</h4>${productFormMarkup(product, helpers)}</section>`
-    + adminProductGalleryMarkup(product)
-    + adminProductShowcaseMarkup(product)
-    + `<section class="admin-edit-section"><header class="admin-edit-section-head"><h4>商品規格 <span>${variants.length}</span></h4><button class="secondary-button" type="button" data-products-add-variant="${escapeHtml(product.id)}">新增規格</button></header>`
+  const tab = ["product", "media", "variants"].includes(activeTab) ? activeTab : "product";
+  const tabBar = `<div class="admin-edit-tabs" role="tablist" aria-label="編輯商品分頁">`
+    + EDIT_TABS.map(({ key, label }) => editTabButtonMarkup(key, label, key === tab)).join("")
+    + editTabButtonMarkup("variants", `規格 <span>(${variants.length})</span>`, tab === "variants")
+    + "</div>";
+  const productPanel = editTabPanelMarkup("product", tab === "product", `<section class="admin-edit-section">${productFormMarkup(product, helpers)}</section>`);
+  const mediaPanel = editTabPanelMarkup("media", tab === "media", adminProductGalleryMarkup(product) + adminProductShowcaseMarkup(product));
+  const variantsInner = `<section class="admin-edit-section"><header class="admin-edit-section-head"><h4>商品規格 <span>${variants.length}</span></h4><button class="secondary-button" type="button" data-products-add-variant="${escapeHtml(product.id)}">新增規格</button></header>`
     + (variants.map((variant) => variantDetailsMarkup(variant, helpers, openVariants.has(variant.id))).join("") || '<div class="empty-state">此商品尚無規格。</div>')
     + "</section>";
+  const variantsPanel = editTabPanelMarkup("variants", tab === "variants", variantsInner);
+  return tabBar + productPanel + mediaPanel + variantsPanel;
 }
 
 export { kindPill };

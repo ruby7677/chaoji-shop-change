@@ -1,0 +1,52 @@
+/* 後台手機版（critique 第 5 項）：底部分頁列、觸控目標 ≥44px、點數調整收合。
+ * 底部分頁列只在手機寬度顯示；平板以上沿用側欄／頂欄選單鈕。z-index 低於側欄抽屜（59/60）與工作面板（70+）。
+ */
+#admin-dialog.admin-app .admin-tabbar { display: none; }
+
+/* 點數調整收合在「調整點數」之後，所有寬度一致 */
+#admin-dialog.admin-app .admin-point-adjust-toggle > .admin-point-adjust { margin-top: 8px; }
+
+@media (max-width: 760px) {
+  #admin-dialog.admin-app .admin-tabbar {
+    position: fixed; inset: auto 0 0; z-index: 58;
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 4px 6px max(4px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--admin-border);
+    background: rgba(255, 255, 255, 0.97);
+    backdrop-filter: blur(8px);
+  }
+  #admin-dialog.admin-app .admin-tabbar button {
+    position: relative; display: grid; justify-items: center; align-content: center; gap: 2px;
+    min-height: 52px; margin: 0; padding: 4px 2px;
+    border: 0; border-radius: 10px; background: transparent;
+    color: var(--admin-text-muted); font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  #admin-dialog.admin-app .admin-tabbar button .admin-icon { box-sizing: content-box; width: 22px; height: 22px; padding: 3px 14px; border-radius: 999px; }
+  #admin-dialog.admin-app .admin-tabbar button.active { color: #141414; }
+  /* 使用中分頁：圖示底下的品牌黃膠囊，比整顆按鈕填色安靜 */
+  #admin-dialog.admin-app .admin-tabbar button.active .admin-icon { background: var(--admin-brand-sun); }
+  #admin-dialog.admin-app .admin-tabbar .admin-nav-count { position: absolute; top: 2px; left: calc(50% + 8px); min-width: 18px; padding: 0 5px; font-size: 11px; line-height: 18px; }
+  #admin-dialog.admin-app .admin-tabbar .admin-nav-count.hidden { display: none; }
+
+  /* 底部分頁列取代頂欄選單鈕，避免同一功能兩個入口 */
+  #admin-dialog.admin-app .admin-topbar .admin-menu-button { display: none; }
+  #admin-dialog.admin-app .admin-topbar { grid-template-columns: minmax(0, 1fr) auto; }
+  #admin-dialog.admin-app .admin-content { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+
+  /* 概況統計卡兩欄時，落單的最後一張橫跨整列，不留半格空白 */
+  #admin-dialog.admin-app .stats > .stat-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+  /* 觸控目標 ≥44px */
+  #admin-dialog.admin-app .admin-icon-button { width: 44px; height: 44px; }
+  #admin-dialog.admin-app .admin-global-search { height: 44px; }
+  #admin-dialog.admin-app .admin-status-tab { min-height: 44px; }
+  #admin-dialog.admin-app .admin-panel .primary-button,
+  #admin-dialog.admin-app .admin-panel .secondary-button,
+  #admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger,
+  #admin-dialog.admin-app .admin-dash-action,
+  #admin-dialog.admin-app .admin-products-toolbar select,
+  #admin-dialog.admin-app .admin-products-new { min-height: 44px; }
+  #admin-dialog.admin-app .admin-order-toggle { width: 44px; height: 44px; }
+  #admin-dialog.admin-app .coupon-scope input[type="checkbox"],
+  #admin-dialog.admin-app .check-field input[type="checkbox"] { flex: none; width: 22px; height: 22px; }
+}

@@ -7,8 +7,13 @@ import { createAdminSheet, openAdminSheetFor } from "./admin-sheets.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { openStockAdjust } from "./admin-stock-adjust.js";
 import { discountPercent, editSheetMarkup, kindPill, priceFormMarkup, pricePreviewText, priceMarkup, relationOne } from "./admin-products-forms.js";
+import { snapshotFields, matchField, createFormStateStore } from "./admin-form-state.js";
 
 const PRICE_SHEET_AUTO_CLOSE_MS = 15000;
+// 編輯面板某個表單送出成功後，重新載入商品清單需要一點時間；這段時間內若編輯面板重新渲染，
+// 視為「這個表單剛存過、已經是最新資料」，不把送出前的快照還原回去蓋掉（否則會把剛存的值又改回舊值）。
+const EDIT_FORM_RESTORE_SKIP_MS = 15000;
+const EDIT_TAB_KEYS = ["product", "media", "variants"];
 const view = { cat: "all", kind: "all", status: "all" };
 let deps = null;
 let list = null;
@@ -16,6 +21,8 @@ let editSheet = null;
 let priceSheet = null;
 let editingProductId = null;
 let priceSubmittedAt = 0;
+// 編輯面板內各表單「剛送出成功」的時間，key 見 editFormKey()
+const editFormSubmittedAt = new Map();
 
 const helpers = () => ({ adminCategoryOptions: deps.adminCategoryOptions, splitPreorderArrival: deps.splitPreorderArrival });
 const productOf = (productId) => deps.getProducts().find((product) => product.id === productId) || null;
@@ -40,7 +47,7 @@ const STATUS_FILTER = {
 function ensureToolbar() {
   if (document.querySelector("[data-products-toolbar]")) return;
   list.insertAdjacentHTML("beforebegin", `<div class="admin-products-toolbar" data-products-toolbar>`
-    + '<label class="admin-products-search"><span class="sr-only">搜尋商品</span><input id="admin-product-search" type="search" placeholder="商品名稱、分類、規格或 SKU" /></label>'
+    + '<label class="admin-products-search" hidden><span class="sr-only">搜尋商品</span><input id="admin-product-search" type="search" placeholder="商品名稱、分類、規格或 SKU" /></label>'
     + '<select data-products-filter="cat" aria-label="分類"></select>'
     + '<select data-products-filter="kind" aria-label="類型"><option value="all">現貨＋預購</option><option value="in_stock">現貨</option><option value="preorder">預購</option></select>'
     + '<select data-products-filter="status" aria-label="上架狀態"><option value="all">全部狀態</option><option value="published">已上架</option><option value="unpublished">未上架</option><option value="sale">限時優惠中</option></select>'
@@ -122,19 +129,118 @@ function panelHost() {
   return document.querySelector('[data-admin-panel="products"]');
 }
 
+// 表單身分 key：對應 admin-products-forms.js 產生的 data-edit-product-form／data-edit-variant-form／
+// data-showcase-form；用來跨重新渲染比對「同一個表單」（還原快照、剛送出成功時排除還原）。
+function editFormKey(form) {
+  if (form.dataset.editProductForm) return `product:${form.dataset.editProductForm}`;
+  if (form.dataset.editVariantForm) return `variant:${form.dataset.editVariantForm}`;
+  if (form.dataset.showcaseForm) return `showcase:${form.dataset.showcaseForm}`;
+  return null;
+}
+
+function editFormsIn(body) {
+  return [...body.querySelectorAll("form[data-edit-product-form], form[data-edit-variant-form], form[data-showcase-form]")];
+}
+
+// 重新渲染前：把「已標記為未儲存」且不是剛送出成功的表單存進快照（DOM 讀取留在這裡，比對邏輯在 admin-form-state.js）
+function snapshotDirtyEditForms() {
+  const now = Date.now();
+  const store = createFormStateStore();
+  editFormsIn(editSheet.body).forEach((form) => {
+    const key = editFormKey(form);
+    if (!key || form.dataset.dirty !== "true") return;
+    const submittedAt = editFormSubmittedAt.get(key);
+    if (submittedAt && now - submittedAt < EDIT_FORM_RESTORE_SKIP_MS) { editFormSubmittedAt.delete(key); return; }
+    store.save(key, snapshotFields([...form.elements]));
+  });
+  return store;
+}
+
+// 重新渲染後：把快照套回同一個表單（用 form key 對上），並重新標記為未儲存
+function restoreEditFormSnapshots(store) {
+  editFormsIn(editSheet.body).forEach((form) => {
+    const key = editFormKey(form);
+    const fields = key && store.take(key);
+    if (!fields) return;
+    [...form.elements].forEach((element) => {
+      if (!element.name || element.type === "file") return;
+      const match = matchField(fields, element);
+      if (!match) return;
+      if (element.type === "checkbox" || element.type === "radio") element.checked = match.checked;
+      else element.value = match.value;
+    });
+    form.dataset.dirty = "true";
+  });
+}
+
+// 分頁上顯示「有未儲存的修改」的小圓點：依目前有哪些分頁的面板內含未儲存表單決定
+function updateEditTabDots() {
+  if (!editSheet) return;
+  const body = editSheet.body;
+  const dirtyTabs = new Set(editFormsIn(body)
+    .filter((form) => form.dataset.dirty === "true")
+    .map((form) => form.closest("[data-edit-panel]")?.dataset.editPanel)
+    .filter(Boolean));
+  body.querySelectorAll("[data-edit-tab]").forEach((tab) => {
+    const dot = tab.querySelector("[data-edit-tab-dot]");
+    if (dot) dot.hidden = !dirtyTabs.has(tab.dataset.editTab);
+  });
+}
+
+function markEditFormDirty(target) {
+  if (!editSheet || !(target instanceof Element)) return;
+  const form = target.closest("form");
+  if (!form || !editSheet.body.contains(form) || !editFormKey(form) || form.dataset.dirty === "true") return;
+  form.dataset.dirty = "true";
+  updateEditTabDots();
+}
+
+function clearEditFormDirty(form) {
+  if (!(form instanceof HTMLFormElement) || form.dataset.dirty !== "true") return;
+  delete form.dataset.dirty;
+  updateEditTabDots();
+}
+
+// 切換編輯面板分頁：更新 tab 的 aria-selected／tabindex 與面板的 hidden（CSP 不允許 inline style，一律用屬性）
+function activateEditTab(tabKey) {
+  if (!editSheet || !EDIT_TAB_KEYS.includes(tabKey)) return;
+  const body = editSheet.body;
+  body.querySelectorAll("[data-edit-tab]").forEach((tab) => {
+    const active = tab.dataset.editTab === tabKey;
+    tab.setAttribute("aria-selected", active ? "true" : "false");
+    tab.tabIndex = active ? 0 : -1;
+  });
+  body.querySelectorAll("[data-edit-panel]").forEach((panel) => { panel.hidden = panel.dataset.editPanel !== tabKey; });
+  body.dataset.activeEditTab = tabKey;
+}
+
+// 使用者主動關閉編輯面板前（✕、點遮罩、Esc）：有未儲存的表單才詢問；建立面板時傳給 createAdminSheet 的 beforeClose
+async function confirmCloseEditSheet() {
+  if (!editSheet) return true;
+  const dirty = editFormsIn(editSheet.body).some((form) => form.dataset.dirty === "true");
+  if (!dirty) return true;
+  return adminConfirm({ title: "有未儲存的修改，確定關閉？", message: "關閉後，尚未儲存的修改會遺失。", confirmLabel: "放棄修改並關閉", danger: true });
+}
+
 function renderEditSheet(product, keepState) {
   const openVariants = keepState ? new Set([...editSheet.body.querySelectorAll("details[data-edit-variant][open]")].map((node) => node.dataset.editVariant)) : new Set();
   const scrollTop = keepState ? editSheet.body.scrollTop : 0;
+  const activeTab = keepState ? (editSheet.body.dataset.activeEditTab || "product") : "product";
+  const snapshotStore = keepState ? snapshotDirtyEditForms() : null;
   editSheet.setTitle(`編輯商品｜${product.name}`);
-  editSheet.body.innerHTML = editSheetMarkup(product, helpers(), openVariants);
+  editSheet.body.innerHTML = editSheetMarkup(product, helpers(), openVariants, activeTab);
   editSheet.body.scrollTop = scrollTop;
+  editSheet.body.dataset.activeEditTab = activeTab;
+  if (snapshotStore) restoreEditFormSnapshots(snapshotStore);
+  updateEditTabDots();
 }
 
 function openEditSheet(productId, trigger) {
   const product = productOf(productId);
   if (!product) return deps.showToast("找不到這件商品，請重新整理後再試", "error");
-  editSheet ||= createAdminSheet(panelHost(), "編輯商品");
+  editSheet ||= createAdminSheet(panelHost(), "編輯商品", { beforeClose: confirmCloseEditSheet });
   editingProductId = productId;
+  editFormSubmittedAt.clear();
   renderEditSheet(product, false);
   editSheet.open(trigger);
 }
@@ -236,21 +342,52 @@ function bindEvents() {
     const addVariant = target.closest("[data-products-add-variant]");
     if (addVariant) return openVariantCreator(addVariant.dataset.productsAddVariant, null);
     const create = target.closest("[data-products-new]");
-    if (create) openAdminSheetFor(document.querySelector("#admin-product-form"), create);
+    if (create) return openAdminSheetFor(document.querySelector("#admin-product-form"), create);
+    const editTab = target.closest("[data-edit-tab]");
+    if (editTab) activateEditTab(editTab.dataset.editTab);
   });
+  // 編輯面板分頁列：左右鍵在分頁間移動並切換（role="tablist" 標準鍵盤操作）
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    const tab = event.target.closest?.("[data-edit-tab]");
+    const tablist = tab?.closest('[role="tablist"]');
+    if (!tab || !tablist) return;
+    const tabs = [...tablist.querySelectorAll("[data-edit-tab]")];
+    const index = tabs.indexOf(tab);
+    if (index < 0) return;
+    event.preventDefault();
+    const next = tabs[(index + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+    activateEditTab(next.dataset.editTab);
+    next.focus();
+  });
+  // 編輯面板的規格清單一次只能展開一個：開啟一個時收合其他（toggle 事件不會冒泡，用 capture 階段攔截）
+  document.addEventListener("toggle", (event) => {
+    const details = event.target;
+    if (!(details instanceof HTMLDetailsElement) || !details.matches("[data-edit-variant]") || !details.open) return;
+    details.closest('[data-edit-panel="variants"]')?.querySelectorAll("details[data-edit-variant][open]")
+      .forEach((other) => { if (other !== details) other.open = false; });
+  }, true);
   document.addEventListener("change", (event) => {
     const filter = event.target.closest?.("[data-products-filter]");
-    if (!filter) return;
-    view[filter.dataset.productsFilter] = filter.value;
-    drawTable();
+    if (filter) { view[filter.dataset.productsFilter] = filter.value; drawTable(); }
+    markEditFormDirty(event.target);
   });
   document.addEventListener("input", (event) => {
     const form = event.target.closest?.("[data-price-form]");
     if (form) syncPricePreview(form);
+    markEditFormDirty(event.target);
   });
-  // 送出優惠價：記錄時間，重新載入後自動關閉面板（失敗不會重新載入，面板保留）
+  // 展示設定表單不會觸發清單重新載入（見 admin-product-gallery.js saveShowcase），成功後改用這個事件清除 dirty 狀態
+  document.addEventListener("admin:showcase-saved", (event) => {
+    if (event.target instanceof HTMLFormElement && editSheet?.body.contains(event.target)) clearEditFormDirty(event.target);
+  });
+  // 送出優惠價／編輯面板內的表單：記錄時間。優惠價成功後自動關閉面板；編輯面板的表單用來排除「剛存過」的還原（見 renderEditSheet）
   document.addEventListener("submit", (event) => {
     if (event.target.matches?.("[data-price-form]")) priceSubmittedAt = Date.now();
+    if (event.target instanceof HTMLFormElement && editSheet?.body.contains(event.target)) {
+      const key = editFormKey(event.target);
+      if (key) editFormSubmittedAt.set(key, Date.now());
+    }
   }, true);
 }
 

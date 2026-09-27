@@ -5,6 +5,8 @@ import { adminIcon } from "./admin-icons.js";
 import { initAdminOverview } from "./admin-overview.js";
 import { initAdminOrdersUI } from "./admin-orders-ui.js";
 import { initAdminSheets } from "./admin-sheets.js";
+import { searchContextFor } from "./admin-search-context.js";
+import { buildAdminTabbar } from "./admin-tabbar.js";
 
 const NAV_GROUPS = [
   { label: "營運", tabs: [["overview", "chart"], ["orders", "receipt"]] },
@@ -21,6 +23,12 @@ const BADGES = {
 let deps = null;
 let dialog = null;
 let shell = null;
+// 目前頂欄搜尋對應的分頁設定（含來源欄位 selector），由 syncSearchContext() 維護
+let currentSearchContext = null;
+// 手機底部分頁列的狀態同步函式（buildAdminTabbar 回傳）
+let syncTabbar = () => {};
+// 側欄在此寬度以下是抽屜；收起時設為 inert，避免鍵盤／讀屏焦點落到畫面外的按鈕
+const drawerQuery = window.matchMedia("(max-width: 1099px)");
 
 const $ = (selector) => dialog.querySelector(selector);
 
@@ -76,7 +84,7 @@ function buildTopbar() {
     <button class="admin-icon-button admin-menu-button" type="button" data-admin-nav-toggle aria-label="開啟後台選單" aria-expanded="false">${adminIcon("menu")}</button>
     <div class="admin-crumbs"><span data-admin-crumb-group>營運</span><strong data-admin-crumb-title>營運概況</strong></div>
     <form class="admin-global-search" role="search" data-admin-global-search>
-      <label class="sr-only" for="admin-global-search-input">搜尋訂單</label>
+      <label class="sr-only" for="admin-global-search-input" data-admin-search-label>搜尋訂單</label>
       ${adminIcon("search")}
       <input id="admin-global-search-input" type="search" placeholder="搜尋訂單編號、姓名、手機、末五碼" autocomplete="off" enterkeyhint="search" />
       <kbd aria-hidden="true">/</kbd>
@@ -113,17 +121,42 @@ function syncTitle() {
     if (item.dataset.adminTab === tab) item.setAttribute("aria-current", "page");
     else item.removeAttribute("aria-current");
   });
+  syncTabbar(tab);
+  syncSearchContext();
+}
+
+// 依目前分頁更新頂欄搜尋欄位的 placeholder、隱藏文字與目前值（取自該分頁自己的搜尋欄位）。
+// 分頁沒有自己的搜尋欄位時（context.input 為 null），一律顯示空字串＋訂單搜尋文案。
+function syncSearchContext() {
+  currentSearchContext = searchContextFor(activeTab());
+  const input = $("#admin-global-search-input");
+  const label = $("[data-admin-search-label]");
+  input.placeholder = currentSearchContext.placeholder;
+  if (label) label.textContent = currentSearchContext.label;
+  const source = currentSearchContext.input ? document.querySelector(currentSearchContext.input) : null;
+  input.value = source ? source.value : "";
+}
+
+// 把頂欄搜尋的值鏡射回該分頁自己的搜尋欄位，並補發 input 事件讓既有監聽（debounce 重新載入／會員篩選）照常運作。
+// 商品分頁的搜尋欄位由 ensureToolbar() 延遲建立，切分頁當下可能還不存在；找不到就略過，等下一次 syncSearchContext() 補上。
+function mirrorToSource(context, value) {
+  if (!context.input) return;
+  const source = document.querySelector(context.input);
+  if (!source) return;
+  source.value = value;
+  source.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function syncBadges() {
   const stats = deps.getStats() || {};
   Object.entries(BADGES).forEach(([tab, count]) => {
-    const node = $(`[data-admin-count="${tab}"]`);
-    if (!node) return;
     const value = count(stats);
-    node.textContent = value > 99 ? "99+" : String(value);
-    node.classList.toggle("hidden", !value);
-    node.setAttribute("aria-label", `${value} 項待處理`);
+    // 側欄與手機底部分頁列各有一份徽章
+    dialog.querySelectorAll(`[data-admin-count="${tab}"]`).forEach((node) => {
+      node.textContent = value > 99 ? "99+" : String(value);
+      node.classList.toggle("hidden", !value);
+      node.setAttribute("aria-label", `${value} 項待處理`);
+    });
   });
 }
 
@@ -138,6 +171,12 @@ function setNavOpen(open) {
   shell.classList.toggle("is-nav-open", open);
   shell.querySelector(".admin-nav-scrim").hidden = !open;
   $("[data-admin-nav-toggle].admin-menu-button").setAttribute("aria-expanded", String(open));
+  syncNavInert();
+  if (open && drawerQuery.matches) $(".admin-nav [data-admin-tab].active")?.focus({ preventScroll: true });
+}
+
+function syncNavInert() {
+  $(".admin-nav").inert = drawerQuery.matches && !shell.classList.contains("is-nav-open");
 }
 
 function searchOrders(keyword) {
@@ -191,8 +230,16 @@ function bindEvents() {
   });
   $("[data-admin-global-search]").addEventListener("submit", (event) => {
     event.preventDefault();
-    const input = event.currentTarget.querySelector("input");
-    searchOrders(input.value.trim());
+    const value = event.currentTarget.querySelector("input").value.trim();
+    const tab = activeTab();
+    if (!currentSearchContext?.input) return searchOrders(value);
+    mirrorToSource(currentSearchContext, value);
+    // 按下 Enter 立即查詢，不等待既有 debounce（非分頁式清單時 reloadAdminList 會自行略過）
+    deps.reloadAdminList(tab, true);
+  });
+  $("#admin-global-search-input").addEventListener("input", (event) => {
+    if (!currentSearchContext?.input) return;
+    mirrorToSource(currentSearchContext, event.target.value);
   });
   document.addEventListener("keydown", (event) => {
     if (!dialog.open || event.key !== "/" || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -200,6 +247,15 @@ function bindEvents() {
     if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
     event.preventDefault();
     $("#admin-global-search-input").focus();
+  });
+  drawerQuery.addEventListener("change", syncNavInert);
+  // 抽屜開著時 Esc 只收起抽屜，不關閉整個後台（原因同 admin-sheets.js：在 keydown 攔截）
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented || !shell.classList.contains("is-nav-open")) return;
+    event.preventDefault();
+    setNavOpen(false);
+    // 焦點回到目前看得到的開啟按鈕（平板為頂欄選單鈕，手機為底部「更多」）
+    [...dialog.querySelectorAll('.admin-menu-button, [data-admin-tabbar="more"]')].find((button) => button.offsetParent)?.focus({ preventScroll: true });
   });
   watchContentGrowth();
   // 分頁切換可能來自按鈕或程式（快速篩選），統一觀察 active class
@@ -210,6 +266,9 @@ function bindEvents() {
     if (!loading.classList.contains("hidden")) return;
     syncBadges();
     stampSync();
+    // 商品分頁的搜尋欄位由 ensureToolbar() 在渲染時才建立；每次載入完成後補一次同步，
+    // 確保剛建立的來源欄位能被頂欄搜尋抓到目前值／佔位文字。
+    syncSearchContext();
   }).observe(loading, { attributes: true, attributeFilter: ["class"] });
   // 開啟後台時確保有徽章所需的統計（只讀，重用既有 overview 載入）
   new MutationObserver(() => {
@@ -232,7 +291,9 @@ export function initAdminShell(dependencies) {
   dialog.classList.add("admin-app");
   buildNav();
   buildTopbar();
+  syncTabbar = buildAdminTabbar(shell, { onOpenMore: () => setNavOpen(true) });
   bindEvents();
+  syncNavInert();
   syncTitle();
   initAdminOverview({ ...dependencies, openOrder: searchOrders });
   initAdminOrdersUI(dependencies);

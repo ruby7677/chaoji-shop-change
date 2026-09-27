@@ -64,7 +64,7 @@ function render(overview, stats) {
   const todoSubtitle = overview.todoTruncated ? `超過 ${todos.length} 件需要處理，先列出最新的 ${todos.length} 件` : `${todos.length} 件需要處理`;
   root.innerHTML = `<div class="admin-dash-main">${cardMarkup("今日待辦", todoSubtitle, todoBody)}</div>
     <div class="admin-dash-side">${cardMarkup("低庫存提醒", `${lowCount} 個規格低於安全庫存`, lowBody)}
-    ${cardMarkup("最新訂單", "點選可直接開啟該筆訂單", recentBody, '<button class="admin-dash-link" type="button" data-admin-tab="orders">全部訂單</button>')}</div>`;
+    ${cardMarkup("最新訂單", "點選可直接開啟該筆訂單", recentBody)}</div>`;
 }
 
 function renderError(message) {
