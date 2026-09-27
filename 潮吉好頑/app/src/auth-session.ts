@@ -51,7 +51,9 @@ export async function openRefreshToken(secret: string, sealed: string) {
       fromBase64Url(encodedCiphertext)
     );
     const refreshToken = new TextDecoder().decode(decrypted);
-    return refreshToken.length >= 16 ? refreshToken : null;
+    // AES-GCM 已保證內容完整；Supabase 的 refresh token 可能只有 12 字元，不另設最低長度
+    // （曾因 >= 16 的限制把有效 token 判為無效，LINE 內每次開啟都被迫重新 OAuth）
+    return refreshToken ? refreshToken : null;
   } catch {
     return null;
   }
