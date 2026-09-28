@@ -364,6 +364,12 @@ select
     and not has_column_privilege('authenticated', 'public.point_ledger', 'actor_id', 'SELECT')
     and not has_table_privilege('authenticated', 'public.point_ledger', 'INSERT')
     and not has_table_privilege('anon', 'public.point_ledger', 'SELECT') as point_ledger_member_columns_only,
+  -- 202609280001：遺留運費表已刪除；point_ledger 只剩會員本人 SELECT 一條 policy。
+  to_regclass('public.shipping_settings_legacy') is null as shipping_settings_legacy_dropped,
+  not exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'point_ledger' and policyname = 'deny api roles'
+  ) as point_ledger_redundant_deny_policy_dropped,
   -- migration 紀錄使用 repo 檔名的 12 碼版本；Supabase MCP／Dashboard 套用後會留下 14 碼時間戳，
   -- 需以 npm run db:history-sql -- align 改回檔名版本。
   not exists (

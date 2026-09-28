@@ -118,3 +118,9 @@
 
 /* 購物須知開頭說明：限制行長在約 40 字 */
 .policy-intro > p { max-width: 40em; }
+
+/* 購物須知流程列：原本撐滿整個區塊（1440 寬時 1223px，是上下文字欄的兩倍），
+   箭頭被推到每格最右邊、離文字約 230px；另有 12px 內距讓文字比標題內縮。
+   改為限寬、箭頭緊接文字、左邊緣與標題和規則同一條線。 */
+.policy-section .policy-timeline { max-width: 56rem; padding-inline: 0; }
+.policy-section .policy-timeline div { justify-content: flex-start; gap: 12px; }

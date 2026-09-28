@@ -62,6 +62,7 @@ select tests.expect_error($$select actor_id from public.point_ledger$$, 'permiss
 select tests.expect_error($$insert into public.point_ledger(member_id, kind, points, reason) values (tests.id('member_a'), 'manual', 999, 'x')$$,
                           'permission denied', 'a member still cannot grant points');
 select tests.expect_error($$update public.point_ledger set points = 999$$, 'permission denied', 'a member cannot edit point entries');
+select tests.expect_error($$delete from public.point_ledger$$, 'permission denied', 'a member cannot delete point entries');
 select tests.login(null);
 select tests.expect_error($$select id from public.point_ledger$$, 'permission denied', 'anon cannot read point entries');
 rollback;
