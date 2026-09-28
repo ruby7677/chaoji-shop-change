@@ -7,6 +7,7 @@ import { forgetCartSyncUser } from "./cart.js";
 import { clearMemberStateCache } from "./member-benefits.js";
 import { captureAuthReturn } from "./auth-return-state.js";
 import { beginLineLogin } from "./member-profile.js";
+import { RESTORE_RETRY_DELAY_MS, isRetryableRestoreStatus } from "./liff-restore-policy.js";
 
 export let liffSessionMatches = false;
 export const LIFF_AUTO_LOGIN_KEY = "chaoji:liff-oauth-attempt";
@@ -19,6 +20,8 @@ let liffBridgeResult = false;
 export let liffOAuthCallbackSeen = false;
 let liffAutoLoginAttemptAt = 0;
 export let liffPrimaryRedirectPending = false;
+// 恢復登入因暫時性故障失敗（重試後仍失敗）時為 true：這次開啟不自動改走 OAuth
+let liffRestoreUnavailable = false;
 
 function stripLiffCallbackMarker() {
   const url = new URL(location.href);
@@ -209,18 +212,37 @@ async function rememberPersistentLiffSession() {
   return true;
 }
 
-export async function restorePersistentLiffSession() {
-  if (!liffState.isInClient || !liffState.idToken) return false;
-  const response = await fetch("/api/auth/session/restore", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id_token: liffState.idToken })
-  });
+// 回傳 "restored"、"failed"（確定無法恢復）或 "retry"（網路、限流、服務暫時故障）
+async function requestPersistentRestore() {
+  let response;
+  try {
+    response = await fetch("/api/auth/session/restore", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id_token: liffState.idToken })
+    });
+  } catch {
+    return { outcome: "retry" };
+  }
+  if (isRetryableRestoreStatus(response.status)) return { outcome: "retry" };
   const result = await response.json().catch(() => ({}));
   if (!response.ok || typeof result.access_token !== "string") {
     if (response.status === 409) clearStoredAuthSession();
-    return false;
+    return { outcome: "failed" };
   }
+  return { outcome: "restored", result };
+}
+
+export async function restorePersistentLiffSession() {
+  if (!liffState.isInClient || !liffState.idToken) return false;
+  let attempt = await requestPersistentRestore();
+  if (attempt.outcome === "retry") {
+    await new Promise((resolve) => setTimeout(resolve, RESTORE_RETRY_DELAY_MS));
+    attempt = await requestPersistentRestore();
+  }
+  liffRestoreUnavailable = attempt.outcome === "retry";
+  if (attempt.outcome !== "restored") return false;
+  const { result } = attempt;
   auth.accessToken = result.access_token;
   auth.refreshToken = null;
   auth.lineProviderToken = null;
@@ -349,6 +371,11 @@ async function runInitializeLiffBridge(initialState = null) {
     }
     if (!state.isInClient) return false;
     if (liffOAuthCallbackSeen || recentLiffAutoLoginAttempt()) return false;
+    // 暫時性故障：保留保存的登入，讓會員稍後重開或手動登入，不自動整頁跳往 OAuth
+    if (liffRestoreUnavailable) {
+      console.warn("LIFF session restore temporarily unavailable; skipping automatic LINE login.");
+      return false;
+    }
     return beginLineLogin({ automatic: true });
   } catch (error) {
     console.warn("LIFF initialization failed; falling back to web login.", error);

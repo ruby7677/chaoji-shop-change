@@ -1,5 +1,5 @@
 // LINE 身分驗證、LIFF 持久登入（vault／cookie）與會員／管理員授權檢查。
-import { type SupabaseRefreshSession, clearRefreshSessionCookie, openRefreshToken, readRefreshSessionCookie, refreshSessionCookie, refreshSupabaseSession, sealRefreshToken } from "./auth-session";
+import { type SupabaseRefreshSession, clearRefreshSessionCookie, openRefreshToken, readRefreshSessionCookie, refreshSessionCookie, refreshSupabaseSession, requestSupabaseRefresh, sealRefreshToken } from "./auth-session";
 import { deleteVaultedSession, readVaultedSession, storeVaultedSession } from "./liff-session-vault";
 import { type AuthUser, type Env } from "./env";
 import { bearerToken, enforceRateLimit, fetchWithTimeout, json, serviceHeaders } from "./http";
@@ -32,16 +32,29 @@ type VerifiedLiffIdentity = {
   picture?: string;
 };
 
-async function verifyLiffIdToken(env: Env, idToken: string): Promise<VerifiedLiffIdentity | null> {
+type LiffIdTokenCheck =
+  | { status: "valid"; identity: VerifiedLiffIdentity }
+  | { status: "invalid" }
+  | { status: "unavailable" };
+
+// 分清「LINE 判定 token 無效」與「LINE 暫時無法驗證」（逾時、429、5xx）：後者不可當成登入失效處理
+async function checkLiffIdToken(env: Env, idToken: string): Promise<LiffIdTokenCheck> {
   const channelId = env.LINE_LOGIN_CHANNEL_ID?.trim();
-  if (!channelId) return null;
-  const response = await fetchWithTimeout("https://api.line.me/oauth2/v2.1/verify", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ id_token: idToken, client_id: channelId })
-  });
-  if (!response.ok) return null;
-  const payload = await response.json() as VerifiedLiffIdentity;
+  if (!channelId) return { status: "invalid" };
+  let response: Response;
+  try {
+    response = await fetchWithTimeout("https://api.line.me/oauth2/v2.1/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ id_token: idToken, client_id: channelId })
+    });
+  } catch {
+    return { status: "unavailable" };
+  }
+  if (response.status === 429 || response.status >= 500) return { status: "unavailable" };
+  if (!response.ok) return { status: "invalid" };
+  const payload = await response.json().catch(() => null) as VerifiedLiffIdentity | null;
+  if (!payload) return { status: "unavailable" };
   const expiresAt = Number(payload.exp || 0) * 1000;
   if (
     payload.iss !== "https://access.line.me"
@@ -50,8 +63,15 @@ async function verifyLiffIdToken(env: Env, idToken: string): Promise<VerifiedLif
     || !/^U[0-9a-f]{32}$/i.test(payload.sub)
     || !Number.isFinite(expiresAt)
     || expiresAt <= Date.now()
-  ) return null;
-  return payload;
+  ) return { status: "invalid" };
+  return { status: "valid", identity: payload };
+}
+
+// 其他路由沿用「無效回 null」；LINE 暫時無法驗證時丟出錯誤，由最外層回 503，避免前端誤判為登入失效
+async function verifyLiffIdToken(env: Env, idToken: string): Promise<VerifiedLiffIdentity | null> {
+  const result = await checkLiffIdToken(env, idToken);
+  if (result.status === "unavailable") throw new Error("LINE 身分驗證服務暫時無法使用");
+  return result.status === "valid" ? result.identity : null;
 }
 
 export async function verifyLiffIdentity(request: Request, env: Env): Promise<Response> {
@@ -159,16 +179,23 @@ async function persistedSessionResponse(env: Env, lineUserId: string, user: Auth
 
 type SealedSessionResult =
   | { ok: true; user: AuthUser; refreshed: SupabaseRefreshSession }
-  | { ok: false; reason: "invalid" | "expired" | "mismatch" };
+  | { ok: false; reason: "invalid" | "expired" | "mismatch" | "unavailable" };
 
 async function restoreSealedSession(env: Env, sealed: string, lineUserId: string): Promise<SealedSessionResult> {
   const refreshToken = await openRefreshToken(env.AUTH_SESSION_SECRET!, sealed);
   if (!refreshToken) return { ok: false, reason: "invalid" };
-  const refreshed = await refreshSupabaseSession(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!, refreshToken);
-  if (!refreshed) return { ok: false, reason: "expired" };
-  const user = await validateRefreshedLineSession(env, refreshed, lineUserId);
+  const refreshed = await requestSupabaseRefresh(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!, refreshToken);
+  if (!refreshed.ok) return { ok: false, reason: refreshed.retryable ? "unavailable" : "expired" };
+  let user: AuthUser | null;
+  try { user = await validateRefreshedLineSession(env, refreshed.session, lineUserId); }
+  catch { return { ok: false, reason: "unavailable" }; }
   if (!user) return { ok: false, reason: "mismatch" };
-  return { ok: true, user, refreshed };
+  return { ok: true, user, refreshed: refreshed.session };
+}
+
+// LINE／Supabase 暫時無法回應：保留 vault 與 cookie，前端稍後重試，不可改走 OAuth
+function restoreUnavailable() {
+  return json({ error: "登入暫時無法恢復，請稍後再試", code: "SESSION_RESTORE_UNAVAILABLE", retryable: true }, { status: 503 });
 }
 
 export async function restoreLiffSession(request: Request, env: Env): Promise<Response> {
@@ -185,7 +212,9 @@ export async function restoreLiffSession(request: Request, env: Env): Promise<Re
 
   // Every restore path is keyed by a LINE-verified identity; the vault and the
   // cookie only supply the refresh token for that same LINE user.
-  const identity = await verifyLiffIdToken(env, idToken);
+  const checked = await checkLiffIdToken(env, idToken);
+  if (checked.status === "unavailable") return restoreUnavailable();
+  const identity = checked.status === "valid" ? checked.identity : null;
   if (!identity?.sub) {
     return json({ error: "LIFF LINE 身分驗證失敗" }, { status: 401, headers: { "Set-Cookie": clearRefreshSessionCookie() } });
   }
@@ -193,19 +222,26 @@ export async function restoreLiffSession(request: Request, env: Env): Promise<Re
   const userRateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `session-restore-user:${identity.sub}`);
   if (userRateLimitResponse) return userRateLimitResponse;
 
+  // 任一路徑遇到暫時性故障就記下；最後沒有其他可恢復的來源時回 503，而不是「沒有工作階段」
+  let temporarilyUnavailable = false;
   const vaulted = await readVaultedSession(env, identity.sub);
+  if (vaulted.status === "unavailable") temporarilyUnavailable = true;
   if (vaulted.status === "found") {
     const result = await restoreSealedSession(env, vaulted.sealed, identity.sub);
     if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
-    // Keep the row on a refresh failure: it may be a transient Supabase error,
-    // and the next successful LINE Login overwrites it anyway.
-    if (result.reason !== "expired") await deleteVaultedSession(env, identity.sub);
+    // 只有確定無效（解不開、身分不符）才刪除；token 被拒可能是暫時狀態，下次 LINE Login 也會覆寫
+    if (result.reason === "invalid" || result.reason === "mismatch") await deleteVaultedSession(env, identity.sub);
+    if (result.reason === "unavailable") temporarilyUnavailable = true;
   }
 
   const sealedCookie = readRefreshSessionCookie(request);
-  if (!sealedCookie) return json({ error: "沒有可恢復的登入工作階段", code: "NO_PERSISTENT_SESSION" }, { status: 401 });
+  if (!sealedCookie) {
+    if (temporarilyUnavailable) return restoreUnavailable();
+    return json({ error: "沒有可恢復的登入工作階段", code: "NO_PERSISTENT_SESSION" }, { status: 401 });
+  }
   const result = await restoreSealedSession(env, sealedCookie, identity.sub);
   if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
+  if (result.reason === "unavailable") return restoreUnavailable();
   const clearCookie = { "Set-Cookie": clearRefreshSessionCookie() };
   if (result.reason === "invalid") return json({ error: "登入工作階段無效", code: "INVALID_PERSISTENT_SESSION" }, { status: 401, headers: clearCookie });
   if (result.reason === "expired") return json({ error: "會員登入工作階段已失效" }, { status: 401, headers: clearCookie });
