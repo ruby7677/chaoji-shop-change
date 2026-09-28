@@ -5,7 +5,7 @@ import { initAuthExpiry } from "./auth-expiry.js";
 import { initAdminTab, openAdminFromRoute, openAdminInNewTab } from "./admin-tab.js";
 import { openAdminLazy } from "./admin-loader.js";
 import { auth, closeDialog, showDialog, showToast, syncPageScrollLock } from "./app-core.js";
-import { addToCartWithFeedback, addVariantQuantityToCart, buyNowFromCard, cart, handleCartCheckout, loadLocalCart, renderCart, saveCart, setCartDeliveryMethod, setCartGroupDeliveryMethod, toggleCart } from "./cart.js";
+import { addToCartWithFeedback, addVariantQuantityToCart, buyNowFromCard, buyNowVariant, cart, handleCartCheckout, loadLocalCart, renderCart, saveCart, setCartDeliveryMethod, setCartGroupDeliveryMethod, toggleCart } from "./cart.js";
 import { bankAccounts, clearCheckoutFieldErrorFor, openCheckoutReview, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields, syncPaymentFields } from "./checkout-form.js";
 import { checkLineFriendship, handleLineFriendRequest, showLineFriendDialog } from "./member-benefits.js";
 import { currentOrders, openOrders, showPaymentDialog, submitPayment } from "./member-orders.js";
@@ -100,6 +100,7 @@ initAnchorScroll();
 export const productPage = createProductPage({
   getProducts: () => products,
   addToCart: addVariantQuantityToCart,
+  buyNow: buyNowVariant,
   showToast,
   showDialog,
   closeDialog

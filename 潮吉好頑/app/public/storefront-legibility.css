@@ -1,0 +1,103 @@
+/* 前台可讀性與觸控（2026-09-28 critique 修正）：在 product-page.css 之後載入，統一覆蓋先前逐步縮小的字級。
+   原則：手機說明文字 ≥12px、價格 ≥15px、按鈕文字 ≥14px 且觸控高度 44px；空間不夠就減少元素，不再縮字。 */
+
+/* ---------- 商品卡：名稱是連結，點擊範圍延伸到整張卡 ---------- */
+.product-card { position: relative; }
+.product-card-link { color: inherit; text-decoration: inherit; }
+.product-card-link::after { content: ""; position: absolute; inset: 0; z-index: 1; }
+.product-card-link:focus-visible { outline: none; }
+.product-card:has(.product-card-link:focus-visible) { outline: 3px solid var(--home-ink); outline-offset: 3px; }
+.product-card .card-actions { position: relative; z-index: 2; margin-top: auto; }
+/* 同一列卡片的按鈕對齊底部：名稱或標籤行數不同時，按鈕不再高低錯落 */
+.product-card { display: flex; flex-direction: column; }
+.product-card .product-info { display: flex; flex: 1; flex-direction: column; }
+
+/* 商品圖多為白底：圖片區直接用白底，拿掉米色底上再疊一層白框 */
+.product-card:nth-child(n) .product-image { background: #fff; } /* :nth-child(n) 對齊舊有偶數張規則的權重 */
+.product-card .product-image img { border-radius: 0; }
+
+/* ---------- 商品卡字級 ---------- */
+.product-category { font-size: .75rem; letter-spacing: .02em; }
+.product-info h3 { font-size: 1rem; }
+.product-tag { font-size: .72rem; }
+.stock { font-size: .8rem; }
+.preorder-stock { font-size: .8rem; }
+.product-info .price { font-size: 1.15rem; }
+.card-actions button,
+.card-actions a { min-height: 42px; padding: 8px 6px; font-size: .875rem; }
+
+@media (max-width: 760px) {
+  .product-info { padding: 12px 12px 14px; }
+  .product-category { font-size: .75rem; }
+  .product-info h3 { font-size: .95rem; line-height: 1.35; }
+  .product-tag { font-size: .72rem; }
+  .stock,
+  .preorder-stock { font-size: .78rem; }
+  .product-info .price { margin: 8px 0 10px; font-size: 1.05rem; }
+  .product-info .price-original { font-size: .78em; }
+  .card-actions button,
+  .card-actions a { min-height: 44px; font-size: .875rem; }
+  /* 手機兩欄卡片只留「加入購物車」：兩顆按鈕上下疊會讓卡片高出約 50px，一屏只看得到兩張商品；
+     直接購買改在商品頁（可選數量，見 cart-quantity.js） */
+  .card-actions .buy-now-button:not(:disabled) { display: none; }
+  /* 售完時兩顆都停用：改留「已售完」那顆，讓手機也看得到售完狀態 */
+  .card-actions button[data-add]:disabled { display: none; }
+}
+
+/* ---------- 結帳步驟條：不再縮到 8px，改為允許換行 ---------- */
+.checkout-progress span { font-size: .75rem; letter-spacing: 0; }
+@media (max-width: 760px) {
+  .checkout-progress span {
+    padding: 7px 2px;
+    font-size: .75rem;
+    letter-spacing: 0;
+    line-height: 1.3;
+    white-space: normal;
+    text-wrap: balance;
+  }
+}
+
+/* ---------- 頁首 ---------- */
+@media (min-width: 1200px) {
+  .header-store-place strong span { font-size: .75rem; letter-spacing: .06em; }
+}
+@media (max-width: 760px) {
+  .site-header nav a { display: inline-flex; align-items: center; min-height: 44px; }
+}
+
+/* LINE 客服：保留業主指定的 LINE 標準綠底，文字改深墨色（白字對比只有 2.3:1，深墨色約 8:1） */
+.line-service-button,
+.trust-rail a.trust-rail-link.line-service-button { color: var(--home-ink); }
+
+/* ---------- 輪播小圓點：手機觸控高度 44px，圓點多時可縮窄 ---------- */
+@media (max-width: 760px) {
+  .hero-carousel-dot { flex: 0 1 28px; min-width: 16px; width: 28px; height: 44px; }
+}
+
+/* ---------- 購物車與購物須知的小連結 ---------- */
+@media (max-width: 760px) {
+  .cart-item .remove { min-height: 44px; padding: 0 4px; }
+}
+.policy-return { display: inline-flex; align-items: center; min-height: 44px; }
+
+/* 購物須知規則：原本用 ⭐️ 表情符號當項目符號，在黑底上比標題還搶眼；改為清單加低調黃色方點 */
+.policy-rule-list { margin: 0; list-style: none; }
+.policy-rule-list li {
+  position: relative;
+  max-width: 900px;
+  margin: 9px 0;
+  padding-left: 18px;
+  color: #bdb7aa;
+  font-size: .85rem;
+  line-height: 1.8;
+}
+.policy-rule-list li::before {
+  content: "";
+  position: absolute;
+  top: .72em;
+  left: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--home-yellow);
+}

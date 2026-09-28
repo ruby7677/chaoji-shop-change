@@ -1,5 +1,6 @@
 // 購物車：品項與取貨方式、現貨／預購分組、本機保存與會員雲端同步、加入購物車回饋與前往結帳。
 import { escapeHtml, isPreorderItem, money } from "./product-format.js";
+import { planBuyNowQuantity, variantMaxQuantity } from "./cart-quantity.js";
 import { auth, showToast, syncPageScrollLock } from "./app-core.js";
 import { products } from "./storefront-catalog.js";
 import { activeCheckoutItems, activeCheckoutScope, openCheckout } from "./checkout-flow.js";
@@ -435,8 +436,7 @@ export function handleCartCheckout(scope = null) {
 export function addVariantQuantityToCart(variantId, quantity) {
   const variant = products.find((item) => item.id === variantId);
   if (!variant) return { ok: false, message: "找不到這個規格，請重新整理頁面" };
-  const purchaseLimit = Number.isInteger(Number(variant.purchase_limit)) && Number(variant.purchase_limit) > 0 ? Number(variant.purchase_limit) : null;
-  const maxQuantity = purchaseLimit ? Math.min(variant.stock, purchaseLimit) : variant.stock;
+  const maxQuantity = variantMaxQuantity(variant);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > maxQuantity) return { ok: false, message: `數量需介於 1 至 ${Math.max(maxQuantity, 1)} 件` };
   const existing = cart.find((item) => item.id === variant.id);
   if (existing && existing.quantity + quantity > maxQuantity) return { ok: false, message: "已達可選購庫存或限購上限" };
@@ -454,5 +454,26 @@ export function buyNowFromCard(variantId) {
     const result = addVariantQuantityToCart(variantId, 1);
     if (!result.ok) return showToast(result.message, "warning");
   }
+  openCartDrawer();
+}
+
+// 商品頁「直接購買」：以頁面選的數量為準（見 cart-quantity.js），再打開購物車抽屜。
+export function buyNowVariant(variantId, quantity) {
+  const variant = products.find((item) => item.id === variantId);
+  if (!variant) return { ok: false, message: "找不到這個規格，請重新整理頁面" };
+  const existing = cart.find((item) => item.id === variant.id);
+  const plan = planBuyNowQuantity({ existingQuantity: existing?.quantity || 0, requested: quantity, max: variantMaxQuantity(variant) });
+  if (!plan.ok) return plan;
+  if (plan.changed) {
+    if (existing) existing.quantity = plan.quantity;
+    else cart.push({ ...variant, quantity: plan.quantity });
+    saveCart();
+    renderCart();
+  }
+  openCartDrawer();
+  return plan;
+}
+
+function openCartDrawer() {
   if (!document.querySelector("#cart-drawer")?.classList.contains("open")) toggleCart();
 }

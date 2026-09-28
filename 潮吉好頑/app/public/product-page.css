@@ -140,7 +140,11 @@ body.is-product-view .product-page {
 .pp-stepper input::-webkit-inner-spin-button,
 .pp-stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .pp-limit { display: block; margin-top: 8px; color: var(--home-muted); font-size: .8rem; }
-.pp-add { width: 100%; min-height: 52px; margin-top: 20px; font-size: 1rem; }
+/* 加入購物車（主要）＋直接購買（次要）並排；無庫存時只剩主要按鈕，撐滿整列 */
+.pp-actions { display: flex; gap: 10px; margin-top: 20px; }
+.pp-actions > button { flex: 1 1 0; min-width: 0; margin: 0; padding-inline: 12px; }
+.pp-add,
+.pp-buy-now { width: 100%; min-height: 52px; font-size: 1rem; }
 .pp-add.is-added,
 .pp-sticky-cta .is-added { background: #e6f5e9 !important; border-color: #23733d !important; color: #145b2b !important; }
 
@@ -275,7 +279,8 @@ body.is-product-view .product-page {
   .pp-sticky-cta > div { display: grid; flex: 1; min-width: 0; }
   .pp-sticky-cta small { overflow: hidden; color: var(--home-muted); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
   .pp-sticky-cta .price { margin: 0; font-size: 1.05rem; }
-  .pp-sticky-cta .primary-button { flex: 0 0 auto; min-height: 46px; padding-inline: 18px; }
+  .pp-sticky-cta > .pp-sticky-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+  .pp-sticky-cta :is(.primary-button, .secondary-button) { flex: 0 0 auto; width: auto; min-width: 0; min-height: 46px; margin: 0; padding-inline: 14px; font-size: .95rem; }
   .pp-gallery--lightbox .pp-gallery-track { padding-inline: 0; scroll-padding-inline: 0; }
   .pp-gallery--lightbox .pp-gallery-slide { flex-basis: 100%; }
 }

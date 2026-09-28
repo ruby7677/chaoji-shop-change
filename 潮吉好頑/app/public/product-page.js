@@ -2,6 +2,7 @@
 // 規格、價格、庫存沿用首頁型錄資料（與購物車同一份），詳細介紹與多圖另向 /api/products/:id 取得。
 import { escapeHtml, hasProductDiscount, isPreorderItem, preorderStockMarkup, productAvailability, productPriceMarkup, productTagMarkup } from "./product-format.js";
 import { productCardMarkup } from "./product-card.js";
+import { variantMaxQuantity } from "./cart-quantity.js";
 import { formatProductDetails } from "./product-details-format.js";
 import { bindProductGallery, productGalleryMarkup } from "./product-gallery.js";
 import { createProductRouter } from "./product-router.js";
@@ -17,12 +18,6 @@ const NOTICES = {
 function purchaseLimit(variant) {
   const limit = Number(variant.purchase_limit);
   return Number.isInteger(limit) && limit > 0 ? limit : null;
-}
-
-function maxQuantity(variant) {
-  const stock = Math.max(Number(variant.stock || 0), 0);
-  const limit = purchaseLimit(variant);
-  return limit ? Math.min(stock, limit) : stock;
 }
 
 export function createProductPage(deps) {
@@ -91,15 +86,15 @@ export function createProductPage(deps) {
     const target = page.querySelector("[data-pp-buy]");
     const variant = selectedVariant();
     if (!target || !variant) return;
-    const max = maxQuantity(variant);
+    const max = variantMaxQuantity(variant);
     const limit = purchaseLimit(variant);
     const preorder = isPreorderItem(variant);
     state.quantity = Math.min(Math.max(state.quantity, 1), Math.max(max, 1));
     const name = variant.product_name || variant.name;
     const buttonLabel = max > 0 ? "加入購物車" : "目前無可售庫存";
-    target.innerHTML = `<span class="product-category">${escapeHtml(variant.category || "好頑選物")} · ${escapeHtml(variant.type)}</span><h1 id="pp-title" tabindex="-1">${escapeHtml(name)}</h1>${variant.description ? `<p class="pp-summary">${escapeHtml(variant.description)}</p>` : ""}${productTagMarkup(variant)}<div class="pp-price price${hasProductDiscount(variant) ? " price-discounted" : ""}">${productPriceMarkup(variant)}</div><p class="pp-stock">${escapeHtml(productAvailability(variant))}</p>${preorderStockMarkup(variant)}${variantMarkup(variant)}<div class="pp-field pp-qty"><label for="pp-quantity">數量</label><div class="pp-stepper"><button type="button" data-pp-step="-1" aria-label="減少數量" ${max > 0 ? "" : "disabled"}>−</button><input id="pp-quantity" type="number" inputmode="numeric" min="1" max="${Math.max(max, 1)}" step="1" value="${state.quantity}" ${max > 0 ? "" : "disabled"} /><button type="button" data-pp-step="1" aria-label="增加數量" ${max > 0 ? "" : "disabled"}>+</button></div></div>${limit ? `<small class="pp-limit">每位會員限購 ${limit} 件</small>` : ""}<button class="primary-button pp-add" type="button" data-pp-add data-pp-add-main ${max > 0 ? "" : "disabled"}>${buttonLabel}</button>${noticeMarkup(preorder)}`;
+    target.innerHTML = `<span class="product-category">${escapeHtml(variant.category || "好頑選物")} · ${escapeHtml(variant.type)}</span><h1 id="pp-title" tabindex="-1">${escapeHtml(name)}</h1>${variant.description ? `<p class="pp-summary">${escapeHtml(variant.description)}</p>` : ""}${productTagMarkup(variant)}<div class="pp-price price${hasProductDiscount(variant) ? " price-discounted" : ""}">${productPriceMarkup(variant)}</div><p class="pp-stock">${escapeHtml(productAvailability(variant))}</p>${preorderStockMarkup(variant)}${variantMarkup(variant)}<div class="pp-field pp-qty"><label for="pp-quantity">數量</label><div class="pp-stepper"><button type="button" data-pp-step="-1" aria-label="減少數量" ${max > 0 ? "" : "disabled"}>−</button><input id="pp-quantity" type="number" inputmode="numeric" min="1" max="${Math.max(max, 1)}" step="1" value="${state.quantity}" ${max > 0 ? "" : "disabled"} /><button type="button" data-pp-step="1" aria-label="增加數量" ${max > 0 ? "" : "disabled"}>+</button></div></div>${limit ? `<small class="pp-limit">每位會員限購 ${limit} 件</small>` : ""}<div class="pp-actions"><button class="primary-button pp-add" type="button" data-pp-add data-pp-add-main ${max > 0 ? "" : "disabled"}>${buttonLabel}</button>${max > 0 ? '<button class="secondary-button pp-buy-now" type="button" data-pp-buy-now>直接購買</button>' : ""}</div>${noticeMarkup(preorder)}`;
     const sticky = page.querySelector("[data-pp-sticky]");
-    if (sticky) sticky.innerHTML = `<div><small>${escapeHtml(name)}</small><strong class="price${hasProductDiscount(variant) ? " price-discounted" : ""}">${productPriceMarkup(variant)}</strong></div><button class="primary-button" type="button" data-pp-add ${max > 0 ? "" : "disabled"}>${buttonLabel}</button>`;
+    if (sticky) sticky.innerHTML = `<div><small>${escapeHtml(name)}</small><strong class="price${hasProductDiscount(variant) ? " price-discounted" : ""}">${productPriceMarkup(variant)}</strong></div><div class="pp-sticky-actions"><button class="primary-button" type="button" data-pp-add ${max > 0 ? "" : "disabled"}>${buttonLabel}</button>${max > 0 ? '<button class="secondary-button pp-buy-now" type="button" data-pp-buy-now>直接購買</button>' : ""}</div>`;
     observeSticky();
   }
 
@@ -230,9 +225,19 @@ export function createProductPage(deps) {
     window.setTimeout(() => button.classList.remove("is-added"), 1200);
   }
 
+  // 直接購買：依所選數量放進購物車並打開抽屜；購物車已有時改成所選數量（規則見 cart-quantity.js）。
+  function buySelectedNow() {
+    const variant = selectedVariant();
+    const input = page.querySelector("#pp-quantity");
+    if (!variant || !input) return;
+    const result = deps.buyNow(variant.id, Number(input.value));
+    if (result.message) deps.showToast(result.message, result.ok ? "success" : "warning");
+  }
+
   page.addEventListener("click", (event) => {
     const step = event.target.closest("[data-pp-step]");
     const add = event.target.closest("[data-pp-add]");
+    const buyNow = event.target.closest("[data-pp-buy-now]");
     const input = page.querySelector("#pp-quantity");
     if (step && input && !input.disabled) {
       const next = Number(input.value || 1) + Number(step.dataset.ppStep);
@@ -240,6 +245,7 @@ export function createProductPage(deps) {
       state.quantity = Number(input.value);
     }
     if (add && !add.disabled) addSelected(add);
+    if (buyNow && !buyNow.disabled) buySelectedNow();
   });
   page.addEventListener("input", (event) => {
     if (event.target.matches("#pp-quantity") && state) state.quantity = Number(event.target.value) || 1;
@@ -260,11 +266,15 @@ export function createProductPage(deps) {
       router.goHome(homeLink.dataset.ppHome ?? homeLink.getAttribute("href").slice(1));
       return;
     }
-    // 商品卡的圖片與名稱也能進入商品頁。
+    // 商品卡的圖片與名稱也能進入商品頁。名稱連結的一般點擊改走站內切換；
+    // Ctrl／Cmd／Shift／中鍵點擊交給瀏覽器另開分頁。
     const cardTarget = event.target.closest(".product-card .product-image, .product-card h3");
+    if (cardTarget && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0)) return;
     const variantId = cardTarget?.closest(".product-card")?.dataset.productId;
     const variant = variantId && deps.getProducts().find((item) => item.id === variantId);
-    if (variant?.product_id) router.openProduct(variant.product_id, variant.id);
+    if (!variant?.product_id) return;
+    event.preventDefault();
+    router.openProduct(variant.product_id, variant.id);
   });
 
   return {

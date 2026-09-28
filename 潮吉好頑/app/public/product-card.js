@@ -13,11 +13,23 @@ function productCardImageMarkup(product) {
   return `<img src="${escapeHtml(thumbnailUrl)}" srcset="${escapeHtml(thumbnailUrl)} 640w, ${escapeHtml(product.image_url)} 1600w" sizes="(min-width: 768px) 25vw, 50vw" alt="${escapeHtml(product.name)}" loading="lazy" />`;
 }
 
-export function productCardMarkup(product) {
-  return `<article class="product-card" data-product-id="${escapeHtml(product.id)}"><div class="product-image">${productAvailabilityBadge(product)}${productPromotionBadge(product)}${productCardImageMarkup(product)}</div><div class="product-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${escapeHtml(product.name)}</h3>${productTagMarkup(product)}<p class="stock">${escapeHtml(productAvailability(product))}</p>${preorderStockMarkup(product)}<div class="price${hasProductDiscount(product) ? " price-discounted" : ""}">${productPriceMarkup(product)}</div>${cardActionsMarkup(product)}</div></article>`;
+export function productPageHref(product) {
+  return `/products/${encodeURIComponent(product.product_id)}?v=${encodeURIComponent(product.id)}`;
 }
 
-// 「加入購物車」留在原頁繼續逛；「直接購買」加入後打開購物車。商品頁入口改由圖片與名稱進入。
+// 名稱是真正的連結：鍵盤、報讀器、長按另開分頁都能進商品頁；連結範圍以 CSS 延伸到整張卡。
+// 示範資料沒有 product_id，無商品頁可進，維持純文字。
+function productNameMarkup(product) {
+  const name = escapeHtml(product.name);
+  return product.product_id ? `<a class="product-card-link" href="${escapeHtml(productPageHref(product))}">${name}</a>` : name;
+}
+
+export function productCardMarkup(product) {
+  return `<article class="product-card" data-product-id="${escapeHtml(product.id)}"><div class="product-image">${productAvailabilityBadge(product)}${productPromotionBadge(product)}${productCardImageMarkup(product)}</div><div class="product-info"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${productNameMarkup(product)}</h3>${productTagMarkup(product)}<p class="stock">${escapeHtml(productAvailability(product))}</p>${preorderStockMarkup(product)}<div class="price${hasProductDiscount(product) ? " price-discounted" : ""}">${productPriceMarkup(product)}</div>${cardActionsMarkup(product)}</div></article>`;
+}
+
+// 「加入購物車」留在原頁繼續逛；「直接購買」加入後打開購物車（手機版只留加入購物車，直接購買改在商品頁，見 storefront-legibility.css）。
+// 商品頁入口由圖片與名稱進入。
 function cardActionsMarkup(product) {
   const id = escapeHtml(product.id);
   const soldOut = Number(product.stock || 0) <= 0;
