@@ -1,5 +1,5 @@
-// 規格批次上架／下架（BATCH_OPERATIONS_PLAN.md Stage 3）：列勾選框、底部批次列、逐筆送出與結果彙整。
-// 每筆沿用單筆開關的 PATCH /api/admin/variants/:id 與 variantPayload；依賴由 admin-products-table.js 注入。
+// 規格批次上架／下架（docs/history/BATCH_OPERATIONS_PLAN.md Stage 3）：列勾選框、底部批次列、逐筆送出與結果彙整。
+// 每筆沿用單筆開關的 setVariantPublished（PATCH /api/admin/variants/:id）；依賴由 admin-products-table.js 注入。
 import { batchSelectionError, publishBatchConfirmation, summarizeBatchResults } from "./admin-batch.js";
 
 const selected = new Set();
@@ -72,11 +72,8 @@ async function runBatchPublish(next, trigger) {
     for (const [index, item] of items.entries()) {
       renderBar(`處理中 ${index + 1}／${items.length}：${labelOf(item)}`);
       try {
-        const result = await deps.adminFetch(`/api/admin/variants/${item.variant.id}`, { method: "PATCH", body: JSON.stringify(deps.variantPayload(item.variant, next)) });
-        const saved = result?.variant && !Array.isArray(result.variant) ? result.variant : null;
-        item.variant.is_published = typeof saved?.is_published === "boolean" ? saved.is_published : next;
-        if (saved?.updated_at) item.variant.updated_at = saved.updated_at;
-        results.push({ label: labelOf(item), ok: true });
+        await deps.setVariantPublished(item.variant, next);
+        results.push({ label: labelOf(item), ok: true, item });
         selected.delete(item.variant.id);
       } catch (error) {
         results.push({ label: labelOf(item), ok: false, error: error.message });
@@ -89,14 +86,17 @@ async function runBatchPublish(next, trigger) {
   chosen.forEach(({ variant }) => { if (variant.is_published === next) selected.delete(variant.id); });
   const summary = summarizeBatchResults(results);
   lastFailures = summary.allOk ? "" : summary.message;
-  deps.showToast(summary.allOk ? `已${next ? "上架" : "下架"} ${summary.succeeded} 個規格` : summary.message, summary.allOk ? "success" : "error");
   if (summary.succeeded) deps.onCatalogChanged();
   deps.redraw();
+  // 成功的部分可在 8 秒內一鍵復原；失敗項目保留勾選與原因（顯示在批次列）
+  const changed = results.filter((result) => result.ok).map((result) => result.item);
+  if (changed.length) deps.offerUndo(`已${next ? "上架" : "下架"} ${changed.length} 個規格${summary.allOk ? "" : `（${summary.failed.length} 個失敗）`}`, () => deps.undoPublish(changed, next));
+  else deps.showToast(summary.message, "error");
 }
 
 export function initVariantBatch(dependencies) {
   if (deps) return;
-  const required = ["findVariant", "variantPayload", "adminFetch", "adminConfirm", "onCatalogChanged", "redraw", "showToast"];
+  const required = ["findVariant", "setVariantPublished", "undoPublish", "adminConfirm", "onCatalogChanged", "redraw", "showToast", "offerUndo"];
   const missing = required.filter((key) => typeof dependencies?.[key] !== "function");
   if (missing.length) throw new Error(`initVariantBatch 缺少依賴：${missing.join(", ")}`);
   deps = dependencies;

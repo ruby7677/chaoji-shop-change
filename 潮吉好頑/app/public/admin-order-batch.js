@@ -1,4 +1,4 @@
-// 訂單批次完成取貨（BATCH_OPERATIONS_PLAN.md Stage 2）：勾選框、底部批次列、逐筆送出與結果彙整。
+// 訂單批次完成取貨（docs/history/BATCH_OPERATIONS_PLAN.md Stage 2）：勾選框、底部批次列、逐筆送出與結果彙整。
 // 每筆仍呼叫既有單筆 API（POST /api/admin/orders/:id/transition），驗證、歷程、點數與通知與單筆相同。
 import { money } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
@@ -55,9 +55,29 @@ function renderBar(progress = "") {
   document.querySelectorAll("[data-admin-order-select]").forEach((box) => { box.disabled = running; });
 }
 
+// 不在可批次的分頁時，若清單中有可完成的訂單，提示批次完成取貨的位置（按鈕沿用狀態分頁的點擊處理）
+function syncHint(orders) {
+  const list = document.querySelector("#admin-order-list");
+  if (!list) return;
+  let hint = document.querySelector(".admin-batch-hint");
+  // 只算落在可篩選狀態（已確認／配送處理中）的訂單，並直接前往數量最多的那個狀態
+  const eligible = isOrderBatchMode() ? [] : [...orders.values()].filter((order) => BATCH_FILTERS.has(order.status) && canBatchComplete(order));
+  const count = eligible.length;
+  if (!count) { hint?.remove(); return; }
+  const target = [...BATCH_FILTERS].sort((a, b) => eligible.filter((order) => order.status === b).length - eligible.filter((order) => order.status === a).length)[0];
+  const targetLabel = target === "ready_for_pickup" ? "配送處理中" : "已確認";
+  if (!hint) {
+    hint = document.createElement("p");
+    hint.className = "admin-batch-hint";
+    list.before(hint);
+  }
+  hint.innerHTML = `<span>有 ${count} 筆訂單可完成取貨：在「處理中」可勾選多筆一次完成。</span><button type="button" class="secondary-button" data-admin-status-tab="${target}">前往${targetLabel}</button>`;
+}
+
 // 訂單清單重新渲染後呼叫：移除已不在清單或不可完成的選取，並更新批次列
 export function syncOrderBatch() {
   const orders = ordersById();
+  syncHint(orders);
   if (!isOrderBatchMode()) selected.clear();
   [...selected].forEach((id) => { if (!canBatchComplete(orders.get(id))) selected.delete(id); });
   renderBar();

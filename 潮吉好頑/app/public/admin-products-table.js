@@ -6,6 +6,7 @@ import { adminIcon } from "./admin-icons.js";
 import { createAdminSheet, openAdminSheetFor } from "./admin-sheets.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { initVariantBatch, syncVariantBatch, variantSelectMarkup } from "./admin-variant-batch.js";
+import { offerUndo } from "./admin-undo.js";
 import { openStockAdjust } from "./admin-stock-adjust.js";
 import { discountPercent, editSheetMarkup, kindPill, priceFormMarkup, pricePreviewText, priceMarkup, relationOne } from "./admin-products-forms.js";
 import { snapshotFields, matchField, createFormStateStore } from "./admin-form-state.js";
@@ -113,7 +114,7 @@ function drawTable() {
   });
   const maxStock = Math.max(0, ...rows.map(({ variant }) => Number(variant?.stock_on_hand || 0)));
   const saleCount = products.reduce((sum, product) => sum + (product.product_variants || []).filter(isOnSale).length, 0);
-  document.querySelector("[data-products-count]").textContent = `本頁 ${products.length} 件商品・顯示 ${rows.filter((row) => row.variant).length} 個規格・限時優惠 ${saleCount} 個`;
+  document.querySelector("[data-products-count]").textContent = `本頁 ${products.length} 件商品・顯示 ${rows.filter((row) => row.variant).length} 個規格・限時優惠 ${saleCount} 個・勾選規格可批次上下架`;
   if (!rows.length) {
     list.innerHTML = '<div class="empty-state">目前沒有符合條件的商品。</div>';
     syncVariantBatch();
@@ -292,6 +293,27 @@ function variantPayload(variant, isPublished) {
   };
 }
 
+// 送出單一規格的上架狀態並以伺服器回傳值更新本地資料（單筆開關、批次與復原共用）
+async function setVariantPublished(variant, next) {
+  const result = await deps.adminFetch(`/api/admin/variants/${variant.id}`, { method: "PATCH", body: JSON.stringify(variantPayload(variant, next)) });
+  const saved = result?.variant && !Array.isArray(result.variant) ? result.variant : null;
+  variant.is_published = typeof saved?.is_published === "boolean" ? saved.is_published : next;
+  if (saved?.updated_at) variant.updated_at = saved.updated_at;
+}
+
+// 復原：把剛變更的規格改回原狀態（不再跳確認視窗）
+async function undoPublish(items, appliedValue) {
+  const failed = [];
+  for (const { product, variant } of items) {
+    try { await setVariantPublished(variant, !appliedValue); }
+    catch (error) { failed.push(`${product.name}／${variant.name}（${error.message}）`); }
+  }
+  deps.onCatalogChanged();
+  drawTable();
+  if (failed.length) deps.showToast(`復原失敗：${failed.join("；")}`, "error");
+  else deps.showToast(`已復原 ${items.length} 個規格`, "success");
+}
+
 async function togglePublish(button) {
   const found = findVariant(button.dataset.variantPublish);
   if (!found || button.disabled) return;
@@ -308,15 +330,12 @@ async function togglePublish(button) {
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
   try {
-    const result = await deps.adminFetch(`/api/admin/variants/${variant.id}`, { method: "PATCH", body: JSON.stringify(variantPayload(variant, next)) });
-    const saved = result?.variant && !Array.isArray(result.variant) ? result.variant : null;
-    variant.is_published = typeof saved?.is_published === "boolean" ? saved.is_published : next;
-    if (saved?.updated_at) variant.updated_at = saved.updated_at;
+    await setVariantPublished(variant, next);
     deps.onCatalogChanged();
     drawTable();
     // 表格重繪後按鈕已換新，焦點移回同一規格的開關
     list.querySelector(`[data-variant-publish="${CSS.escape(variant.id)}"]`)?.focus({ preventScroll: true });
-    deps.showToast(variant.is_published ? `已上架：${label}` : `已下架：${label}（前台隱藏）`, "success");
+    offerUndo(variant.is_published ? `已上架：${label}` : `已下架：${label}（前台隱藏）`, () => undoPublish([found], next));
   } catch (error) {
     button.disabled = false;
     button.removeAttribute("aria-busy");
@@ -401,7 +420,7 @@ export function initAdminProductsTable(options) {
   list = document.querySelector("#admin-product-list");
   if (!list) throw new Error("找不到商品列表容器");
   bindEvents();
-  initVariantBatch({ findVariant, variantPayload, adminFetch: deps.adminFetch, adminConfirm, onCatalogChanged: deps.onCatalogChanged, redraw: drawTable, showToast: deps.showToast });
+  initVariantBatch({ findVariant, setVariantPublished, undoPublish, adminConfirm, onCatalogChanged: deps.onCatalogChanged, redraw: drawTable, showToast: deps.showToast, offerUndo });
 }
 
 export function renderAdminProductsTable() {

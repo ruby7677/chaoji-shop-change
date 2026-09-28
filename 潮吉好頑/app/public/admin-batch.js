@@ -1,4 +1,4 @@
-// 後台批次操作的純邏輯（BATCH_OPERATIONS_PLAN.md Stage 1）：可批次判斷、上限、確認內容與結果彙整。
+// 後台批次操作的純邏輯（docs/history/BATCH_OPERATIONS_PLAN.md Stage 1）：可批次判斷、上限、確認內容與結果彙整。
 // 實際送出由 UI 逐筆呼叫既有單筆 API；這裡不碰 DOM 也不發請求。
 import { money } from "./product-format.js";
 import { availableTransitions } from "./admin-order-transition.js";

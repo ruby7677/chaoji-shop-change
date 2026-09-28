@@ -55,7 +55,7 @@
 
 ## Stage 4：驗收與部署
 **Goal**：`check:js`、`typecheck`、`npm test`、`git diff --check`、dry-run 通過；正式站以可回復的方式驗證規格批次上下架（上架後再下架回原狀）；批次完成取貨不以真實訂單測試，改在店主實際操作時觀察。
-**Status**：Not Started
+**Status**：Complete（2026-09-28 部署 1ee801e6；店主於正式站實測規格批次上架再下架回原狀正常）
 
 ## 風險
 
