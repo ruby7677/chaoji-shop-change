@@ -5,17 +5,9 @@ import { adminOrderStatusLabel, deliveryMethodLabels, formatDateTime, orderInclu
 import { loadProducts, renderProducts } from "./storefront-catalog.js";
 import { adminData, adminFetch, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
 import { confirmationAmount, isQuickConfirmable, moneySummary, paymentConfirmation } from "./admin-order-payment.js";
-import { isDangerousTarget, riskOnlyEntryLabel, transitionConfirmation, transitionSubmitLabel } from "./admin-order-transition.js";
+import { initOrderBatch, orderSelectMarkup, syncOrderBatch } from "./admin-order-batch.js";
+import { availableTransitions, isDangerousTarget, riskOnlyEntryLabel, transitionConfirmation, transitionSubmitLabel } from "./admin-order-transition.js";
 
-const adminOrderTransitions = {
-  pending_payment: [{ value: "confirmed", label: "確認到店付款", storePaymentOnly: true }, { value: "cancelled", label: "取消未付款訂單" }],
-  pending_review: [{ value: "confirmed", label: "確認款項並扣除庫存" }, { value: "cancelled", label: "取消訂單" }],
-  confirmed: [{ value: "partially_ready", label: "標記預購商品部分到貨", splitOnly: true }, { value: "ready_for_pickup", label: "更新到貨狀態" }, { value: "completed", label: "完成取貨並確認尾款" }, { value: "refund_pending", label: "進入退款處理" }, { value: "cancelled", label: "取消訂單" }],
-  partially_ready: [{ value: "ready_for_pickup", label: "更新到貨狀態" }, { value: "completed", label: "完成取貨並確認尾款" }, { value: "refund_pending", label: "進入退款處理" }, { value: "cancelled", label: "取消訂單" }],
-  ready_for_pickup: [{ value: "completed", label: "完成取貨並確認尾款" }, { value: "refund_pending", label: "進入退款處理" }, { value: "cancelled", label: "取消訂單" }],
-  completed: [{ value: "refund_pending", label: "進入退款處理" }],
-  refund_pending: [{ value: "refunded", label: "確認已退款" }, { value: "completed", label: "取消退款，恢復已完成" }]
-};
 
 const adminOrderStatusFilterGroups = [
   { label: "待處理", options: [["seller_pending", "賣貨便待核對"], ["pending_payment", "待付款"], ["pending_review", "待確認款項"]] },
@@ -81,6 +73,8 @@ export function renderAdminOrders() {
   if (!orders.length) {
     container.innerHTML = '<div class="empty-state">目前沒有符合條件的訂單。</div>';
     renderAdminPagination("orders");
+    initOrderBatch();
+    syncOrderBatch();
     return;
   }
   container.innerHTML = orders.map((order) => {
@@ -89,15 +83,7 @@ export function renderAdminOrders() {
     const items = (order.order_items || []).map((item) => `<div><span>${escapeHtml(item.product_name)}${item.variant_name === "單一規格" ? "" : ` · ${escapeHtml(item.variant_name)}`} × ${item.quantity}</span><strong>${money(item.unit_price * item.quantity)}</strong></div>`).join("");
     const hasPreorder = orderIncludesPreorder(order);
     const preorderStorePickup = order.delivery_method === "store_pickup" && hasPreorder;
-    const transitions = (adminOrderTransitions[order.status] || []).filter((item) =>
-      (!item.splitOnly || order.pickup_plan === "split")
-      && (!item.storePaymentOnly || !order.bank_account_id)
-      && (item.value !== "partially_ready" || preorderStorePickup)
-      && (item.value !== "ready_for_pickup" || preorderStorePickup || order.delivery_method === "seller_delivery" || (order.delivery_method === "home_delivery" && hasPreorder))
-      && !(item.value === "ready_for_pickup" && order.delivery_method === "seller_delivery" && !hasPreorder)
-      && !(item.value === "cancelled" && order.delivery_method === "seller_delivery" && order.status === "ready_for_pickup")
-      && (item.value !== "completed" || order.delivery_method !== "home_delivery" || Boolean(order.final_payment_confirmed_at))
-    );
+    const transitions = availableTransitions(order);
     const options = transitions.map((item) => {
       const label = item.value === "confirmed" && order.delivery_method === "seller_delivery" && !order.bank_account_id
         ? "確認賣貨便訂單並扣除庫存"
@@ -143,7 +129,7 @@ export function renderAdminOrders() {
     const actionBlock = quick && transitions.length
       ? `<details class="admin-order-more"><summary>其他操作（取消訂單、備註）</summary>${transitionForm}</details>`
       : riskOnlyLabel ? `<details class="admin-order-more"><summary>${escapeHtml(riskOnlyLabel)}</summary>${transitionForm}</details>` : transitionForm;
-    return `<article class="admin-order-card"><header><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(orderDeliveryLabel)}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(adminOrderStatusLabel(order))}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div>${quickBlock}${moneyGrid}${shippingInfo}${bankRow}${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${actionBlock}${renderAdminReturnPanel(order)}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
+    return `<article class="admin-order-card" data-admin-order-card="${escapeHtml(order.id)}"><header>${orderSelectMarkup(order)}<div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(orderDeliveryLabel)}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(adminOrderStatusLabel(order))}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div>${quickBlock}${moneyGrid}${shippingInfo}${bankRow}${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${actionBlock}${renderAdminReturnPanel(order)}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
   }).join("");
   renderAdminPagination("orders");
   container.querySelectorAll(".admin-order-card").forEach((card, index) => {
@@ -220,6 +206,9 @@ export function renderAdminOrders() {
     target.addEventListener("change", syncRiskState);
     syncRiskState();
   });
+  // 批次完成取貨：勾選框已隨卡片渲染，這裡同步選取狀態與底部批次列
+  initOrderBatch();
+  syncOrderBatch();
 }
 
 // submitAdminOrderTransition 與 quickConfirmAdminOrder 共用：送出同一個 transition API 並刷新同一組畫面。

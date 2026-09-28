@@ -147,3 +147,8 @@
 @media (prefers-reduced-motion: reduce) {
   #admin-dialog.admin-app :is(.admin-switch, .admin-switch::after) { transition: none; }
 }
+
+/* ---------- 規格批次上下架勾選（admin-variant-batch.js）；批次列樣式沿用 admin-pages.css 的 .admin-batch-bar ---------- */
+#admin-dialog.admin-app .admin-row-select { display: inline-grid; place-items: center; width: 44px; height: 44px; margin: -12px 0 -12px -12px; vertical-align: middle; cursor: pointer; }
+#admin-dialog.admin-app .admin-row-select input { width: 20px; height: 20px; margin: 0; accent-color: #141414; cursor: pointer; }
+#admin-dialog.admin-app .admin-stack-table tr:has(.admin-row-select input:checked) { background: #fffbe0; }

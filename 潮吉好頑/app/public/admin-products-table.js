@@ -5,6 +5,7 @@ import { escapeHtml } from "./product-format.js";
 import { adminIcon } from "./admin-icons.js";
 import { createAdminSheet, openAdminSheetFor } from "./admin-sheets.js";
 import { adminConfirm } from "./admin-confirm.js";
+import { initVariantBatch, syncVariantBatch, variantSelectMarkup } from "./admin-variant-batch.js";
 import { openStockAdjust } from "./admin-stock-adjust.js";
 import { discountPercent, editSheetMarkup, kindPill, priceFormMarkup, pricePreviewText, priceMarkup, relationOne } from "./admin-products-forms.js";
 import { snapshotFields, matchField, createFormStateStore } from "./admin-form-state.js";
@@ -80,7 +81,7 @@ function rowMarkup(product, variant, maxStock) {
   const percent = maxStock ? Math.round((Math.max(0, variant.stock_on_hand) / maxStock) * 100) : 0;
   const deposit = variant.kind !== "preorder" && Number(variant.deposit_rate) > 0 ? `<span class="cell-sub">訂金 ${Math.round(Number(variant.deposit_rate) * 100)}%</span>` : (variant.kind === "preorder" ? '<span class="cell-sub">訂金 50%</span>' : "");
   return `<tr data-variant-row="${escapeHtml(variant.id)}">${productCellMarkup(product)}`
-    + `<td data-l="規格">${escapeHtml(variant.name)}<span class="cell-sub mono">SKU ${escapeHtml(variant.sku)}</span></td>`
+    + `<td data-l="規格">${variantSelectMarkup(product, variant, escapeHtml)}${escapeHtml(variant.name)}<span class="cell-sub mono">SKU ${escapeHtml(variant.sku)}</span></td>`
     + `<td data-l="類型">${kindPill(variant.kind)}</td>`
     + `<td class="num" data-l="售價"><span class="admin-price-cell">${priceMarkup(variant)}${sale ? `<span class="admin-pill danger">限時優惠 −${sale}%</span>` : ""}${deposit}</span></td>`
     + `<td data-l="庫存"><span class="admin-stock-cell"><span class="admin-stockbar${low ? " low" : ""}"><i data-stock-pct="${percent}"></i></span><span class="cell-sub">庫存 ${variant.stock_on_hand}・安全 ${variant.safety_stock}${low ? "・偏低" : ""}</span></span></td>`
@@ -115,6 +116,7 @@ function drawTable() {
   document.querySelector("[data-products-count]").textContent = `本頁 ${products.length} 件商品・顯示 ${rows.filter((row) => row.variant).length} 個規格・限時優惠 ${saleCount} 個`;
   if (!rows.length) {
     list.innerHTML = '<div class="empty-state">目前沒有符合條件的商品。</div>';
+    syncVariantBatch();
     return;
   }
   list.innerHTML = '<div class="admin-table-wrap"><table class="admin-stack-table"><thead><tr><th>商品</th><th>規格</th><th>類型</th><th class="num">售價</th><th>庫存</th><th>限購</th><th>上架</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>'
@@ -122,6 +124,7 @@ function drawTable() {
     + "</tbody></table></div>";
   // CSP 不允許 style 屬性：庫存條寬度以 CSSOM 設定
   list.querySelectorAll("[data-stock-pct]").forEach((bar) => bar.style.setProperty("width", `${bar.dataset.stockPct}%`));
+  syncVariantBatch();
 }
 
 // ---------- 滑出面板 ----------
@@ -398,6 +401,7 @@ export function initAdminProductsTable(options) {
   list = document.querySelector("#admin-product-list");
   if (!list) throw new Error("找不到商品列表容器");
   bindEvents();
+  initVariantBatch({ findVariant, variantPayload, adminFetch: deps.adminFetch, adminConfirm, onCatalogChanged: deps.onCatalogChanged, redraw: drawTable, showToast: deps.showToast });
 }
 
 export function renderAdminProductsTable() {

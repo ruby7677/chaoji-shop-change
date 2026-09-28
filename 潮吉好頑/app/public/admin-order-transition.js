@@ -1,6 +1,33 @@
 // 訂單「下一步」表單的純邏輯：高風險判斷、按鈕文字、次要入口文字與確認視窗內容。
-// 不碰 DOM，方便測試；確認款項（confirmed）仍由 admin-order-payment.js 的 paymentConfirmation 處理。
+// 不碰 DOM，方便測試（訂單卡與批次操作共用）；確認款項（confirmed）仍由 admin-order-payment.js 的 paymentConfirmation 處理。
 import { money } from "./product-format.js";
+import { orderIncludesPreorder } from "./app-core.js";
+
+// 各狀態可前往的下一步（與 SQL admin_transition_order 的允許轉換對應；最終仍以 SQL 檢查為準）
+const ORDER_TRANSITIONS = {
+  pending_payment: [{ value: "confirmed", label: "確認到店付款", storePaymentOnly: true }, { value: "cancelled", label: "取消未付款訂單" }],
+  pending_review: [{ value: "confirmed", label: "確認款項並扣除庫存" }, { value: "cancelled", label: "取消訂單" }],
+  confirmed: [{ value: "partially_ready", label: "標記預購商品部分到貨", splitOnly: true }, { value: "ready_for_pickup", label: "更新到貨狀態" }, { value: "completed", label: "完成取貨並確認尾款" }, { value: "refund_pending", label: "進入退款處理" }, { value: "cancelled", label: "取消訂單" }],
+  partially_ready: [{ value: "ready_for_pickup", label: "更新到貨狀態" }, { value: "completed", label: "完成取貨並確認尾款" }, { value: "refund_pending", label: "進入退款處理" }, { value: "cancelled", label: "取消訂單" }],
+  ready_for_pickup: [{ value: "completed", label: "完成取貨並確認尾款" }, { value: "refund_pending", label: "進入退款處理" }, { value: "cancelled", label: "取消訂單" }],
+  completed: [{ value: "refund_pending", label: "進入退款處理" }],
+  refund_pending: [{ value: "refunded", label: "確認已退款" }, { value: "completed", label: "取消退款，恢復已完成" }]
+};
+
+// 依訂單配送方式、預購與付款狀態過濾：訂單卡「下一步」與批次操作共用同一套規則
+export function availableTransitions(order) {
+  const hasPreorder = orderIncludesPreorder(order);
+  const preorderStorePickup = order.delivery_method === "store_pickup" && hasPreorder;
+  return (ORDER_TRANSITIONS[order.status] || []).filter((item) =>
+    (!item.splitOnly || order.pickup_plan === "split")
+    && (!item.storePaymentOnly || !order.bank_account_id)
+    && (item.value !== "partially_ready" || preorderStorePickup)
+    && (item.value !== "ready_for_pickup" || preorderStorePickup || order.delivery_method === "seller_delivery" || (order.delivery_method === "home_delivery" && hasPreorder))
+    && !(item.value === "ready_for_pickup" && order.delivery_method === "seller_delivery" && !hasPreorder)
+    && !(item.value === "cancelled" && order.delivery_method === "seller_delivery" && order.status === "ready_for_pickup")
+    && (item.value !== "completed" || order.delivery_method !== "home_delivery" || Boolean(order.final_payment_confirmed_at))
+  );
+}
 
 const DANGEROUS_TARGETS = new Set(["cancelled", "refund_pending", "refunded"]);
 

@@ -36,6 +36,11 @@
   /* 概況統計卡兩欄時，落單的最後一張橫跨整列，不留半格空白 */
   #admin-dialog.admin-app .stats > .stat-card:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
+  /* 批次列貼在底部分頁列上方 */
+  #admin-dialog.admin-app .admin-batch-bar { bottom: calc(76px + env(safe-area-inset-bottom)); }
+  #admin-dialog.admin-app .admin-batch-actions { flex: 1 1 100%; }
+  #admin-dialog.admin-app .admin-batch-actions button { flex: 1; }
+
   /* 觸控目標 ≥44px */
   #admin-dialog.admin-app .admin-icon-button { width: 44px; height: 44px; }
   #admin-dialog.admin-app .admin-global-search { height: 44px; }
