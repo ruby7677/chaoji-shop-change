@@ -52,7 +52,15 @@
 
 /* ---------- 訂單：狀態分頁 ---------- */
 #admin-dialog.admin-app .admin-status-bar { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 12px; }
-#admin-dialog.admin-app .admin-status-tabs { display: flex; flex: 1; flex-wrap: nowrap; align-items: center; gap: 4px; min-width: 0; padding-bottom: 4px; overflow-x: auto; scrollbar-width: thin; }
+/* 兩層分組：第一列 全部／待處理／處理中／結案，第二列為目前分組的狀態（admin-order-status-groups.js） */
+#admin-dialog.admin-app .admin-status-tabs { display: grid; flex: 1; gap: 8px; min-width: 0; }
+#admin-dialog.admin-app .admin-status-groups,
+#admin-dialog.admin-app .admin-status-subtabs { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+#admin-dialog.admin-app .admin-status-subtabs { padding-left: 2px; }
+#admin-dialog.admin-app .admin-status-subtab { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; border: 1px solid var(--admin-border); border-radius: 999px; background: #fff; color: var(--admin-text-muted); font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+#admin-dialog.admin-app .admin-status-subtab:hover { border-color: #141414; color: #141414; }
+#admin-dialog.admin-app .admin-status-subtab[aria-pressed="true"] { border-color: #141414; color: #141414; box-shadow: inset 0 0 0 1px #141414; }
+#admin-dialog.admin-app .admin-status-subtab b { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--admin-brand-tongue); color: #141414; font-size: 12px; text-align: center; }
 #admin-dialog.admin-app .admin-status-tab { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: 38px; padding: 0 14px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: #2b2926; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 #admin-dialog.admin-app .admin-status-tab:hover { border-color: var(--admin-border); background: #fff; }
 #admin-dialog.admin-app .admin-status-tab[aria-pressed="true"] { background: #141414; color: var(--admin-brand-sun); }

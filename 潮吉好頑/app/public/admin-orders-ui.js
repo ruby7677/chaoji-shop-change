@@ -3,20 +3,7 @@
 // 精簡列只切換 class（CSS 隱藏卡片內容），不搬動 DOM。
 import { adminIcon } from "./admin-icons.js";
 import { escapeHtml } from "./product-format.js";
-
-// 分頁順序依處理流程；count 取自 admin_dashboard_stats（僅需人工處理的狀態有數字）
-const TABS = [
-  ["all", "全部"],
-  ["pending_review", "待確認款項", (s) => s.pendingReview],
-  ["seller_pending", "賣貨便待核對", (s) => s.sellerPending],
-  ["pending_payment", "待付款"],
-  ["confirmed", "已確認"],
-  ["ready_for_pickup", "配送處理中", (s) => s.readyForPickup],
-  ["completed", "已完成"],
-  ["refund_pending", "退款處理中"],
-  ["cancelled", "已取消"],
-  ["refunded", "已退款"]
-];
+import { ORDER_STATUS_GROUPS, defaultStatusOfGroup, groupCount, groupOfStatus, statusCount } from "./admin-order-status-groups.js";
 // 這些訂單需要店長動作，預設展開
 const ACTION_STATUSES = new Set(["pending_review", "refund_pending"]);
 
@@ -28,18 +15,29 @@ const collapsed = new Set();
 
 const statusSelect = () => document.querySelector("#admin-order-status-filter");
 
+const badge = (n) => (n ? `<b>${n > 99 ? "99+" : n}</b>` : "");
+
+// 第一列：全部＋三個分組（徽章為組內待辦總數）；第二列：目前分組的狀態，選「全部」時不顯示
 function renderTabs() {
   const stats = deps.getStats() || {};
   const current = statusSelect()?.value || "all";
-  tabBar.innerHTML = TABS.map(([value, label, count]) => {
-    const n = count ? Number(count(stats) || 0) : 0;
-    return `<button type="button" class="admin-status-tab" data-admin-status-tab="${value}" aria-pressed="${value === current}">${escapeHtml(label)}${n ? `<b>${n}</b>` : ""}</button>`;
-  }).join("");
+  const activeGroup = groupOfStatus(current);
+  const groups = `<button type="button" class="admin-status-tab" data-admin-status-tab="all" aria-pressed="${current === "all"}">全部</button>`
+    + ORDER_STATUS_GROUPS.map((group) => `<button type="button" class="admin-status-tab" data-admin-status-group="${group.key}" aria-pressed="${activeGroup?.key === group.key}">${escapeHtml(group.label)}${badge(groupCount(group, stats))}</button>`).join("");
+  const subtabs = activeGroup
+    ? `<div class="admin-status-subtabs" role="group" aria-label="${escapeHtml(activeGroup.label)}的狀態">${activeGroup.statuses.map((entry) => `<button type="button" class="admin-status-subtab" data-admin-status-tab="${entry[0]}" aria-pressed="${entry[0] === current}">${escapeHtml(entry[1])}${badge(statusCount(entry, stats))}</button>`).join("")}</div>`
+    : "";
+  tabBar.innerHTML = `<div class="admin-status-groups">${groups}</div>${subtabs}`;
 }
 
 function syncTabState() {
-  const current = statusSelect()?.value || "all";
-  tabBar.querySelectorAll("[data-admin-status-tab]").forEach((tab) => tab.setAttribute("aria-pressed", String(tab.dataset.adminStatusTab === current)));
+  renderTabs();
+}
+
+function selectGroup(key) {
+  const group = ORDER_STATUS_GROUPS.find((item) => item.key === key);
+  if (!group) throw new Error(`未知的訂單分組：${key}`);
+  selectStatus(defaultStatusOfGroup(group, deps.getStats()));
 }
 
 function selectStatus(value) {
@@ -132,6 +130,8 @@ export function initAdminOrdersUI(dependencies) {
   if (loading) new MutationObserver(() => { if (loading.classList.contains("hidden")) renderTabs(); }).observe(loading, { attributes: true, attributeFilter: ["class"] });
   document.addEventListener("change", (event) => { if (event.target === statusSelect()) syncTabState(); });
   panel.addEventListener("click", (event) => {
+    const group = event.target.closest("[data-admin-status-group]");
+    if (group) return selectGroup(group.dataset.adminStatusGroup);
     const tab = event.target.closest("[data-admin-status-tab]");
     if (tab) return selectStatus(tab.dataset.adminStatusTab);
     const bulk = event.target.closest("[data-admin-orders-expand]");
