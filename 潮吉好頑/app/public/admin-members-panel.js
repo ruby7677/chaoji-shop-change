@@ -163,7 +163,7 @@ export async function submitMemberPointAdjustment(event) {
   if (!(pointsField instanceof HTMLInputElement) || !(reasonField instanceof HTMLInputElement)) throw new Error("會員點數表單欄位不完整");
   const points = Number(pointsField.value);
   const reason = reasonField.value.trim();
-  if (!Number.isInteger(points) || points === 0 || !reason) throw new Error("請填寫非 0 點數與異動原因");
+  if (!Number.isInteger(points) || points === 0 || !reason) throw Object.assign(new Error("請填寫非 0 點數與異動原因"), { field: !Number.isInteger(points) || points === 0 ? "points" : "reason" });
   if (!(await adminConfirm({ title: `確定要${points > 0 ? "增加" : "扣除"} ${Math.abs(points)} 點？`, message: `異動原因：${reason}`, confirmLabel: points > 0 ? "確定增加" : "確定扣除", danger: points < 0, trigger: event.submitter }))) return;
   await adminFetch(`/api/admin/members/${form.dataset.adminPointsForm}/points`, { method: "POST", body: JSON.stringify({ points, reason }) });
   await refreshAdminSections(["members"]);

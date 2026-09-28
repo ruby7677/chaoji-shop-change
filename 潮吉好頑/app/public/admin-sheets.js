@@ -161,26 +161,15 @@ export function openAdminSheetFor(node, trigger = null) {
   return true;
 }
 
-// 面板頂部說明文字預設隱藏，改由標題旁的「ⓘ」按鈕展開；保留原節點位置（其他模組以 > .dialog-copy 直接子選擇器更新文字）
+// 面板頂部說明文字預設隱藏，由頂欄標題旁的「ⓘ」（admin-shell.js）依目前分頁展開；
+// 保留原節點位置（其他模組以 > .dialog-copy 直接子選擇器更新文字）
 function enhanceHelpText() {
   dialog.querySelectorAll(".admin-panel > .dialog-copy").forEach((copy, index) => {
     if (copy.dataset.adminHelp) return;
-    const heading = copy.parentElement.querySelector(":scope > h2");
-    if (!heading) return;
     copy.dataset.adminHelp = "true";
     copy.id ||= `admin-help-${index}`;
     copy.classList.add("admin-help");
     copy.hidden = true;
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "admin-help-toggle";
-    toggle.dataset.adminHelpToggle = copy.id;
-    toggle.setAttribute("aria-expanded", "false");
-    toggle.setAttribute("aria-controls", copy.id);
-    toggle.setAttribute("aria-label", `${heading.textContent.trim()}說明`);
-    toggle.title = "說明";
-    toggle.innerHTML = adminIcon("info");
-    heading.append(toggle);
   });
 }
 

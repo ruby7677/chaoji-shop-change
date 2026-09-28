@@ -32,12 +32,12 @@
 #admin-dialog.admin-app .admin-sheet-body form > .form-actions > button { flex: 1; }
 
 /* ---------- 面板說明文字收合 ---------- */
-#admin-dialog.admin-app .admin-panel > h2:has(> .admin-help-toggle) { display: flex; align-items: center; gap: 6px; }
 #admin-dialog.admin-app .admin-help { max-width: 80ch; margin: 0 0 16px; padding: 10px 14px; border-radius: 10px; background: var(--admin-surface-subtle); color: var(--admin-text-muted); font-size: 13px; line-height: 1.6; }
 #admin-dialog.admin-app .admin-help[hidden] { display: none; }
 #admin-dialog.admin-app .admin-help-toggle { position: relative; display: inline-grid; place-items: center; width: 32px; height: 32px; margin: 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--admin-text-muted); cursor: pointer; }
 /* 視覺 32px，觸控範圍 44px */
 #admin-dialog.admin-app .admin-help-toggle::before { content: ""; position: absolute; inset: -6px; }
+#admin-dialog.admin-app .admin-help-toggle[hidden] { display: none; }
 #admin-dialog.admin-app .admin-help-toggle:hover,
 #admin-dialog.admin-app .admin-help-toggle[aria-expanded="true"] { background: var(--admin-surface-subtle); color: #141414; }
 
@@ -100,3 +100,7 @@
 @media (prefers-reduced-motion: reduce) {
   #admin-dialog.admin-app .admin-sheet-panel { animation: none; }
 }
+
+/* 表單就地錯誤（admin-form-errors.js）：放在送出列上方，留到下次輸入或送出 */
+#admin-dialog.admin-app .admin-form-error { grid-column: 1 / -1; margin: 12px 0 0; padding: 10px 12px; border: 1px solid #f3c1c1; border-radius: 10px; background: #fdecec; color: #9a302a; font-size: 14px; font-weight: 700; }
+#admin-dialog.admin-app [aria-invalid="true"] { border-color: #b42318 !important; box-shadow: 0 0 0 3px #fdecec; }

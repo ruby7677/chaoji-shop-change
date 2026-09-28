@@ -16,6 +16,7 @@ let adminSystemPanel = null;
 let adminCatalogPanel = null;
 let adminProductImage = null;
 let adminStockAdjust = null;
+let adminFormErrors = null;
 
 function activateAdminStylesheets() {
   const links = Array.from(document.querySelectorAll(ADMIN_CSS_LINK_SELECTOR));
@@ -41,9 +42,10 @@ async function importAdminModules() {
     import("./admin-system-panel.js"),
     import("./admin-catalog-panel.js"),
     import("./admin-product-image.js"),
-    import("./admin-stock-adjust.js")
+    import("./admin-stock-adjust.js"),
+    import("./admin-form-errors.js")
   ]);
-  [adminApp, adminShellModule, adminProductGallery, adminProductsTable, adminOrdersPanel, adminMembersPanel, adminSystemPanel, adminCatalogPanel, adminProductImage, adminStockAdjust] = modules;
+  [adminApp, adminShellModule, adminProductGallery, adminProductsTable, adminOrdersPanel, adminMembersPanel, adminSystemPanel, adminCatalogPanel, adminProductImage, adminStockAdjust, adminFormErrors] = modules;
 }
 
 function bindAdminClickDelegation() {
@@ -114,53 +116,61 @@ function bindAdminInputDelegation() {
   });
 }
 
+// 表單送出失敗：toast 之外，在表單內送出按鈕上方留下就地錯誤並聚焦出錯欄位
+function failAdminForm(event, error) {
+  showToast(error.message, "error");
+  adminFormErrors?.showAdminFormError(event.target, error);
+}
+
 function bindAdminSubmitDelegation() {
+  // 每次送出前先清掉上一次的就地錯誤（capture：早於各表單自己的 submit 監聽）
+  document.addEventListener("submit", (event) => adminFormErrors?.clearAdminFormError(event.target), true);
   document.addEventListener("submit", async (event) => {
     if (event.target.matches("#admin-coupon-form")) {
-      try { await adminMembersPanel.submitCoupon(event); } catch (error) { showToast(error.message, "error"); }
+      try { await adminMembersPanel.submitCoupon(event); } catch (error) { failAdminForm(event, error); }
       return;
     }
     if (event.target.matches("#birthday-coupon-form")) {
-      try { await adminMembersPanel.submitBirthdaySettings(event); } catch (error) { showToast(error.message, "error"); }
+      try { await adminMembersPanel.submitBirthdaySettings(event); } catch (error) { failAdminForm(event, error); }
       return;
     }
     if (event.target.matches("[data-admin-points-form]")) {
       try { await adminMembersPanel.submitMemberPointAdjustment(event); }
-      catch (error) { showToast(error.message, "error"); }
+      catch (error) { failAdminForm(event, error); }
       return;
     }
     if (event.target.matches("[data-admin-order-form]")) {
       try { await adminOrdersPanel.submitAdminOrderTransition(event); }
-      catch (error) { showToast(error.message, "error"); }
+      catch (error) { failAdminForm(event, error); }
       return;
     }
     if (event.target.matches("[data-admin-return-form]")) {
       try { await adminOrdersPanel.submitAdminOrderReturn(event); }
-      catch (error) { showToast(error.message, "error"); }
+      catch (error) { failAdminForm(event, error); }
       return;
     }
     if (event.target.matches("[data-admin-fulfillment-form]")) {
       try { await adminOrdersPanel.submitAdminOrderFulfillment(event); }
-      catch (error) { showToast(error.message, "error"); }
+      catch (error) { failAdminForm(event, error); }
       return;
     }
     if (event.target.matches("#admin-stock-form")) {
       try { await adminStockAdjust.submitStockAdjust(event); }
-      catch (error) { showToast(error.message, "error"); }
+      catch (error) { failAdminForm(event, error); }
       return;
     }
     if (!event.target.matches("[data-edit-product-form], [data-edit-variant-form]")) return;
     try { await adminCatalogPanel.submitDynamicAdminForm(event); }
-    catch (error) { showToast(error.message, "error"); }
+    catch (error) { failAdminForm(event, error); }
   });
 }
 
 function bindAdminDirectFormListeners() {
-  document.querySelector("#admin-account-form").addEventListener("submit", async (event) => { try { await adminSystemPanel.submitAdminAccount(event); } catch (error) { showToast(error.message, "error"); } });
-  document.querySelector("#admin-category-form").addEventListener("submit", async (event) => { try { await adminCatalogPanel.submitAdminCategory(event); } catch (error) { showToast(error.message, "error"); } });
-  document.querySelector("#admin-product-form").addEventListener("submit", async (event) => { try { await adminCatalogPanel.submitAdminProduct(event); } catch (error) { showToast(error.message, "error"); } });
-  document.querySelector("#admin-variant-form").addEventListener("submit", async (event) => { try { await adminCatalogPanel.submitNewVariant(event); } catch (error) { showToast(error.message, "error"); } });
-  document.querySelector("#admin-point-settings-form").addEventListener("submit", async (event) => { try { await adminMembersPanel.submitPointSettings(event); } catch (error) { showToast(error.message, "error"); } });
+  document.querySelector("#admin-account-form").addEventListener("submit", async (event) => { try { await adminSystemPanel.submitAdminAccount(event); } catch (error) { failAdminForm(event, error); } });
+  document.querySelector("#admin-category-form").addEventListener("submit", async (event) => { try { await adminCatalogPanel.submitAdminCategory(event); } catch (error) { failAdminForm(event, error); } });
+  document.querySelector("#admin-product-form").addEventListener("submit", async (event) => { try { await adminCatalogPanel.submitAdminProduct(event); } catch (error) { failAdminForm(event, error); } });
+  document.querySelector("#admin-variant-form").addEventListener("submit", async (event) => { try { await adminCatalogPanel.submitNewVariant(event); } catch (error) { failAdminForm(event, error); } });
+  document.querySelector("#admin-point-settings-form").addEventListener("submit", async (event) => { try { await adminMembersPanel.submitPointSettings(event); } catch (error) { failAdminForm(event, error); } });
 }
 
 function initAdminModules() {

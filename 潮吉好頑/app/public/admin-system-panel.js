@@ -4,6 +4,7 @@ import { adminConfirm } from "./admin-confirm.js";
 import { formatDateTime, showToast } from "./app-core.js";
 import { invalidateBankAccounts } from "./checkout-form.js";
 import { adminData, adminFetch, loadAdminSection, refreshAdminSections, relationOne, switchAdminTab } from "./admin-app.js";
+import { auditChanges, auditTargetName } from "./admin-audit-diff.js";
 
 function auditMaskedValue(value) {
   const text = String(value ?? "");
@@ -28,9 +29,15 @@ export function renderAdminAudit() {
   const actionLabels = { create: "新增", update: "更新", adjust: "調整", upload: "上傳", delete: "刪除" };
   const resourceLabels = { product: "商品", product_variant: "規格", category: "分類", bank_account: "收款帳戶", coupon: "優惠券", birthday_coupon_settings: "生日券設定", point_settings: "點數設定", member_points: "會員點數", product_image: "商品圖片" };
   const logs = Array.isArray(adminData?.auditLogs) ? adminData.auditLogs : [];
+  // 稽核分頁不一定載入過商品；有商品資料時才補上規格所屬的商品名稱
+  const productNames = new Map((adminData?.products || []).map((product) => [product.id, product.name]));
   container.innerHTML = logs.length ? logs.map((entry) => {
     const actor = relationOne(entry.profiles);
-    return `<article class="admin-card audit-log-card"><div><strong>${escapeHtml(actionLabels[entry.action] || entry.action)} · ${escapeHtml(resourceLabels[entry.resource] || entry.resource)}</strong><small>${formatDateTime(entry.created_at)} · 操作人：${escapeHtml(actor?.full_name || entry.actor_id || "未知")}</small><small>目標：${escapeHtml(entry.target || "—")}</small><small>前：<code>${auditJsonSummary(entry.before_data)}</code></small><small>後：<code>${auditJsonSummary(entry.after_data)}</code></small></div></article>`;
+    const changes = auditChanges(entry.before_data, entry.after_data);
+    const changeList = changes.length
+      ? `<ul class="audit-changes">${changes.map((change) => `<li><span>${escapeHtml(change.label)}</span>${entry.before_data ? `<del>${escapeHtml(change.before)}</del> → ` : ""}<ins>${escapeHtml(change.after)}</ins></li>`).join("")}</ul>`
+      : '<p class="audit-changes-empty">沒有欄位變動</p>';
+    return `<article class="admin-card audit-log-card"><div><strong>${escapeHtml(actionLabels[entry.action] || entry.action)} · ${escapeHtml(resourceLabels[entry.resource] || entry.resource)}</strong><small>${formatDateTime(entry.created_at)} · 操作人：${escapeHtml(actor?.full_name || entry.actor_id || "未知")}</small><small>目標：${escapeHtml(auditTargetName(entry, (id) => productNames.get(id) || ""))}</small>${changeList}<details class="audit-raw"><summary>原始資料</summary><small>前：<code>${auditJsonSummary(entry.before_data)}</code></small><small>後：<code>${auditJsonSummary(entry.after_data)}</code></small></details></div></article>`;
   }).join("") : '<div class="empty-state">目前沒有符合條件的稽核紀錄。</div>';
 }
 

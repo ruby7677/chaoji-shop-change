@@ -57,6 +57,18 @@ export async function testTelegramNotification() {
   }
 }
 
+// 概況統計卡：寫入數字；數字為 0 時加上 is-zero，讓「待確認款項」等強調卡回到一般外觀，不在沒有待辦時發出警示
+function renderStatValues() {
+  const readyStat = document.querySelector('[data-stat="readyForPickup"]');
+  if (readyStat?.previousElementSibling) readyStat.previousElementSibling.textContent = "待取貨／待尾款";
+  Object.entries(adminData.stats || {}).forEach(([key, value]) => {
+    const node = document.querySelector(`[data-stat="${key}"]`);
+    if (!node) return;
+    node.textContent = value;
+    node.closest(".stat-card")?.classList.toggle("is-zero", Number(value) === 0);
+  });
+}
+
 export function relationOne(value) {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -214,12 +226,7 @@ export function reloadAdminList(section, immediate = false) {
 function renderAdminSection(section) {
   if (!adminData) return;
   if (section === "overview") {
-    const readyStat = document.querySelector('[data-stat="readyForPickup"]');
-    if (readyStat?.previousElementSibling) readyStat.previousElementSibling.textContent = "待取貨／待尾款";
-    Object.entries(adminData.stats || {}).forEach(([key, value]) => {
-      const node = document.querySelector(`[data-stat="${key}"]`);
-      if (node) node.textContent = value;
-    });
+    renderStatValues();
     return;
   }
   if (section === "orders") {
@@ -358,12 +365,7 @@ export function applyAdminQuickFilter(filter) {
 
 function renderAdminData() {
   ensureDiscountAdminUI();
-  const readyStat = document.querySelector('[data-stat="readyForPickup"]');
-  if (readyStat?.previousElementSibling) readyStat.previousElementSibling.textContent = "待取貨／待尾款";
-  Object.entries(adminData.stats || {}).forEach(([key, value]) => {
-    const node = document.querySelector(`[data-stat="${key}"]`);
-    if (node) node.textContent = value;
-  });
+  renderStatValues();
   renderAdminAccounts();
   renderAdminOrderStatusFilter();
   renderAdminOrders();

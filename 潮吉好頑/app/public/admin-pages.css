@@ -113,3 +113,20 @@
 @media (prefers-reduced-motion: reduce) {
   #admin-dialog.admin-app .admin-order-toggle .admin-icon { transition: none; }
 }
+
+/* 稽核紀錄：欄位差異（舊值刪除線 → 新值），原始 JSON 收進「原始資料」 */
+#admin-dialog.admin-app .audit-changes { display: grid; gap: 4px; margin: 8px 0 0; padding: 10px 12px; border-radius: 10px; background: var(--admin-surface-subtle); list-style: none; font-size: 13px; }
+#admin-dialog.admin-app .audit-changes li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; overflow-wrap: anywhere; }
+#admin-dialog.admin-app .audit-changes span { min-width: 5em; color: var(--admin-text-muted); font-weight: 700; }
+#admin-dialog.admin-app .audit-changes del { color: var(--admin-text-muted); }
+#admin-dialog.admin-app .audit-changes ins { color: var(--admin-text); font-weight: 700; text-decoration: none; }
+#admin-dialog.admin-app .audit-changes-empty { margin: 8px 0 0; color: var(--admin-text-muted); font-size: 13px; }
+#admin-dialog.admin-app .audit-raw { margin-top: 8px; font-size: 12px; }
+#admin-dialog.admin-app .audit-raw > summary { min-height: 32px; color: var(--admin-text-muted); cursor: pointer; }
+#admin-dialog.admin-app .audit-raw small { display: block; margin-top: 4px; }
+
+/* 概況強調卡在數字為 0 時回到一般外觀（admin-app.js renderStatValues 加上 is-zero） */
+#admin-dialog.admin-app .stats .stat-card.is-zero:first-child,
+#admin-dialog.admin-app .stats .stat-card.stat-seller-pending.is-zero { border-color: var(--admin-border); background: #fff; }
+#admin-dialog.admin-app .stats .stat-card.is-zero:first-child small { color: var(--admin-text-muted); }
+#admin-dialog.admin-app .audit-log-card > div { flex: 1; min-width: 0; }

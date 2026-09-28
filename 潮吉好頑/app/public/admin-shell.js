@@ -82,7 +82,7 @@ function buildTopbar() {
   topbar.className = "admin-topbar";
   topbar.innerHTML = `
     <button class="admin-icon-button admin-menu-button" type="button" data-admin-nav-toggle aria-label="開啟後台選單" aria-expanded="false">${adminIcon("menu")}</button>
-    <div class="admin-crumbs"><span data-admin-crumb-group>營運</span><strong data-admin-crumb-title>營運概況</strong></div>
+    <div class="admin-crumbs"><span data-admin-crumb-group>營運</span><div class="admin-crumb-row"><strong data-admin-crumb-title>營運概況</strong><button class="admin-help-toggle" type="button" data-admin-help-toggle="" aria-expanded="false" title="說明" hidden>${adminIcon("info")}</button></div></div>
     <form class="admin-global-search" role="search" data-admin-global-search>
       <label class="sr-only" for="admin-global-search-input" data-admin-search-label>搜尋訂單</label>
       ${adminIcon("search")}
@@ -123,6 +123,20 @@ function syncTitle() {
   });
   syncTabbar(tab);
   syncSearchContext();
+  syncHelpToggle(tab, title);
+}
+
+// 頂欄「ⓘ」對應目前分頁的說明文字（admin-sheets.js 已預設隱藏並給 id）；沒有說明的分頁不顯示按鈕
+function syncHelpToggle(tab, title) {
+  const toggle = $("[data-admin-help-toggle]");
+  if (!toggle) return;
+  const copy = $(`[data-admin-panel="${tab}"] > .dialog-copy[data-admin-help]`);
+  toggle.hidden = !copy;
+  if (!copy) return;
+  toggle.dataset.adminHelpToggle = copy.id;
+  toggle.setAttribute("aria-controls", copy.id);
+  toggle.setAttribute("aria-expanded", String(!copy.hidden));
+  toggle.setAttribute("aria-label", `${title}說明`);
 }
 
 // 依目前分頁更新頂欄搜尋欄位的 placeholder、隱藏文字與目前值（取自該分頁自己的搜尋欄位）。
@@ -298,4 +312,6 @@ export function initAdminShell(dependencies) {
   initAdminOverview({ ...dependencies, openOrder: searchOrders });
   initAdminOrdersUI(dependencies);
   initAdminSheets();
+  // 說明文字在 initAdminSheets() 才取得 id；補一次頂欄「ⓘ」同步
+  syncTitle();
 }
