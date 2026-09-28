@@ -5,6 +5,8 @@ import { formatDateTime, showToast } from "./app-core.js";
 import { invalidateBankAccounts } from "./checkout-form.js";
 import { adminData, adminFetch, loadAdminSection, refreshAdminSections, relationOne, switchAdminTab } from "./admin-app.js";
 import { auditChanges, auditTargetName } from "./admin-audit-diff.js";
+import { describeDeliveryError } from "./admin-notification-errors.js";
+import { openAdminSheetFor } from "./admin-sheets.js";
 
 function auditMaskedValue(value) {
   const text = String(value ?? "");
@@ -55,8 +57,12 @@ export function renderAdminNotifications() {
     const failed = entry.status === "failed";
     const retryButton = failed ? `<button class="secondary-button" type="button" data-admin-notification-requeue="${escapeHtml(entry.channel)}:${escapeHtml(entry.id)}">重新排入</button>` : "";
     const retryAt = entry.next_retry_at ? `下次重試：${formatDateTime(entry.next_retry_at)}` : "無排程重試";
-    const error = entry.error_message ? `錯誤：${escapeHtml(entry.error_message)}` : "無錯誤訊息";
-    return `<article class="admin-card notification-delivery-card"><div><strong>${escapeHtml(channelLabels[entry.channel] || entry.channel)} · ${escapeHtml(notificationStatusLabel(entry.status))}</strong><small>${formatDateTime(entry.updated_at || entry.created_at)} · 事件 ${escapeHtml(entry.event_type || "—")}</small><small>收件人：${escapeHtml(entry.recipient_name || entry.recipient_hint || "已遮罩")} · 訂單：${escapeHtml(entry.order_number || "—")}</small><small>嘗試 ${Number(entry.attempt_count || 0)} 次 · ${escapeHtml(retryAt)}</small><small>${error}</small></div>${retryButton}</article>`;
+    // 失敗原因白話化＋下一步；原始訊息收在「原始訊息」供除錯
+    const described = describeDeliveryError(entry.error_message);
+    const errorBlock = described.raw
+      ? `<small>原因：${escapeHtml(described.reason)}${described.hint ? `<br />${escapeHtml(described.hint)}` : ""}</small><details class="audit-raw"><summary>原始訊息</summary><small><code>${escapeHtml(described.raw)}</code></small></details>`
+      : "<small>無錯誤訊息</small>";
+    return `<article class="admin-card notification-delivery-card"><div><strong>${escapeHtml(channelLabels[entry.channel] || entry.channel)} · ${escapeHtml(notificationStatusLabel(entry.status))}</strong><small>${formatDateTime(entry.updated_at || entry.created_at)} · 事件 ${escapeHtml(entry.event_type || "—")}</small><small>收件人：${escapeHtml(entry.recipient_name || entry.recipient_hint || "已遮罩")} · 訂單：${escapeHtml(entry.order_number || "—")}</small><small>嘗試 ${Number(entry.attempt_count || 0)} 次 · ${escapeHtml(retryAt)}</small>${errorBlock}</div>${retryButton}</article>`;
   }).join("") : '<div class="empty-state">目前沒有符合條件的通知紀錄。</div>';
 }
 
@@ -80,12 +86,18 @@ export function renderAdminAccounts() {
   container.innerHTML = accounts.length ? accounts.map((account) => `<div class="admin-card"><div><strong>${escapeHtml(account.label)} ${account.is_active ? "" : "（已停用）"}</strong><small>${escapeHtml(account.bank_name)} · ${escapeHtml(account.account_number)}<br />戶名：${escapeHtml(account.account_name)}</small></div><button type="button" data-account-edit="${account.id}">編輯</button></div>`).join("") : '<div class="empty-state">尚未設定收款帳戶；新增後前台才可建立訂單。</div>';
 }
 
+// 收款帳戶表單在滑出面板內：面板標題依新增／編輯切換
+function setAccountSheetTitle(text) {
+  const heading = document.querySelector("#admin-account-form")?.closest(".admin-sheet-panel")?.querySelector(".admin-sheet-head h3");
+  if (heading) heading.textContent = text;
+}
+
 export function resetAccountForm() {
   document.querySelector("#admin-account-form").reset();
   document.querySelector("#admin-account-id").value = "";
   document.querySelector("#admin-account-order").value = "0";
   document.querySelector("#admin-account-active").checked = true;
-  document.querySelector("[data-account-form-title]").textContent = "新增收款帳戶";
+  setAccountSheetTitle("新增收款帳戶");
   document.querySelector("[data-account-cancel]").classList.add("hidden");
 }
 
@@ -99,8 +111,9 @@ export function editAccount(accountId) {
   document.querySelector("#admin-account-number").value = account.account_number;
   document.querySelector("#admin-account-order").value = account.display_order;
   document.querySelector("#admin-account-active").checked = account.is_active;
-  document.querySelector("[data-account-form-title]").textContent = "編輯收款帳戶";
   document.querySelector("[data-account-cancel]").classList.remove("hidden");
+  openAdminSheetFor(document.querySelector("#admin-account-form"));
+  setAccountSheetTitle("編輯收款帳戶");
   document.querySelector("#admin-account-label").focus();
 }
 
