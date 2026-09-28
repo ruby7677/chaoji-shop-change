@@ -328,7 +328,7 @@ footer{flex-wrap:wrap}
 .payment-row.amount{border-top:1px solid var(--line);margin-top:7px;padding-top:10px;font-weight:800;font-size:15px}
 .payment-delivery-notice{color:#8a3025;font-size:15px;font-weight:750;line-height:1.6}
 .bank-detail{margin-top:12px;padding:11px;border-radius:7px;background:#fff;line-height:1.65;font-size:13px}
-.transfer-account-card{margin:0 -1px;padding:19px;border:1px solid #f2d022;border-radius:22px;background:#ffe033;color:#191a1a;box-shadow:0 5px 16px rgba(62,49,0,.08)}
+.transfer-account-card{margin:0 -1px;padding:19px;border:1px solid #f2d022;border-radius:22px;background:#ffe033;color:#191a1a;box-shadow:0 5px 16px rgba(21,21,21,.08)}
 .transfer-bank-detail{padding:0;background:transparent}
 .transfer-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:16px}
 .transfer-card-title{display:flex;align-items:center;gap:8px;font-size:17px;font-weight:950;letter-spacing:-.02em}

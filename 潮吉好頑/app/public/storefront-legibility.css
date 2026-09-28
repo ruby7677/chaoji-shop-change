@@ -19,7 +19,7 @@
 /* ---------- 商品卡字級 ---------- */
 .product-category { font-size: .75rem; letter-spacing: .02em; }
 .product-info h3 { font-size: 1rem; }
-.product-tag { font-size: .72rem; }
+.product-tag { font-size: .75rem; }
 .stock { font-size: .8rem; }
 .preorder-stock { font-size: .8rem; }
 .product-info .price { font-size: 1.15rem; }
@@ -30,7 +30,7 @@
   .product-info { padding: 12px 12px 14px; }
   .product-category { font-size: .75rem; }
   .product-info h3 { font-size: .95rem; line-height: 1.35; }
-  .product-tag { font-size: .72rem; }
+  .product-tag { font-size: .75rem; }
   .stock,
   .preorder-stock { font-size: .78rem; }
   .product-info .price { margin: 8px 0 10px; font-size: 1.05rem; }
@@ -84,7 +84,7 @@
 .policy-rule-list { margin: 0; list-style: none; }
 .policy-rule-list li {
   position: relative;
-  max-width: 900px;
+  max-width: 42em; /* 中文每行約 40 字，原本 900px 一行可達 66 字 */
   margin: 9px 0;
   padding-left: 18px;
   color: #bdb7aa;
@@ -101,3 +101,20 @@
   border-radius: 1px;
   background: var(--home-yellow);
 }
+
+/* ---------- 輪播 HOT／NEW 標籤與店取標籤：字級不低於 12px，字距收斂 ---------- */
+.hero-slide-flag { font-size: .75rem; letter-spacing: .08em; }
+@media (min-width: 1021px), (orientation: landscape) and (max-height: 540px) and (min-width: 640px) {
+  .hero-slide-flag { font-size: clamp(.75rem, .72vw, .95rem); }
+}
+.trust-rail-place span { letter-spacing: .06em; }
+
+/* 會員資料表單的「選填」：瀏覽器預設 small 會縮到約 10.8px */
+#profile-form label small { font-size: .75rem; }
+
+/* 商品卡陰影改中性墨色：原本的暖棕色陰影在白底上像一圈泛黃的光暈 */
+.product-card { box-shadow: 0 10px 30px rgba(21, 21, 21, .06); }
+.product-card:hover { box-shadow: 0 18px 36px rgba(21, 21, 21, .11); }
+
+/* 購物須知開頭說明：限制行長在約 40 字 */
+.policy-intro > p { max-width: 40em; }
