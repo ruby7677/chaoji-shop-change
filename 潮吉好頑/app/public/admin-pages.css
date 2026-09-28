@@ -78,7 +78,8 @@
 #admin-dialog.admin-app .admin-order-summary-total { font-variant-numeric: tabular-nums; }
 #admin-dialog.admin-app .admin-order-card.is-collapsed > :not(header):not(.admin-order-summary) { display: none; }
 #admin-dialog.admin-app .admin-order-card.is-collapsed { padding-block: 12px; }
-#admin-dialog.admin-app .admin-order-card.needs-action { border-left: 4px solid var(--admin-brand-tongue); }
+/* 需處理的訂單：整圈淡橘外框，不用單側粗色條 */
+#admin-dialog.admin-app .admin-order-card.needs-action { border-color: var(--admin-brand-tongue); box-shadow: 0 0 0 1px var(--admin-brand-tongue); }
 #admin-dialog.admin-app .admin-order-list { gap: 10px; }
 
 

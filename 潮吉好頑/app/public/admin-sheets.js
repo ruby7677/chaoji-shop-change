@@ -25,6 +25,9 @@ function enhanceSheet(details) {
   panel.className = "admin-sheet-panel";
   panel.setAttribute("role", "dialog");
   panel.setAttribute("aria-label", title);
+  panel.setAttribute("aria-modal", "true");
+  // 讀屏：開啟鈕會開出對話框，而不是展開下方內容
+  summary.setAttribute("aria-haspopup", "dialog");
   const head = document.createElement("header");
   head.className = "admin-sheet-head";
   head.innerHTML = `<h3></h3><button class="admin-icon-button" type="button" data-admin-sheet-close aria-label="關閉「${title.replace(/"/g, "")}」">${adminIcon("x")}</button>`;

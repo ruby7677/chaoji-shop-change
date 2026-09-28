@@ -35,3 +35,10 @@ test("目標以商品／規格名稱與 SKU 取代 UUID", () => {
 test("沒有可用名稱時退回原始 target", () => {
   assert.equal(auditTargetName({ target: "abc", before_data: null, after_data: { points: 10 } }), "abc");
 });
+
+test("會員點數紀錄：餘額欄位翻譯，目標顯示會員姓名", () => {
+  const [change] = auditChanges({ balance: 34 }, { balance: 30 });
+  assert.equal(change.label, "點數餘額");
+  const entry = { target: "m1", before_data: { balance: 34 }, after_data: { balance: 30 } };
+  assert.equal(auditTargetName(entry, () => "", (id) => (id === "m1" ? "建育" : "")), "建育");
+});

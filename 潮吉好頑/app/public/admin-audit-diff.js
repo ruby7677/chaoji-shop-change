@@ -8,7 +8,7 @@ const FIELD_LABELS = {
   account_name: "戶名", account_number: "帳號", discount_amount: "折扣金額", combinable_with_points: "可與點數併用",
   per_member_limit: "每人次數", starts_at: "開始", ends_at: "結束", enabled: "啟用", points: "點數", reason: "原因",
   earn_amount: "每多少元 1 點", point_value: "每點折抵", min_redeem_points: "最低使用點數", max_redeem_mode: "折抵上限方式",
-  max_redeem_value: "折抵上限", image_path: "圖片"
+  max_redeem_value: "折抵上限", image_path: "圖片", balance: "點數餘額", delta: "異動點數"
 };
 const VALUE_LABELS = { kind: { in_stock: "現貨", stock: "現貨", preorder: "預購" } };
 const IGNORED_FIELDS = new Set(["id", "created_at", "updated_at", "product_id", "image_updated_at"]);
@@ -48,11 +48,13 @@ export function auditChanges(before, after) {
 }
 
 // 目標名稱：優先用資料本身的名稱／代碼；規格再補上商品名稱。都沒有時才退回原始 target
-export function auditTargetName(entry, productNameById = () => "") {
+export function auditTargetName(entry, productNameById = () => "", memberNameById = () => "") {
   const record = asRecord(entry?.after_data) || asRecord(entry?.before_data) || {};
   const own = record.name || record.label || record.code || "";
   const productName = record.product_id ? productNameById(record.product_id) : "";
   const title = [productName, own].filter(Boolean).join("／");
   if (title && record.sku) return `${title}（${record.sku}）`;
-  return title || record.sku || entry?.target || "—";
+  if (title || record.sku) return title || record.sku;
+  // 會員點數等以會員 id 為目標：有會員資料時顯示姓名
+  return (entry?.target && memberNameById(entry.target)) || entry?.target || "—";
 }

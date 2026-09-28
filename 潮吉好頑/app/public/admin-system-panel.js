@@ -31,13 +31,14 @@ export function renderAdminAudit() {
   const logs = Array.isArray(adminData?.auditLogs) ? adminData.auditLogs : [];
   // 稽核分頁不一定載入過商品；有商品資料時才補上規格所屬的商品名稱
   const productNames = new Map((adminData?.products || []).map((product) => [product.id, product.name]));
+  const memberNames = new Map((adminData?.members || []).map((member) => [member.id, member.full_name || member.phone]));
   container.innerHTML = logs.length ? logs.map((entry) => {
     const actor = relationOne(entry.profiles);
     const changes = auditChanges(entry.before_data, entry.after_data);
     const changeList = changes.length
       ? `<ul class="audit-changes">${changes.map((change) => `<li><span>${escapeHtml(change.label)}</span>${entry.before_data ? `<del>${escapeHtml(change.before)}</del> → ` : ""}<ins>${escapeHtml(change.after)}</ins></li>`).join("")}</ul>`
       : '<p class="audit-changes-empty">沒有欄位變動</p>';
-    return `<article class="admin-card audit-log-card"><div><strong>${escapeHtml(actionLabels[entry.action] || entry.action)} · ${escapeHtml(resourceLabels[entry.resource] || entry.resource)}</strong><small>${formatDateTime(entry.created_at)} · 操作人：${escapeHtml(actor?.full_name || entry.actor_id || "未知")}</small><small>目標：${escapeHtml(auditTargetName(entry, (id) => productNames.get(id) || ""))}</small>${changeList}<details class="audit-raw"><summary>原始資料</summary><small>前：<code>${auditJsonSummary(entry.before_data)}</code></small><small>後：<code>${auditJsonSummary(entry.after_data)}</code></small></details></div></article>`;
+    return `<article class="admin-card audit-log-card"><div><strong>${escapeHtml(actionLabels[entry.action] || entry.action)} · ${escapeHtml(resourceLabels[entry.resource] || entry.resource)}</strong><small>${formatDateTime(entry.created_at)} · 操作人：${escapeHtml(actor?.full_name || entry.actor_id || "未知")}</small><small>目標：${escapeHtml(auditTargetName(entry, (id) => productNames.get(id) || "", (id) => memberNames.get(id) || ""))}</small>${changeList}<details class="audit-raw"><summary>原始資料</summary><small>前：<code>${auditJsonSummary(entry.before_data)}</code></small><small>後：<code>${auditJsonSummary(entry.after_data)}</code></small></details></div></article>`;
   }).join("") : '<div class="empty-state">目前沒有符合條件的稽核紀錄。</div>';
 }
 
