@@ -67,7 +67,8 @@ select tests.assert((select display_order = 1 from public.product_variants where
                     'variant without an order follows the product''s last variant');
 select tests.assert((select display_order = 50 from public.product_variants where sku = 'ORDER-FIXED'),
                     'an explicit variant order is kept');
-select tests.assert((select sku = 'ORDER-NEW-2' from public.storefront_variants order by display_order limit 1),
+select tests.assert((select s.id = (select v.id::text from public.product_variants v where v.sku = 'ORDER-NEW-2')
+                     from public.storefront_variants s order by s.display_order limit 1),
                     'the newest product is first on the storefront');
 rollback;
 
