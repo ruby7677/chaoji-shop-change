@@ -49,3 +49,49 @@ select tests.expect_error($$select public.admin_create_product(tests.id('admin')
 select tests.logout();
 select tests.assert((select count(*) = 0 from public.product_variants where sku = 'X-SKU'), 'rejected calls created nothing');
 rollback;
+
+-- 前台排序自動填數：新商品排最前面（全站最小值 - 10，可為負數）；既有商品新增規格接在該商品最後一個規格之後。
+begin;
+select tests.seed();
+select tests.as_service();
+select public.admin_create_product(tests.id('admin'), '測試分類', '新品一', '', '單一規格', 'order-new-1', 'in_stock', 100, 0, null, 0, null, true);
+select public.admin_create_product(tests.id('admin'), '測試分類', '新品二', '', '單一規格', 'order-new-2', 'in_stock', 100, 0, null, 0, null, true);
+select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '第二款', 'order-auto', 'in_stock', 100, null, 3, null, 0, null, true, null);
+select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '指定款', 'order-fixed', 'in_stock', 100, null, 3, null, 0, null, true, 50);
+select tests.logout();
+select tests.assert((select display_order = -10 from public.product_variants where sku = 'ORDER-NEW-1'),
+                    'first new product goes 10 before the smallest existing order');
+select tests.assert((select display_order = -20 from public.product_variants where sku = 'ORDER-NEW-2'),
+                    'next new product goes in front of the previous new product');
+select tests.assert((select display_order = 1 from public.product_variants where sku = 'ORDER-AUTO'),
+                    'variant without an order follows the product''s last variant');
+select tests.assert((select display_order = 50 from public.product_variants where sku = 'ORDER-FIXED'),
+                    'an explicit variant order is kept');
+select tests.assert((select sku = 'ORDER-NEW-2' from public.storefront_variants order by display_order limit 1),
+                    'the newest product is first on the storefront');
+rollback;
+
+-- 規格排序可手動改成負數；未提供排序時保留原值。
+begin;
+select tests.seed();
+select tests.as_service();
+select public.admin_update_variant(tests.id('admin'), tests.id('variant_stock'), '單一規格', 'TEST-STOCK', 'in_stock', 1000, null, false, 3, null, 0, null, true, -5);
+select tests.assert((select display_order = -5 from public.product_variants where id = tests.id('variant_stock')), 'negative order can be saved');
+select public.admin_update_variant(tests.id('admin'), tests.id('variant_stock'), '單一規格', 'TEST-STOCK', 'in_stock', 1000, null, false, 3, null, 0, null, true, null);
+select tests.assert((select display_order = -5 from public.product_variants where id = tests.id('variant_stock')), 'missing order keeps the current value');
+rollback;
+
+-- 拒絕：非管理員不能新增或修改規格排序，API 角色不能直接呼叫。
+begin;
+select tests.seed();
+select tests.as_service();
+select tests.expect_error($$select public.admin_create_variant(tests.id('member_a'), tests.id('product_stock'), 'X', 'order-deny', 'in_stock', 1, null, 3, null, 0, null, true, null)$$,
+                          'ADMIN_REQUIRED', 'non-admin actor cannot create a variant');
+select tests.expect_error($$select public.admin_update_variant(tests.id('member_a'), tests.id('variant_stock'), '單一規格', 'TEST-STOCK', 'in_stock', 1000, null, false, 3, null, 0, null, true, -99)$$,
+                          'ADMIN_REQUIRED', 'non-admin actor cannot reorder a variant');
+select tests.login(tests.id('admin'));
+select tests.expect_error($$select public.admin_update_variant(tests.id('admin'), tests.id('variant_stock'), '單一規格', 'TEST-STOCK', 'in_stock', 1000, null, false, 3, null, 0, null, true, -99)$$,
+                          'permission denied', 'API roles cannot call admin_update_variant directly');
+select tests.logout();
+select tests.assert((select display_order = 0 from public.product_variants where id = tests.id('variant_stock')), 'rejected reorder changed nothing');
+rollback;

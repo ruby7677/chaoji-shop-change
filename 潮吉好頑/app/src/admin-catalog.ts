@@ -145,7 +145,8 @@ export async function createVariant(request: Request, env: Env): Promise<Respons
       p_kind: payload.kind, p_price: payload.price, p_compare_at_price: payload.compare_at_price,
       p_safety_stock: payload.safety_stock, p_preorder_arrival: payload.preorder_arrival,
       p_deposit_rate: payload.deposit_rate, p_seller_link: payload.seller_link,
-      p_is_published: payload.is_published, p_display_order: payload.display_order
+      // 未指定排序時交給資料庫自動接在同商品最後一個規格之後
+      p_is_published: payload.is_published, p_display_order: Number.isInteger(body.display_order) ? payload.display_order : null
     })
   });
   if (!response.ok) return databaseError(response);
