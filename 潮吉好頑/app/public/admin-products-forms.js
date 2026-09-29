@@ -43,7 +43,7 @@ export function variantFormMarkup(variant, helpers) {
     + `<label>安全庫存<input name="safety_stock" type="number" min="0" step="1" value="${variant.safety_stock}" /></label>`
     + `<label>訂金比例（%）<input name="deposit_rate" type="number" min="0" max="100" value="${depositPercent(variant)}" /></label>`
     + arrivalFieldset(variant, helpers)
-    + `<label>排序<input name="display_order" type="number" value="${variant.display_order}" /></label>`
+    + `<label>前台排序<input name="display_order" type="number" value="${variant.display_order}" /><small>數字越小越前面</small></label>`
     + `<label class="wide">賣貨便連結<input name="seller_link" type="url" value="${escapeHtml(variant.seller_link || "")}" /></label>`
     + `<label class="check-field"><input name="is_published" type="checkbox" ${variant.is_published ? "checked" : ""} /> 上架此規格</label>`
     + '</div><button class="primary-button" type="submit">儲存規格</button></form>';
@@ -81,7 +81,8 @@ function productFormMarkup(product, helpers) {
   return `<form class="admin-form" data-edit-product-form="${escapeHtml(product.id)}" data-category-id="${escapeHtml(product.category_id || "")}"><div class="form-grid">`
     + `<label>商品名稱<input name="name" required value="${escapeHtml(product.name)}" /></label>`
     + `<label>商品分類<select name="category_id">${helpers.adminCategoryOptions(categoryId, { includeInactiveSelected: true })}</select><small>分類位於商品層級，所有規格共用。</small></label>`
-    + `<label>排序<input name="display_order" type="number" value="${product.display_order}" /></label>`
+    // 商品層級排序不影響前台（前台依規格排序），隱藏但原值照送，避免存檔時被歸零
+    + `<input name="display_order" type="hidden" value="${escapeHtml(product.display_order ?? 0)}" />`
     + `<label class="wide">商品說明<textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea></label>`
     + `<label>每位會員限購數量<input name="purchase_limit" type="number" min="1" step="1" value="${product.purchase_limit ?? ""}" placeholder="留空代表不限購" /></label>`
     + `<label class="check-field admin-points-excluded-field"><input name="points_excluded" type="checkbox" ${product.points_eligible === false ? "checked" : ""} /> 不可累積會員點數<small>啟用後，完成訂單時此商品金額不列入新點數累積。</small></label>`

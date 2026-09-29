@@ -72,7 +72,7 @@ function thumbMarkup(product) {
 function productCellMarkup(product) {
   const tags = `${product.is_published ? "" : '<span class="admin-pill gray">商品未上架</span>'}${product.points_eligible === false ? '<span class="admin-pill amber">不積點</span>' : ""}`;
   return `<td class="lead-cell"><span class="admin-prod-cell">${thumbMarkup(product)}<span><span class="cell-main">${escapeHtml(product.name)}</span>`
-    + `<span class="cell-sub">${escapeHtml(categoryName(product))}・排序 ${product.display_order}</span>${tags ? `<span class="cell-tags">${tags}</span>` : ""}</span></span></td>`;
+    + `<span class="cell-sub">${escapeHtml(categoryName(product))}</span>${tags ? `<span class="cell-tags">${tags}</span>` : ""}</span></span></td>`;
 }
 
 function rowMarkup(product, variant, maxStock) {
