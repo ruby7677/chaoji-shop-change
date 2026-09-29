@@ -1,0 +1,42 @@
+/* 首頁輪播 HOT／NEW 標籤的動態炫光（業主 2026-09-29 選定 C 版：漸層流動＋白光掃過）。
+   外型沿用 product-showcase.css 的 .hero-slide-flag；字色不變（HOT 黑字、NEW 黃字），光線只在底色層流動，對比不受影響。
+   只有目前顯示的投影片（.hero-slide.is-active）會跑動畫；系統「減少動態效果」時維持靜態。 */
+.hero-slide-flag {
+  --flag-flow: linear-gradient(110deg, #f0441f 0%, #ff6b3d 25%, #ffb13d 50%, #ff6b3d 75%, #f0441f 100%);
+  --flag-sheen: rgba(255, 255, 255, .85);
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--flag-flow);
+  background-size: 200% 100%;
+}
+.hero-slide-flag--new {
+  --flag-flow: linear-gradient(110deg, #151515 0%, #2c2a24 25%, #4a4230 50%, #2c2a24 75%, #151515 100%);
+  --flag-sheen: rgba(246, 212, 88, .45);
+}
+.hero-slide-flag::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  background: linear-gradient(105deg, transparent 35%, var(--flag-sheen) 50%, transparent 65%);
+  background-position: 150% 0;
+  background-size: 250% 100%;
+  pointer-events: none;
+}
+.hero-slide.is-active .hero-slide-flag { animation: hero-flag-flow 3.8s linear infinite; }
+.hero-slide.is-active .hero-slide-flag::after { animation: hero-flag-sheen 2.4s ease-in-out infinite; }
+
+@keyframes hero-flag-flow {
+  from { background-position: 200% 0; }
+  to { background-position: 0% 0; }
+}
+@keyframes hero-flag-sheen {
+  0%, 35% { background-position: 150% 0; }
+  100% { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-slide.is-active .hero-slide-flag,
+  .hero-slide.is-active .hero-slide-flag::after { animation: none; }
+}
