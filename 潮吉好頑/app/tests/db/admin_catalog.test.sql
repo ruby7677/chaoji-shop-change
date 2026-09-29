@@ -76,8 +76,11 @@ begin;
 select tests.seed();
 select tests.as_service();
 select public.admin_update_variant(tests.id('admin'), tests.id('variant_stock'), '單一規格', 'TEST-STOCK', 'in_stock', 1000, null, false, 3, null, 0, null, true, -5);
+select tests.logout();
 select tests.assert((select display_order = -5 from public.product_variants where id = tests.id('variant_stock')), 'negative order can be saved');
+select tests.as_service();
 select public.admin_update_variant(tests.id('admin'), tests.id('variant_stock'), '單一規格', 'TEST-STOCK', 'in_stock', 1000, null, false, 3, null, 0, null, true, null);
+select tests.logout();
 select tests.assert((select display_order = -5 from public.product_variants where id = tests.id('variant_stock')), 'missing order keeps the current value');
 rollback;
 
