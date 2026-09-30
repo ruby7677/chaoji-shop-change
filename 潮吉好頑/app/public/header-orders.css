@@ -1,0 +1,51 @@
+/* 手機版「我的訂單」移到主選單列（2026-09-30 業主選方案 A，只改手機，桌機維持原頁首按鈕）：
+   登入後頁首右側只剩會員與購物車兩顆，不再因三顆按鈕擠成兩行；以品牌黃實心膠囊標示，和「商品／購物須知」文字連結區分。
+   兩顆按鈕都有 data-orders-open，登入狀態由 member-profile.js／auth-expiry.js 一起切換 .hidden，這裡依寬度只顯示其一。 */
+.site-header nav .nav-orders-button { display: none; }
+
+@media (max-width: 760px) {
+  .site-header .header-actions .orders-button { display: none; }
+  .site-header nav { align-items: center; justify-content: flex-start; gap: 24px; }
+  .site-header nav .nav-orders-button:not(.hidden) {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    margin-left: auto;
+    padding: 6px 16px 6px 12px;
+    border: 1.5px solid var(--home-ink);
+    border-radius: 999px;
+    background: var(--home-yellow);
+    color: var(--home-ink);
+    font-size: .88rem;
+    font-weight: 900;
+    letter-spacing: .03em;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .2s ease, color .2s ease;
+  }
+  .site-header nav .nav-orders-button svg {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .site-header nav .nav-orders-button:hover { background: var(--home-ink); color: var(--home-yellow); }
+  .site-header nav .nav-orders-button:focus-visible { outline: 3px solid var(--home-ink); outline-offset: 3px; }
+}
+
+/* 極窄螢幕（<360px，例如 320px）：縮小 Logo、隱藏副標，讓會員與購物車仍能和品牌同一列 */
+@media (max-width: 359px) {
+  .site-header { column-gap: 8px; padding-inline: 12px; }
+  .site-header .brand img { width: 40px; height: 40px; }
+  .site-header .brand small { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-header nav .nav-orders-button { transition: none; }
+}

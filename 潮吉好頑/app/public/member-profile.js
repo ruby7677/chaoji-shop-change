@@ -97,7 +97,8 @@ function updateMemberButton() {
   // 名稱可能被 CSS 截斷，完整名稱保留在提示與報讀文字
   button.title = `${displayName}｜查看或修改會員資料`;
   button.setAttribute("aria-label", `會員 ${displayName}，查看或修改會員資料`);
-  document.querySelector("[data-orders-open]").classList.remove("hidden");
+  // 頁首（桌機）與主選單列（手機）各有一顆「我的訂單」，由 CSS 依寬度只顯示其一
+  document.querySelectorAll("[data-orders-open]").forEach((button) => button.classList.remove("hidden"));
   document.querySelector("[data-admin-open]").classList.toggle("hidden", auth.profile?.is_admin !== true);
   if (auth.profile?.full_name) document.querySelector("#checkout-name").value = auth.profile.full_name;
   if (auth.profile?.phone) document.querySelector("#checkout-phone").value = auth.profile.phone;

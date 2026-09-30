@@ -37,7 +37,7 @@ function renderLoggedOut() {
     login.removeAttribute("title");
     login.removeAttribute("aria-label");
   }
-  document.querySelector("[data-orders-open]")?.classList.add("hidden");
+  document.querySelectorAll("[data-orders-open]").forEach((button) => button.classList.add("hidden"));
   document.querySelector("[data-admin-open]")?.classList.add("hidden");
   // 後台與訂單視窗已無法讀寫資料，關閉後使用者才看得到頁首的「LINE 登入」
   ["#admin-dialog", "#orders-dialog"].forEach((selector) => {

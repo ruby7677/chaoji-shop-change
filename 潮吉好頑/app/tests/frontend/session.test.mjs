@@ -12,7 +12,8 @@ globalThis.document = {
   cookie: "",
   visibilityState: "visible",
   addEventListener: (type, fn) => { listeners[type] = fn; },
-  querySelector: () => null
+  querySelector: () => null,
+  querySelectorAll: () => []
 };
 let lockRequests = 0;
 Object.defineProperty(globalThis, "navigator", {
