@@ -1,0 +1,24 @@
+/* 商品卡以 subgrid 對齊（取代 h3 min-height 與 margin-top:auto 的補救）：
+   同一橫排所有卡片共用 5 條列軌道 ── 圖片／標題區／標籤與庫存區／價格／按鈕，
+   標題一行或兩行、有無預購標籤都不會讓價格與按鈕錯位。
+   卡片結構固定為 image + info(head, meta, price, actions)；改動 product-card.js 區塊數時，須同步調整下方 span。
+   不支援 subgrid 的瀏覽器維持 storefront-legibility.css 的 flex 貼底版型。 */
+@supports (grid-template-rows: subgrid) {
+  .product-card {
+    display: grid;
+    grid-row: span 5;
+    grid-template-rows: subgrid;
+    row-gap: 0; /* 卡片間距留給 .product-grid，卡片內部間距由各區塊 margin 決定 */
+  }
+  .product-card .product-info {
+    display: grid;
+    flex: none;
+    grid-row: span 4;
+    grid-template-rows: subgrid;
+    row-gap: 0;
+    min-width: 0;
+  }
+  .product-card .product-head,
+  .product-card .product-meta { min-width: 0; }
+  .product-card .card-actions { margin-top: 0; align-self: end; }
+}
