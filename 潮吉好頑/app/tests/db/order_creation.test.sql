@@ -154,7 +154,8 @@ select tests.assert((select status = 'pending_payment' and subtotal = 1000 and a
                             and bank_account_id is null and payment_last_five is null and delivery_method = 'seller_delivery'
                        from public.orders where id = (select id from t_order)),
                     'seller-delivery store-payment order has zero deposit and no bank account');
-select tests.assert((select payment_deadline = now() + interval '3 months' from public.orders where id = (select id from t_order)),
+-- 「3 個月」以台灣時間的日曆月份計算（函式層級 timezone = Asia/Taipei）；測試連線是 UTC，月底／月初跨日時直接在 UTC 加月份會差一天。
+select tests.assert((select payment_deadline = ((now() at time zone 'Asia/Taipei') + interval '3 months') at time zone 'Asia/Taipei' from public.orders where id = (select id from t_order)),
                     'seller-delivery store-payment order keeps a 3 month payment deadline');
 rollback;
 
