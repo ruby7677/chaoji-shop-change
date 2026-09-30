@@ -13,6 +13,7 @@ import { type Env } from "./env";
 import { MAX_JSON_REQUEST_BYTES, SECURITY_HEADERS, enforceRateLimit, json, serviceHeaders, withSecurityHeaders } from "./http";
 import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFriendship, memberPoints, replaceMemberCart, submitOrderPayment } from "./member-api";
 import { notifyLowStock, notifyOrderEvent, runScheduledNotifications, testTelegramNotification } from "./notifications";
+import { isKeepaliveHour, pingSupabase } from "./supabase-keepalive";
 
 const productShowcase = createProductShowcase<Env>({ json, serviceHeaders, requireAdmin, databaseError, securityHeaders: SECURITY_HEADERS });
 
@@ -148,5 +149,7 @@ export default {
       ? retryDueNotificationDeliveries(env)
       : Promise.all([retryDueNotificationDeliveries(env), runScheduledNotifications(env)]).then(() => undefined);
     ctx.waitUntil(task);
+    // 每日一次唯讀保活（每小時排程在固定時刻觸發），與通知任務互不影響。
+    if (_controller.cron !== "*/5 * * * *" && isKeepaliveHour(_controller.scheduledTime)) ctx.waitUntil(pingSupabase(env));
   }
 } satisfies ExportedHandler<Env>;
