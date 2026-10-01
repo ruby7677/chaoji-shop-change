@@ -27,7 +27,7 @@ export function invalidateCatalogCache() {
 }
 
 async function loadPublicCatalog(env: Env): Promise<Product[]> {
-  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,hero_rank,hero_tagline&is_published=eq.true&order=display_order.asc`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,hero_rank,hero_tagline&is_published=eq.true&order=display_order.desc,id.desc`, {
     headers: { apikey: env.SUPABASE_ANON_KEY as string, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
   });
   if (!response.ok) throw new Error("Unable to load catalog");

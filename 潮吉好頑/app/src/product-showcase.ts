@@ -66,7 +66,7 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
     const [productResponse, variantResponse, imageResponse] = await Promise.all([
       fetchWithTimeout(`${base}/rest/v1/products?select=id,name,description,details&id=eq.${productId}&is_published=eq.true&limit=1`, { headers: serviceHeaders(env) }),
       // 規格走與首頁型錄相同的 anon view，可售量與上架規則維持一致。
-      fetchWithTimeout(`${base}/rest/v1/storefront_variants?select=${STOREFRONT_VARIANT_SELECT}&product_id=eq.${productId}&is_published=eq.true&order=display_order.asc`, {
+      fetchWithTimeout(`${base}/rest/v1/storefront_variants?select=${STOREFRONT_VARIANT_SELECT}&product_id=eq.${productId}&is_published=eq.true&order=display_order.desc,id.desc`, {
         headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
       }),
       fetchWithTimeout(`${base}/rest/v1/product_images?select=id,width,height,alt_text,updated_at&product_id=eq.${productId}&order=sort_order.asc&limit=${MAX_IMAGES_PER_PRODUCT}`, { headers: serviceHeaders(env) })

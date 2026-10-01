@@ -52,9 +52,9 @@ function toSlide(variants) {
 
 export function selectHeroSlides(variants) {
   const slides = groupByProduct(variants || []).map(toSlide).filter(Boolean);
-  const ranked = slides.filter((slide) => slide.rank !== null).sort((a, b) => a.rank - b.rank || a.order - b.order);
+  const ranked = slides.filter((slide) => slide.rank !== null).sort((a, b) => a.rank - b.rank || b.order - a.order);
   if (ranked.length) return ranked.slice(0, MAX_SLIDES);
-  return slides.filter((slide) => slide.preorder).sort((a, b) => a.order - b.order).slice(0, FALLBACK_SLIDES);
+  return slides.filter((slide) => slide.preorder).sort((a, b) => b.order - a.order).slice(0, FALLBACK_SLIDES);
 }
 
 // 業主決定（2026-09-24）：拿掉黑色外框，商品圖直接放在黃底上放大；文字移到圖片下方，保留分層淡入上移。

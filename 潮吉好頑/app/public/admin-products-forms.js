@@ -43,7 +43,7 @@ export function variantFormMarkup(variant, helpers) {
     + `<label>安全庫存<input name="safety_stock" type="number" min="0" step="1" value="${variant.safety_stock}" /></label>`
     + `<label>訂金比例（%）<input name="deposit_rate" type="number" min="0" max="100" value="${depositPercent(variant)}" /></label>`
     + arrivalFieldset(variant, helpers)
-    + `<label>前台排序<input name="display_order" type="number" value="${variant.display_order}" /><small>數字越小越前面</small></label>`
+    + `<label>前台排序<input name="display_order" type="number" value="${variant.display_order}" /><small>數字越大越前面；新增時自動取目前最大值 + 1</small></label>`
     + `<label class="wide">賣貨便連結<input name="seller_link" type="url" value="${escapeHtml(variant.seller_link || "")}" /></label>`
     + `<label class="check-field"><input name="is_published" type="checkbox" ${variant.is_published ? "checked" : ""} /> 上架此規格</label>`
     + '</div><button class="primary-button" type="submit">儲存規格</button></form>';
@@ -117,7 +117,7 @@ function editTabPanelMarkup(key, active, inner) {
 // openVariants：重新渲染前已展開的規格 id（同一時間只會有一個，由 admin-products-table.js 的手風琴行為維持）。
 // activeTab：重新渲染前選取的分頁（"product"／"media"／"variants"），預設 "product"。
 export function editSheetMarkup(product, helpers, openVariants = new Set(), activeTab = "product") {
-  const variants = [...(product.product_variants || [])].sort((a, b) => a.display_order - b.display_order);
+  const variants = [...(product.product_variants || [])].sort((a, b) => b.display_order - a.display_order);
   const tab = ["product", "media", "variants"].includes(activeTab) ? activeTab : "product";
   const tabBar = `<div class="admin-edit-tabs" role="tablist" aria-label="編輯商品分頁">`
     + EDIT_TABS.map(({ key, label }) => editTabButtonMarkup(key, label, key === tab)).join("")

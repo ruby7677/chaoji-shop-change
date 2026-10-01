@@ -122,7 +122,7 @@ function drawTable() {
   const rows = [];
   products.forEach((product) => {
     if (view.cat !== "all" && categoryName(product) !== view.cat) return;
-    const variants = [...(product.product_variants || [])].sort((a, b) => a.display_order - b.display_order);
+    const variants = [...(product.product_variants || [])].sort((a, b) => b.display_order - a.display_order);
     if (!variants.length) {
       if (view.kind === "all" && view.status === "all") rows.push({ product, variant: null });
       return;

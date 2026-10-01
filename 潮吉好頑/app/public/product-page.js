@@ -124,7 +124,7 @@ export function createProductPage(deps) {
       .map((variants) => variants.find((variant) => Number(variant.stock) > 0))
       .filter(Boolean)
       .map((variant) => ({ variant, score: (variant.category === current.category ? 2 : 0) + (variant.type === current.type ? 1 : 0) }))
-      .sort((a, b) => b.score - a.score || Number(a.variant.display_order || 0) - Number(b.variant.display_order || 0))
+      .sort((a, b) => b.score - a.score || Number(b.variant.display_order || 0) - Number(a.variant.display_order || 0))
       .slice(0, RECOMMEND_COUNT)
       .map(({ variant }) => variant);
     section.hidden = !picks.length;

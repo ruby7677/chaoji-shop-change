@@ -50,7 +50,8 @@ select tests.logout();
 select tests.assert((select count(*) = 0 from public.product_variants where sku = 'X-SKU'), 'rejected calls created nothing');
 rollback;
 
--- 前台排序自動填數：新商品排最前面（全站最小值 - 10，可為負數）；既有商品新增規格接在該商品最後一個規格之後。
+-- 前台排序自動填數（數字越大越前面）：新商品、新規格未指定時取全站最大值 + 1，數字依序遞增不重複；指定值照用。
+-- seed 的兩個規格排序都是 0，所以第一個新品是 1。
 begin;
 select tests.seed();
 select tests.as_service();
@@ -58,18 +59,23 @@ select public.admin_create_product(tests.id('admin'), '測試分類', '新品一
 select public.admin_create_product(tests.id('admin'), '測試分類', '新品二', '', '單一規格', 'order-new-2', 'in_stock', 100, 0, null, 0, null, true);
 select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '第二款', 'order-auto', 'in_stock', 100, null, 3, null, 0, null, true, null);
 select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '指定款', 'order-fixed', 'in_stock', 100, null, 3, null, 0, null, true, 50);
+select public.admin_create_product(tests.id('admin'), '測試分類', '新品三', '', '單一規格', 'order-new-3', 'in_stock', 100, 0, null, 0, null, false);
 select tests.logout();
-select tests.assert((select display_order = -10 from public.product_variants where sku = 'ORDER-NEW-1'),
-                    'first new product goes 10 before the smallest existing order');
-select tests.assert((select display_order = -20 from public.product_variants where sku = 'ORDER-NEW-2'),
-                    'next new product goes in front of the previous new product');
-select tests.assert((select display_order = 1 from public.product_variants where sku = 'ORDER-AUTO'),
-                    'variant without an order follows the product''s last variant');
+select tests.assert((select display_order = 1 from public.product_variants where sku = 'ORDER-NEW-1'),
+                    'first new product gets the current maximum + 1');
+select tests.assert((select display_order = 2 from public.product_variants where sku = 'ORDER-NEW-2'),
+                    'next new product counts up by one');
+select tests.assert((select display_order = 3 from public.product_variants where sku = 'ORDER-AUTO'),
+                    'a new variant without an order also takes the maximum + 1');
 select tests.assert((select display_order = 50 from public.product_variants where sku = 'ORDER-FIXED'),
                     'an explicit variant order is kept');
-select tests.assert((select s.id = (select v.id::text from public.product_variants v where v.sku = 'ORDER-NEW-2')
-                     from public.storefront_variants s order by s.display_order limit 1),
-                    'the newest product is first on the storefront');
+select tests.assert((select display_order = 51 from public.product_variants where sku = 'ORDER-NEW-3'),
+                    'the maximum includes unpublished and manually set variants, so numbers never collide');
+select tests.assert((select count(*) = count(distinct display_order) from public.product_variants where sku like 'ORDER-%'),
+                    'auto-assigned orders are unique');
+select tests.assert((select s.id = (select v.id::text from public.product_variants v where v.sku = 'ORDER-FIXED')
+                     from public.storefront_variants s where s.is_published order by s.display_order desc, s.id desc limit 1),
+                    'the largest order is first on the storefront');
 rollback;
 
 -- 規格排序可手動改成負數；未提供排序時保留原值。
