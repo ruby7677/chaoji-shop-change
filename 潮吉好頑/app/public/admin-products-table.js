@@ -4,7 +4,7 @@
 import { escapeHtml } from "./product-format.js";
 import { adminIcon } from "./admin-icons.js";
 import { createAdminSheet, openAdminSheetFor } from "./admin-sheets.js";
-import { adminConfirm } from "./admin-confirm.js";
+import { adminConfirm, adminConfirmChoice } from "./admin-confirm.js";
 import { initVariantBatch, syncVariantBatch, variantSelectMarkup } from "./admin-variant-batch.js";
 import { offerUndo } from "./admin-undo.js";
 import { openStockAdjust } from "./admin-stock-adjust.js";
@@ -323,17 +323,22 @@ function variantPayload(variant, isPublished) {
 }
 
 // 送出單一規格的上架狀態並以伺服器回傳值更新本地資料（單筆開關、批次與復原共用）
-async function setVariantPublished(variant, next) {
-  const result = await deps.adminFetch(`/api/admin/variants/${variant.id}`, { method: "PATCH", body: JSON.stringify(variantPayload(variant, next)) });
+// moveToTop：重新上架時一併排到前台最前面（伺服器取全站最大值 + 1）
+async function setVariantPublished(variant, next, { moveToTop = false } = {}) {
+  const result = await deps.adminFetch(`/api/admin/variants/${variant.id}`, { method: "PATCH", body: JSON.stringify({ ...variantPayload(variant, next), ...(moveToTop ? { move_to_top: true } : {}) }) });
   const saved = result?.variant && !Array.isArray(result.variant) ? result.variant : null;
   variant.is_published = typeof saved?.is_published === "boolean" ? saved.is_published : next;
+  if (Number.isInteger(saved?.display_order)) variant.display_order = saved.display_order;
   if (saved?.updated_at) variant.updated_at = saved.updated_at;
+  if (result?.moveError) deps.showToast(result.moveError, "error");
 }
 
 // 復原：把剛變更的規格改回原狀態（不再跳確認視窗）
 async function undoPublish(items, appliedValue) {
   const failed = [];
-  for (const { product, variant } of items) {
+  for (const { product, variant, previousOrder } of items) {
+    // 重新上架時排到最前面的話，復原也要把前台排序還原
+    if (Number.isInteger(previousOrder)) variant.display_order = previousOrder;
     try { await setVariantPublished(variant, !appliedValue); }
     catch (error) { failed.push(`${product.name}／${variant.name}（${error.message}）`); }
   }
@@ -354,17 +359,22 @@ async function togglePublish(button) {
     : product.is_published
       ? "上架後前台會顯示此規格，顧客可加入購物車。"
       : "此規格會設為上架，但商品目前未上架，前台仍不會顯示；需在「編輯」中勾選「上架商品」。";
-  const confirmed = await adminConfirm({ title: `${next ? "上架" : "下架"}「${label}」？`, message, confirmLabel: next ? "確定上架" : "確定下架", danger: !next, trigger: button });
+  const { confirmed, checked: moveToTop } = await adminConfirmChoice({
+    title: `${next ? "上架" : "下架"}「${label}」？`, message, confirmLabel: next ? "確定上架" : "確定下架", danger: !next, trigger: button,
+    option: next ? { label: "重新上架並排到最前面（前台排序改為目前最大值 + 1）", checked: false } : null
+  });
   if (!confirmed) return;
+  const previousOrder = variant.display_order;
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
   try {
-    await setVariantPublished(variant, next);
+    await setVariantPublished(variant, next, { moveToTop });
     deps.onCatalogChanged();
     drawTable();
     // 表格重繪後按鈕已換新，焦點移回同一規格的開關
     list.querySelector(`[data-variant-publish="${CSS.escape(variant.id)}"]`)?.focus({ preventScroll: true });
-    offerUndo(variant.is_published ? `已上架：${label}` : `已下架：${label}（前台隱藏）`, () => undoPublish([found], next));
+    const moved = variant.display_order !== previousOrder;
+    offerUndo(variant.is_published ? `已上架：${label}${moved ? "（已排到最前面）" : ""}` : `已下架：${label}（前台隱藏）`, () => undoPublish([{ ...found, previousOrder: moved ? previousOrder : undefined }], next));
   } catch (error) {
     button.disabled = false;
     button.removeAttribute("aria-busy");

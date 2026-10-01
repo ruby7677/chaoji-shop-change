@@ -3,6 +3,7 @@
 --    原本排第一的拿到最大值，前台順序不變。
 -- 2. 新增商品／新增規格未指定排序時，取全站規格最大值 + 1，排在最前面；以交易層級 advisory lock 避免同時建立拿到同號。
 -- 3. 後台商品清單改依該商品規格的最大排序由大到小，與前台一致。
+-- 4. 新增 admin_move_variant_to_top：重新上架時可選擇排到最前面（下架不改號碼，保留原位與「復原」）。
 -- 管理員手動改成重複數字仍允許，前台以 id 作為同數字時的固定次序（見 catalog.ts）。
 
 begin;
@@ -144,11 +145,33 @@ begin
 end;
 $function$;
 
+-- 重新上架時選擇「排到最前面」：把該規格改成全站最大值 + 1（已是唯一最大值就不動），與自動編號共用同一把鎖，寫入稽核紀錄。
+create or replace function public.admin_move_variant_to_top(p_actor_id uuid, p_variant_id uuid)
+returns jsonb
+language plpgsql security definer set search_path = ''
+as $function$
+declare v_before public.product_variants%rowtype; v_after public.product_variants%rowtype; v_max integer;
+begin
+  if not exists (select 1 from public.profiles where id = p_actor_id and is_admin) then raise exception 'ADMIN_REQUIRED'; end if;
+  perform pg_advisory_xact_lock(hashtext('public.product_variants.display_order'));
+  select * into v_before from public.product_variants where id = p_variant_id for update;
+  if not found then raise exception 'VARIANT_NOT_FOUND'; end if;
+  select max(display_order) into v_max from public.product_variants where id <> p_variant_id;
+  if v_max is not null and v_before.display_order > v_max then return to_jsonb(v_before); end if;
+  update public.product_variants set display_order = coalesce(v_max, 0) + 1, updated_at = now()
+   where id = p_variant_id returning * into v_after;
+  perform public.append_audit_log(p_actor_id, 'update', 'product_variant', p_variant_id::text, to_jsonb(v_before), to_jsonb(v_after));
+  return to_jsonb(v_after);
+end;
+$function$;
+
 revoke all on function public.admin_create_product(uuid,text,text,text,text,text,public.product_kind,integer,integer,text,numeric,text,boolean,integer,boolean,integer) from public, anon, authenticated;
 revoke all on function public.admin_create_variant(uuid,uuid,text,text,public.product_kind,integer,integer,integer,text,numeric,text,boolean,integer) from public, anon, authenticated;
 revoke all on function public.admin_search_product_ids(uuid,text,text,integer,integer) from public, anon, authenticated;
 grant execute on function public.admin_create_product(uuid,text,text,text,text,text,public.product_kind,integer,integer,text,numeric,text,boolean,integer,boolean,integer) to service_role;
 grant execute on function public.admin_create_variant(uuid,uuid,text,text,public.product_kind,integer,integer,integer,text,numeric,text,boolean,integer) to service_role;
 grant execute on function public.admin_search_product_ids(uuid,text,text,integer,integer) to service_role;
+revoke all on function public.admin_move_variant_to_top(uuid,uuid) from public, anon, authenticated;
+grant execute on function public.admin_move_variant_to_top(uuid,uuid) to service_role;
 
 commit;

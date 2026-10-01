@@ -110,7 +110,7 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
 type VariantInput = {
   product_id?: string; name?: string; sku?: string; kind?: "in_stock" | "preorder"; price?: number;
   safety_stock?: number; preorder_arrival?: string; deposit_rate?: number; seller_link?: string; compare_at_price?: number | null;
-  is_published?: boolean; display_order?: number;
+  is_published?: boolean; display_order?: number; move_to_top?: boolean;
 };
 
 function normalizedVariant(body: VariantInput, includeProduct = false) {
@@ -173,7 +173,14 @@ export async function updateVariant(request: Request, env: Env, variantId: strin
   });
   if (!response.ok) return databaseError(response);
   invalidateCatalogCache();
-  return json({ variant: await response.json() });
+  const variant = await response.json() as { is_published?: boolean };
+  // 重新上架時選擇「排到最前面」：上架成功後才移動；移動失敗不影響已完成的上架，回傳提示讓後台顯示
+  if (body.move_to_top !== true || variant?.is_published !== true) return json({ variant });
+  const moved = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_move_variant_to_top`, {
+    method: "POST", headers: serviceHeaders(env), body: JSON.stringify({ p_actor_id: admin.user.id, p_variant_id: variantId })
+  });
+  if (!moved.ok) return json({ variant, moveError: "已上架，但排到最前面失敗，請在編輯中手動調整前台排序" });
+  return json({ variant: await moved.json() });
 }
 
 export async function updateProduct(request: Request, env: Env, productId: string): Promise<Response> {

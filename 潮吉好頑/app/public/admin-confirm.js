@@ -10,12 +10,15 @@ function build() {
   scrim.hidden = true;
   scrim.innerHTML = '<div class="admin-confirm" role="alertdialog" aria-modal="true" aria-labelledby="admin-confirm-title" aria-describedby="admin-confirm-details admin-confirm-message">'
     + '<h3 id="admin-confirm-title"></h3><dl id="admin-confirm-details" class="admin-confirm-details" hidden></dl><div id="admin-confirm-message" class="admin-confirm-message"></div>'
+    + '<label class="admin-confirm-option" hidden><input type="checkbox" data-confirm-option /><span></span></label>'
     + '<div class="admin-confirm-actions"><button class="secondary-button" type="button" data-confirm-cancel>取消</button><button class="primary-button" type="button" data-confirm-ok></button></div></div>';
   dialog.append(scrim);
   const title = scrim.querySelector("#admin-confirm-title");
   const details = scrim.querySelector("#admin-confirm-details");
   const message = scrim.querySelector("#admin-confirm-message");
   const ok = scrim.querySelector("[data-confirm-ok]");
+  const option = scrim.querySelector(".admin-confirm-option");
+  const optionInput = option.querySelector("[data-confirm-option]");
   let resolver = null;
   let returnFocus = null;
   const finish = (result) => {
@@ -23,7 +26,7 @@ function build() {
     resolver = null;
     scrim.hidden = true;
     if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
-    resolve?.(result);
+    resolve?.({ confirmed: result, checked: !option.hidden && optionInput.checked });
   };
   scrim.addEventListener("click", (event) => {
     if (event.target === scrim || event.target.closest("[data-confirm-cancel]")) finish(false);
@@ -41,7 +44,7 @@ function build() {
     finish(false);
   });
   return {
-    ask({ title: heading, message: text = "", details: rows = null, confirmLabel = "確定", danger = false, trigger = null }) {
+    ask({ title: heading, message: text = "", details: rows = null, confirmLabel = "確定", danger = false, trigger = null, option: choice = null }) {
       // 前一個確認尚未回覆就又被觸發：視為取消，避免遺留未完成的 Promise
       if (resolver) finish(false);
       title.textContent = heading;
@@ -65,6 +68,10 @@ function build() {
         message.append(paragraph);
       });
       message.hidden = lines.length === 0;
+      // option：{ label, checked } 顯示一個勾選項（例如「重新上架並排到最前面」），結果見 adminConfirmChoice
+      option.hidden = !choice;
+      option.querySelector("span").textContent = choice?.label || "";
+      optionInput.checked = Boolean(choice?.checked);
       ok.textContent = confirmLabel;
       ok.classList.toggle("is-danger", danger);
       returnFocus = trigger || (document.activeElement instanceof HTMLElement ? document.activeElement : null);
@@ -75,8 +82,14 @@ function build() {
   };
 }
 
-// options：{ title, message, details, confirmLabel, danger, trigger }（message 可為字串或多行字串陣列；details 為 [label, value] 陣列；trigger：關閉後焦點回到的元素）
-export function adminConfirm(options) {
+// options：{ title, message, details, confirmLabel, danger, trigger, option }（message 可為字串或多行字串陣列；details 為 [label, value] 陣列；
+// trigger：關閉後焦點回到的元素；option：{ label, checked } 選填勾選項）。回傳 Promise<{ confirmed, checked }>
+export function adminConfirmChoice(options) {
   box ||= build();
   return box.ask(options);
+}
+
+// 只需要「確定／取消」時使用，回傳 Promise<boolean>
+export async function adminConfirm(options) {
+  return (await adminConfirmChoice(options)).confirmed;
 }

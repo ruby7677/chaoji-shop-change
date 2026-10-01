@@ -87,6 +87,10 @@
 #admin-dialog.admin-app .admin-confirm { width: min(420px, 100%); padding: 20px; border-radius: 16px; background: #fff; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2); }
 #admin-dialog.admin-app .admin-confirm h3 { margin: 0 0 8px; font-size: 17px; line-height: 1.4; overflow-wrap: anywhere; }
 #admin-dialog.admin-app .admin-confirm p { margin: 0 0 18px; color: var(--admin-text-muted); line-height: 1.6; }
+/* 選填勾選項（例：重新上架並排到最前面）：整列可點、44px 觸控高度 */
+#admin-dialog.admin-app .admin-confirm-option { display: flex; align-items: center; gap: 10px; min-height: 44px; margin: -6px 0 16px; padding: 8px 12px; border: 1px solid var(--admin-border); border-radius: 10px; background: var(--admin-surface-subtle); font-size: 14px; font-weight: 700; line-height: 1.4; cursor: pointer; }
+#admin-dialog.admin-app .admin-confirm-option[hidden] { display: none; }
+#admin-dialog.admin-app .admin-confirm-option input { flex: none; width: 20px; height: 20px; margin: 0; accent-color: #141414; }
 #admin-dialog.admin-app .admin-confirm-actions { display: flex; gap: 8px; }
 #admin-dialog.admin-app .admin-confirm-actions button { flex: 1; min-height: 44px; border-radius: 10px; }
 #admin-dialog.admin-app .admin-confirm-actions .primary-button { border-color: #141414; background: #141414; color: var(--admin-brand-sun); }

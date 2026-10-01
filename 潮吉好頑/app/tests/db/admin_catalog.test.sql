@@ -105,3 +105,28 @@ select tests.expect_error($$select public.admin_update_variant(tests.id('admin')
 select tests.logout();
 select tests.assert((select display_order = 0 from public.product_variants where id = tests.id('variant_stock')), 'rejected reorder changed nothing');
 rollback;
+
+-- 重新上架並排到最前面：取全站最大值 + 1；已是唯一最大值不變；非管理員與 API 角色被拒。
+begin;
+select tests.seed();
+select tests.as_service();
+update public.product_variants set display_order = 7 where id = tests.id('variant_pre');
+select public.admin_move_variant_to_top(tests.id('admin'), tests.id('variant_stock'));
+select tests.logout();
+select tests.assert((select display_order = 8 from public.product_variants where id = tests.id('variant_stock')), 'moved variant takes the maximum + 1');
+select tests.as_service();
+select public.admin_move_variant_to_top(tests.id('admin'), tests.id('variant_stock'));
+select tests.logout();
+select tests.assert((select display_order = 8 from public.product_variants where id = tests.id('variant_stock')), 'a variant already on top keeps its number');
+select tests.assert((select count(*) = 1 from public.audit_logs where resource = 'product_variant' and target = tests.id('variant_stock')::text), 'only the real move is audited');
+rollback;
+
+begin;
+select tests.seed();
+select tests.as_service();
+select tests.expect_error($$select public.admin_move_variant_to_top(tests.id('member_a'), tests.id('variant_stock'))$$, 'ADMIN_REQUIRED', 'non-admin actor cannot move a variant');
+select tests.login(tests.id('admin'));
+select tests.expect_error($$select public.admin_move_variant_to_top(tests.id('admin'), tests.id('variant_stock'))$$, 'permission denied', 'API roles cannot call admin_move_variant_to_top directly');
+select tests.logout();
+select tests.assert((select display_order = 0 from public.product_variants where id = tests.id('variant_stock')), 'rejected moves changed nothing');
+rollback;
