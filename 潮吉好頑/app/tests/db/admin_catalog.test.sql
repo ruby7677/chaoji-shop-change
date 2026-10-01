@@ -153,12 +153,12 @@ select tests.seed();
 select tests.as_service();
 select tests.expect_error($$select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '  單一規格 ', null, 'in_stock', 100, null, 3, null, 0, null, true, null)$$,
                           'VARIANT_NAME_EXISTS', 'same variant name in one product is rejected, ignoring case and spaces');
-select public.admin_create_variant(tests.id('admin'), tests.id('product_pre'), '單一規格', null, 'in_stock', 100, null, 3, null, 0, null, true, null) is not null as ok;
 select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '另一款', null, 'in_stock', 100, null, 3, null, 0, null, true, null);
-select tests.expect_error($$select public.admin_update_variant(tests.id('admin'), (select id from public.product_variants where name = '另一款'), '單一規格', null, 'in_stock', 100, null, false, 3, null, 0, null, true, null)$$,
+select public.admin_create_variant(tests.id('admin'), tests.id('product_pre'), '另一款', null, 'in_stock', 100, null, 3, null, 0, null, true, null);
+select tests.expect_error($$select public.admin_update_variant(tests.id('admin'), (select id from public.product_variants where name = '另一款' and product_id = tests.id('product_stock')), '單一規格', null, 'in_stock', 100, null, false, 3, null, 0, null, true, null)$$,
                           'VARIANT_NAME_EXISTS', 'renaming into an existing name is rejected');
 select tests.expect_error($$select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '手填SKU', 'test-stock', 'in_stock', 100, null, 3, null, 0, null, true, null)$$,
                           'SKU_EXISTS', 'a manually duplicated SKU is still rejected');
 select tests.logout();
-select tests.assert((select count(*) = 1 from public.product_variants where product_id = tests.id('product_pre') and name = '單一規格'), 'the same name in another product is allowed');
+select tests.assert((select count(*) = 2 from public.product_variants where name = '另一款'), 'the same name in another product is allowed');
 rollback;
