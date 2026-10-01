@@ -141,7 +141,7 @@ export async function notifyLowStock(env: Env) {
     await fetchWithTimeout(`${base}/rest/v1/line_low_stock_states?variant_id=in.(${recovered.join(",")})`, { method: "PATCH", headers: serviceHeaders(env, "return=minimal"), body: JSON.stringify({ last_notified_stock: null, last_notified_at: null, updated_at: new Date().toISOString() }) });
   }
   if (!toNotify.length) return;
-  const lines = toNotify.map((variant) => `• ${variant.product_name || "商品"} · ${variant.name} (${variant.sku})：剩 ${variant.stock_on_hand} 件`);
+  const lines = toNotify.map((variant) => `• ${variant.product_name || "商品"} · ${variant.name}：剩 ${variant.stock_on_hand} 件`);
   // 以台灣日期去重：同一台灣日內相同庫存狀態只通知一次（原本用 UTC 日期，台灣早上 8 點才換日）。
   const eventKey = `low-stock:${taipeiDate(new Date())}:${toNotify.map((item) => `${item.id}-${item.stock_on_hand}`).join(",")}`;
   const sent = await Promise.all(recipients.map((chatId) => notifyTelegram(env, eventKey, chatId, "low_stock", buildLowStockMessage(env.STORE_NAME, lines))));

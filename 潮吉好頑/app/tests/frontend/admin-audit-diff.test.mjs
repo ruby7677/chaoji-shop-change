@@ -26,10 +26,10 @@ test("類型與布林值轉成中文，過長內容截斷", () => {
   assert.equal(formatAuditValue("description", "x".repeat(200)).length, 80);
 });
 
-test("目標以商品／規格名稱與 SKU 取代 UUID", () => {
+test("目標以商品／規格名稱取代 UUID（SKU 是內部欄位，不再附在名稱後）", () => {
   const entry = { target: "v1", before_data: before, after_data: after };
-  assert.equal(auditTargetName(entry, (id) => (id === "p1" ? "CX-13 龍王閃擊" : "")), "CX-13 龍王閃擊／單一規格（CJ-CX13-ASIA）");
-  assert.equal(auditTargetName(entry), "單一規格（CJ-CX13-ASIA）");
+  assert.equal(auditTargetName(entry, (id) => (id === "p1" ? "CX-13 龍王閃擊" : "")), "CX-13 龍王閃擊／單一規格");
+  assert.equal(auditTargetName(entry), "單一規格");
 });
 
 test("沒有可用名稱時退回原始 target", () => {

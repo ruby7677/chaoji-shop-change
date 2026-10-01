@@ -130,3 +130,35 @@ select tests.expect_error($$select public.admin_move_variant_to_top(tests.id('ad
 select tests.logout();
 select tests.assert((select display_order = 0 from public.product_variants where id = tests.id('variant_stock')), 'rejected moves changed nothing');
 rollback;
+
+-- SKU 為內部欄位：沒給就自動產生（唯一、大寫）、修改時沒給保留原值；同商品規格名稱不可重複（不分大小寫與前後空白）。
+begin;
+select tests.seed();
+select tests.as_service();
+select public.admin_create_product(tests.id('admin'), '測試分類', '無SKU商品', '', '單一規格', null, 'in_stock', 100, 0, null, 0, null, true);
+select public.admin_create_product(tests.id('admin'), '測試分類', '空白SKU商品', '', '單一規格', '   ', 'in_stock', 100, 0, null, 0, null, true);
+select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '第二款', null, 'in_stock', 100, null, 3, null, 0, null, true, null);
+select tests.logout();
+select tests.assert((select count(*) = 3 and count(distinct sku) = 3 and bool_and(sku ~ '^V-[0-9A-F]{10}$')
+                     from public.product_variants where name = '第二款' or product_id in (select id from public.products where name in ('無SKU商品', '空白SKU商品'))),
+                    'blank or missing SKU is generated as a unique internal code');
+select tests.as_service();
+select public.admin_update_variant(tests.id('admin'), tests.id('variant_stock'), '改名規格', null, 'in_stock', 1000, null, false, 3, null, 0, null, true, null);
+select tests.logout();
+select tests.assert((select sku = 'TEST-STOCK' and name = '改名規格' from public.product_variants where id = tests.id('variant_stock')), 'update without SKU keeps the existing one');
+rollback;
+
+begin;
+select tests.seed();
+select tests.as_service();
+select tests.expect_error($$select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '  單一規格 ', null, 'in_stock', 100, null, 3, null, 0, null, true, null)$$,
+                          'VARIANT_NAME_EXISTS', 'same variant name in one product is rejected, ignoring case and spaces');
+select public.admin_create_variant(tests.id('admin'), tests.id('product_pre'), '單一規格', null, 'in_stock', 100, null, 3, null, 0, null, true, null) is not null as ok;
+select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '另一款', null, 'in_stock', 100, null, 3, null, 0, null, true, null);
+select tests.expect_error($$select public.admin_update_variant(tests.id('admin'), (select id from public.product_variants where name = '另一款'), '單一規格', null, 'in_stock', 100, null, false, 3, null, 0, null, true, null)$$,
+                          'VARIANT_NAME_EXISTS', 'renaming into an existing name is rejected');
+select tests.expect_error($$select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '手填SKU', 'test-stock', 'in_stock', 100, null, 3, null, 0, null, true, null)$$,
+                          'SKU_EXISTS', 'a manually duplicated SKU is still rejected');
+select tests.logout();
+select tests.assert((select count(*) = 1 from public.product_variants where product_id = tests.id('product_pre') and name = '單一規格'), 'the same name in another product is allowed');
+rollback;

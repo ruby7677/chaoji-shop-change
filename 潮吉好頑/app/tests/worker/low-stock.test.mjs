@@ -34,7 +34,7 @@ test("low stock alerts use the shared definition and reset recovered variants in
   assert.equal(seen.lowStockAuth, "Bearer service-key");
   assert.deepEqual(seen.patches, ["in.(v-restocked,v-unpublished)"], "restocked and unpublished variants are reset together; already-reset ones are left alone");
   assert.equal(seen.claims.length, 2, "one alert per Telegram admin");
-  assert.match(seen.claims[0].p_payload.text, /戰鬥陀螺 · 藍色 \(B-1\)：剩 1 件/);
+  assert.match(seen.claims[0].p_payload.text, /戰鬥陀螺 · 藍色：剩 1 件/);
   assert.deepEqual(seen.recorded.map((row) => [row.variant_id, row.last_notified_stock]), [["v-low", 1]], "the alerted level is remembered");
 });
 

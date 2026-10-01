@@ -96,6 +96,7 @@ export const databaseErrors: Record<string, string> = {
   INVALID_CATEGORY: "商品分類資料不正確",
   INVALID_VARIANT: "商品規格資料不正確",
   SKU_EXISTS: "SKU 已存在",
+  VARIANT_NAME_EXISTS: "此商品已有同名的規格，請換一個規格名稱",
   INVALID_PRODUCT: "商品資料不正確",
   INVALID_COMPARE_AT_PRICE: "原價資料不正確",
   AUDIT_LOG_IMMUTABLE: "稽核紀錄不可修改或刪除",

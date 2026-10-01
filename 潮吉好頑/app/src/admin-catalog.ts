@@ -73,7 +73,7 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
     if (categories[0].is_active === false) return json({ error: "請選擇啟用中的商品分類" }, { status: 400 });
     categoryName = categories[0].name;
   }
-  if (!categoryName || !body.product_name?.trim() || !body.sku?.trim()) return json({ error: "請填寫分類、商品名稱與 SKU" }, { status: 400 });
+  if (!categoryName || !body.product_name?.trim()) return json({ error: "請填寫分類與商品名稱" }, { status: 400 });
   if (!Number.isInteger(body.price) || (body.price as number) < 0 || !Number.isInteger(body.stock) || (body.stock as number) < 0) return json({ error: "價格與庫存須為非負整數" }, { status: 400 });
   const price = body.price as number;
   const compareAtPrice = body.compare_at_price == null ? null : Number(body.compare_at_price);
@@ -88,7 +88,7 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
       p_product_name: body.product_name,
       p_description: body.description || "",
       p_variant_name: body.variant_name || "單一規格",
-      p_sku: body.sku,
+      p_sku: body.sku?.trim() || null, // 沒填由資料庫自動產生內部編號
       p_kind: body.kind,
       p_price: body.price,
       p_stock: body.stock,
@@ -114,7 +114,7 @@ type VariantInput = {
 };
 
 function normalizedVariant(body: VariantInput, includeProduct = false) {
-  if (!body.name?.trim() || !body.sku?.trim() || !Number.isInteger(body.price) || (body.price as number) < 0) return { error: "請填寫規格名稱、SKU 與正確價格" };
+  if (!body.name?.trim() || !Number.isInteger(body.price) || (body.price as number) < 0) return { error: "請填寫規格名稱與正確價格" };
   if (!['in_stock', 'preorder'].includes(body.kind || '')) return { error: "商品類型不正確" };
   if (includeProduct && !body.product_id) return { error: "請選擇商品" };
   const depositRate = body.kind === "preorder" ? 0.5 : Number(body.deposit_rate ?? 0);
@@ -123,7 +123,7 @@ function normalizedVariant(body: VariantInput, includeProduct = false) {
   const compareAtPrice = body.compare_at_price == null ? null : Number(body.compare_at_price);
   if (compareAtPrice != null && (!Number.isInteger(compareAtPrice) || compareAtPrice < 0 || compareAtPrice < price)) return { error: "原價須為 0 或正整數，且不可低於售價" };
   return { value: {
-    ...(includeProduct ? { product_id: body.product_id } : {}), name: body.name.trim(), sku: body.sku.trim().toUpperCase(), kind: body.kind,
+    ...(includeProduct ? { product_id: body.product_id } : {}), name: body.name.trim(), sku: body.sku?.trim().toUpperCase() || null, kind: body.kind,
     price: body.price, compare_at_price: compareAtPrice, safety_stock: Number.isInteger(body.safety_stock) ? body.safety_stock : 3,
     preorder_arrival: body.preorder_arrival?.trim() || null, deposit_rate: depositRate,
     seller_link: body.seller_link?.trim() || null, is_published: body.is_published === true,

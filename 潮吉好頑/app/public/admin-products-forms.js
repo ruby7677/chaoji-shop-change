@@ -36,7 +36,6 @@ const depositPercent = (variant) => Math.round(Number(variant.deposit_rate) * 10
 export function variantFormMarkup(variant, helpers) {
   return `<form class="admin-form" data-edit-variant-form="${escapeHtml(variant.id)}"><div class="form-grid">`
     + `<label>規格名稱<input name="name" required value="${escapeHtml(variant.name)}" /></label>`
-    + `<label>SKU<input name="sku" required value="${escapeHtml(variant.sku)}" /></label>`
     + `<label>類型<select name="kind"><option value="in_stock" ${variant.kind === "in_stock" ? "selected" : ""}>現貨</option><option value="preorder" ${variant.kind === "preorder" ? "selected" : ""}>預購</option></select></label>`
     + `<label>售價<input name="price" type="number" min="0" step="1" required value="${variant.price}" /></label>`
     + `<label>原價（選填）<input name="compare_at_price" type="number" min="0" step="1" value="${variant.compare_at_price ?? ""}" placeholder="例如 1680" /><small>高於售價時顯示刪除線與限時優惠。</small></label>`
@@ -53,13 +52,13 @@ export function variantFormMarkup(variant, helpers) {
 export function priceFormMarkup(product, variant, helpers) {
   const arrival = helpers.splitPreorderArrival(variant.preorder_arrival);
   const hidden = [
-    ["name", variant.name], ["sku", variant.sku], ["kind", variant.kind], ["safety_stock", variant.safety_stock],
+    ["name", variant.name], ["kind", variant.kind], ["safety_stock", variant.safety_stock],
     ["deposit_rate", depositPercent(variant)], ["preorder_arrival_from", arrival.from], ["preorder_arrival_until", arrival.until],
     ["preorder_arrival_raw", arrival.raw], ["display_order", variant.display_order], ["seller_link", variant.seller_link || ""]
   ];
   if (variant.is_published) hidden.push(["is_published", "on"]);
   return `<form class="admin-form admin-price-form" data-edit-variant-form="${escapeHtml(variant.id)}" data-price-form>`
-    + `<p class="admin-price-target"><b>${escapeHtml(product.name)}</b><span>${escapeHtml(variant.name)}・SKU ${escapeHtml(variant.sku)}</span></p>`
+    + `<p class="admin-price-target"><b>${escapeHtml(product.name)}</b><span>${escapeHtml(variant.name)}</span></p>`
     + hidden.map(([name, value]) => `<input type="hidden" name="${name}" value="${escapeHtml(value)}" />`).join("")
     + '<div class="form-grid">'
     + `<label>售價（顧客實付）<input name="price" type="number" min="0" step="1" required value="${variant.price}" /></label>`
@@ -93,7 +92,7 @@ function productFormMarkup(product, helpers) {
 function variantDetailsMarkup(variant, helpers, open) {
   const sale = discountPercent(variant);
   return `<details class="admin-edit-variant" data-edit-variant="${escapeHtml(variant.id)}" ${open ? "open" : ""}><summary>`
-    + `<span class="admin-edit-variant-name"><b>${escapeHtml(variant.name)}</b><small>SKU ${escapeHtml(variant.sku)}</small></span>`
+    + `<span class="admin-edit-variant-name"><b>${escapeHtml(variant.name)}</b></span>`
     + `<span class="admin-edit-variant-meta">${kindPill(variant.kind)}${sale ? `<span class="admin-pill danger">−${sale}%</span>` : ""}${variant.is_published ? "" : '<span class="admin-pill gray">未上架</span>'}${priceMarkup(variant)}</span>`
     + `</summary>${variantFormMarkup(variant, helpers)}</details>`;
 }

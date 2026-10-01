@@ -15,7 +15,7 @@ test("searchContextFor：products 對應商品搜尋欄位與文案", () => {
   assert.deepEqual(searchContextFor("products"), {
     input: "#admin-product-search",
     label: "搜尋商品",
-    placeholder: "搜尋商品名稱、分類、規格或 SKU"
+    placeholder: "搜尋商品名稱、分類或規格"
   });
 });
 

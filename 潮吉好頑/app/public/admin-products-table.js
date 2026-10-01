@@ -49,7 +49,7 @@ const STATUS_FILTER = {
 function ensureToolbar() {
   if (document.querySelector("[data-products-toolbar]")) return;
   list.insertAdjacentHTML("beforebegin", `<div class="admin-products-toolbar" data-products-toolbar>`
-    + '<label class="admin-products-search" hidden><span class="sr-only">搜尋商品</span><input id="admin-product-search" type="search" placeholder="商品名稱、分類、規格或 SKU" /></label>'
+    + '<label class="admin-products-search" hidden><span class="sr-only">搜尋商品</span><input id="admin-product-search" type="search" placeholder="商品名稱、分類或規格" /></label>'
     + '<select data-products-filter="cat" aria-label="分類"></select>'
     + '<select data-products-filter="kind" aria-label="類型"><option value="all">現貨＋預購</option><option value="in_stock">現貨</option><option value="preorder">預購</option></select>'
     + '<select data-products-filter="status" aria-label="上架狀態"><option value="all">全部狀態</option><option value="published">已上架</option><option value="unpublished">未上架</option><option value="sale">限時優惠中</option></select>'
@@ -82,7 +82,7 @@ function rowMarkup(product, variant, maxStock) {
   const percent = maxStock ? Math.round((Math.max(0, variant.stock_on_hand) / maxStock) * 100) : 0;
   const deposit = variant.kind !== "preorder" && Number(variant.deposit_rate) > 0 ? `<span class="cell-sub">訂金 ${Math.round(Number(variant.deposit_rate) * 100)}%</span>` : (variant.kind === "preorder" ? '<span class="cell-sub">訂金 50%</span>' : "");
   return `<tr data-variant-row="${escapeHtml(variant.id)}">${productCellMarkup(product)}`
-    + `<td data-l="規格">${variantSelectMarkup(product, variant, escapeHtml)}${escapeHtml(variant.name)}<span class="cell-sub mono">SKU ${escapeHtml(variant.sku)}</span></td>`
+    + `<td data-l="規格">${variantSelectMarkup(product, variant, escapeHtml)}${escapeHtml(variant.name)}</td>`
     + `<td data-l="類型">${kindPill(variant.kind)}</td>`
     + `<td class="num" data-l="售價"><span class="admin-price-cell">${priceMarkup(variant)}${sale ? `<span class="admin-pill danger">限時優惠 −${sale}%</span>` : ""}${deposit}</span></td>`
     + `<td data-l="庫存"><span class="admin-stock-cell"><span class="admin-stockbar${low ? " low" : ""}"><i data-stock-pct="${percent}"></i></span><span class="cell-sub">庫存 ${variant.stock_on_hand}・安全 ${variant.safety_stock}${low ? "・偏低" : ""}</span></span></td>`
@@ -309,7 +309,6 @@ function variantPayload(variant, isPublished) {
   // 與規格表單送出內容相同（submitDynamicAdminForm），只改上架狀態
   return {
     name: variant.name,
-    sku: variant.sku,
     kind: variant.kind,
     price: Number(variant.price),
     compare_at_price: variant.compare_at_price == null || variant.compare_at_price === "" ? null : Number(variant.compare_at_price),

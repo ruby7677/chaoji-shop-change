@@ -53,8 +53,7 @@ export function auditTargetName(entry, productNameById = () => "", memberNameByI
   const own = record.name || record.label || record.code || "";
   const productName = record.product_id ? productNameById(record.product_id) : "";
   const title = [productName, own].filter(Boolean).join("／");
-  if (title && record.sku) return `${title}（${record.sku}）`;
-  if (title || record.sku) return title || record.sku;
+  if (title) return title;
   // 會員點數等以會員 id 為目標：有會員資料時顯示姓名
   return (entry?.target && memberNameById(entry.target)) || entry?.target || "—";
 }
