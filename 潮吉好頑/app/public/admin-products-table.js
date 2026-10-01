@@ -16,7 +16,7 @@ const PRICE_SHEET_AUTO_CLOSE_MS = 15000;
 // 視為「這個表單剛存過、已經是最新資料」，不把送出前的快照還原回去蓋掉（否則會把剛存的值又改回舊值）。
 const EDIT_FORM_RESTORE_SKIP_MS = 15000;
 const EDIT_TAB_KEYS = ["product", "media", "variants"];
-const view = { cat: "all", kind: "all", status: "all" };
+const view = { cat: "all", kind: "all", status: "all", unpublishedOpen: false };
 let deps = null;
 let list = null;
 let editSheet = null;
@@ -98,6 +98,24 @@ function emptyProductRow(product) {
     + `<td data-l="操作"><span class="admin-row-actions"><button class="admin-row-button" type="button" data-product-edit="${escapeHtml(product.id)}" aria-label="編輯「${escapeHtml(product.name)}」">${adminIcon("edit")}<span>編輯</span></button></span></td></tr>`;
 }
 
+const TABLE_HEAD = '<thead><tr><th>商品</th><th>規格</th><th>類型</th><th class="num">售價</th><th>庫存</th><th>限購</th><th>上架</th><th><span class="sr-only">操作</span></th></tr></thead>';
+const isRowUnpublished = ({ product, variant }) => !product.is_published || (variant && !variant.is_published);
+
+function tableMarkup(rows, maxStock) {
+  return `<div class="admin-table-wrap"><table class="admin-stack-table">${TABLE_HEAD}<tbody>`
+    + rows.map(({ product, variant }) => (variant ? rowMarkup(product, variant, maxStock) : emptyProductRow(product))).join("")
+    + "</tbody></table></div>";
+}
+
+// 最下方「已下架」區塊：商品或規格任一未上架的列都收在這裡，預設收合；篩選只看未上架時主列表為空，自動展開
+function unpublishedSectionMarkup(rows, maxStock, open) {
+  return `<section class="admin-unpublished${open ? " is-open" : ""}" data-unpublished-section aria-labelledby="admin-unpublished-title">`
+    + `<div class="admin-unpublished-head"><h3 id="admin-unpublished-title">已下架 <span class="admin-pill gray">${rows.length}</span></h3>`
+    + `<button class="admin-unpublished-toggle" type="button" data-unpublished-toggle aria-expanded="${open}" aria-controls="admin-unpublished-body">`
+    + `<span data-unpublished-toggle-label>${open ? "收合" : "展開"}</span>${adminIcon("chevron")}</button></div>`
+    + `<div id="admin-unpublished-body" class="admin-unpublished-body" ${open ? "" : "hidden"}>${tableMarkup(rows, maxStock)}</div></section>`;
+}
+
 function drawTable() {
   const products = deps.getProducts();
   syncCategoryFilter(products);
@@ -120,12 +138,23 @@ function drawTable() {
     syncVariantBatch();
     return;
   }
-  list.innerHTML = '<div class="admin-table-wrap"><table class="admin-stack-table"><thead><tr><th>商品</th><th>規格</th><th>類型</th><th class="num">售價</th><th>庫存</th><th>限購</th><th>上架</th><th><span class="sr-only">操作</span></th></tr></thead><tbody>'
-    + rows.map(({ product, variant }) => (variant ? rowMarkup(product, variant, maxStock) : emptyProductRow(product))).join("")
-    + "</tbody></table></div>";
+  const activeRows = rows.filter((row) => !isRowUnpublished(row));
+  const unpublishedRows = rows.filter(isRowUnpublished);
+  list.innerHTML = (activeRows.length ? tableMarkup(activeRows, maxStock) : '<div class="empty-state">目前沒有上架中的商品。</div>')
+    + (unpublishedRows.length ? unpublishedSectionMarkup(unpublishedRows, maxStock, view.unpublishedOpen || !activeRows.length) : "");
   // CSP 不允許 style 屬性：庫存條寬度以 CSSOM 設定
   list.querySelectorAll("[data-stock-pct]").forEach((bar) => bar.style.setProperty("width", `${bar.dataset.stockPct}%`));
   syncVariantBatch();
+}
+
+function toggleUnpublished(button) {
+  const section = button.closest("[data-unpublished-section]");
+  const open = button.getAttribute("aria-expanded") !== "true";
+  view.unpublishedOpen = open;
+  button.setAttribute("aria-expanded", String(open));
+  button.querySelector("[data-unpublished-toggle-label]").textContent = open ? "收合" : "展開";
+  section.classList.toggle("is-open", open);
+  section.querySelector("#admin-unpublished-body").hidden = !open;
 }
 
 // ---------- 滑出面板 ----------
@@ -353,6 +382,8 @@ function bindEvents() {
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof Element) || !target.closest("#admin-dialog")) return;
+    const unpublishedToggle = target.closest("[data-unpublished-toggle]");
+    if (unpublishedToggle) return toggleUnpublished(unpublishedToggle);
     const publish = target.closest("[data-variant-publish]");
     if (publish) return void togglePublish(publish);
     const price = target.closest("[data-variant-price]");
