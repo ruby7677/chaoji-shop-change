@@ -10,9 +10,12 @@ const adminOrderStatuses = ["pending_payment", "pending_review", "confirmed", "p
 export async function transitionAdminOrder(request: Request, env: Env, orderId: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
   if (admin instanceof Response) return admin;
-  let body: { target_status?: string; note?: string };
+  let body: { target_status?: string; note?: string; refund_amount?: number | null };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   const targetStatus = body.target_status;
+  // 退款金額只在取消／確認已退款時送出；最終上限與「未付款必為 0」由 admin_transition_order 檢查
+  const refundAmount = body.refund_amount ?? null;
+  if (refundAmount !== null && (!Number.isInteger(refundAmount) || refundAmount < 0)) return json({ error: "退款金額必須是 0 或正整數" }, { status: 400 });
   if (!targetStatus || !adminOrderStatuses.includes(targetStatus as typeof adminOrderStatuses[number])) return json({ error: "訂單狀態不正確" }, { status: 400 });
   if ((body.note || "").length > 1000) return json({ error: "管理備註不可超過 1000 字" }, { status: 400 });
   if (["partially_ready", "ready_for_pickup"].includes(targetStatus)) {
@@ -40,7 +43,7 @@ export async function transitionAdminOrder(request: Request, env: Env, orderId: 
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_transition_order`, {
     method: "POST",
     headers: serviceHeaders(env),
-    body: JSON.stringify({ p_actor_id: admin.user.id, p_order_id: orderId, p_target_status: targetStatus, p_note: body.note?.trim() || null })
+    body: JSON.stringify({ p_actor_id: admin.user.id, p_order_id: orderId, p_target_status: targetStatus, p_note: body.note?.trim() || null, p_refund_amount: refundAmount })
   });
   if (!response.ok) return databaseError(response);
   // 取消會釋放保留量，改變前台型錄的可售量

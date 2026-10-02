@@ -43,6 +43,7 @@ export const NOTIFICATION_COPY = {
       deposit: "訂金",
       balance: "尾款／運費",
       totalBalance: "總計尾款",
+      remaining: "待付尾款",
       recipient: "姓名",
       phone: "電話",
       address: "地址",
@@ -254,6 +255,11 @@ function orderFlexTitle(data: OrderMessageData) {
   return "訂單狀態更新";
 }
 
+// 取消與退款以紅色標示，其餘狀態維持 LINE 綠
+function orderStatusColor(orderStatus: string) {
+  return ["cancelled", "refunded"].includes(orderStatus) ? "#D92D20" : "#06C755";
+}
+
 function orderFlexSummary(data: OrderMessageData) {
   if (data.eventType === "created") {
     return "提醒您已成功建立訂單，請依頁面提示完成付款或回報匯款末五碼。";
@@ -269,6 +275,12 @@ function orderFlexSummary(data: OrderMessageData) {
   }
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "宅配") {
     return "商品已寄出，請留意貨運的電話／簡訊通知。";
+  }
+  if (data.eventType === "status_changed" && data.orderStatus === "cancelled") {
+    return "您的訂單已取消，如有疑問請直接回覆官方帳號。";
+  }
+  if (data.eventType === "status_changed" && data.orderStatus === "refunded") {
+    return "退款已完成，請留意帳戶入帳，如有疑問請直接回覆官方帳號。";
   }
   return "訂單進度已更新，請留意後續通知。";
 }
@@ -302,6 +314,12 @@ export function buildLineOrderFlexMessage(data: OrderMessageData, altText: strin
           : NOTIFICATION_COPY.order.delivery.homeShippingPendingStock;
       contents.push(flexRow(NOTIFICATION_COPY.order.labels.shipping, shippingValue));
     }
+  }
+
+  // 確認付款只收訂金（預購）時，列出還要付的尾款；全額付清或賣貨便外部收款不顯示
+  const remaining = Number(data.amountDue || 0) - Number(data.paidAmount || 0);
+  if (data.eventType === "status_changed" && data.orderStatus === "confirmed" && Number(data.paidAmount || 0) > 0 && remaining > 0) {
+    contents.push(flexRow(NOTIFICATION_COPY.order.labels.remaining, money(remaining)));
   }
 
   if (data.shippingRecipientName || data.shippingPhone || data.shippingAddress) {
@@ -340,7 +358,7 @@ export function buildLineOrderFlexMessage(data: OrderMessageData, altText: strin
           { type: "text", text: orderFlexTitle(data), color: "#333333", size: "xl", weight: "bold", wrap: true },
           { type: "text", text: orderFlexSummary(data), color: "#555555", size: "md", margin: "md", wrap: true },
           { type: "separator", margin: "lg", color: "#E5E5E5" },
-          { type: "text", text: data.statusLabel || data.orderStatus, color: "#06C755", size: "md", weight: "bold", margin: "lg", wrap: true },
+          { type: "text", text: data.statusLabel || data.orderStatus, color: orderStatusColor(data.orderStatus), size: "md", weight: "bold", margin: "lg", wrap: true },
           ...contents
         ]
       },

@@ -6,7 +6,7 @@ import { loadProducts, renderProducts } from "./storefront-catalog.js";
 import { adminData, adminFetch, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
 import { confirmationAmount, isQuickConfirmable, moneySummary, paymentConfirmation } from "./admin-order-payment.js";
 import { initOrderBatch, orderSelectMarkup, syncOrderBatch } from "./admin-order-batch.js";
-import { availableTransitions, isDangerousTarget, riskOnlyEntryLabel, transitionConfirmation, transitionSubmitLabel } from "./admin-order-transition.js";
+import { availableTransitions, isDangerousTarget, parseRefundAmount, refundFieldFor, riskOnlyEntryLabel, transitionConfirmation, transitionSubmitLabel } from "./admin-order-transition.js";
 
 
 const adminOrderStatusFilterGroups = [
@@ -122,7 +122,7 @@ export function renderAdminOrders() {
     const moneyGrid = `<details class="admin-order-money"><summary>${escapeHtml(moneySummary(order))}</summary><div class="admin-order-payment"><span class="admin-order-total">總額 <b>${money(order.amount_due)}</b></span><span class="admin-order-payment-method">運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span class="admin-order-deposit">訂金應付 <b>${money(order.deposit_due)}</b></span><span class="admin-order-paid">已確認 <b>${money(order.paid_amount || 0)}</b></span><span class="admin-order-balance">待收尾款 <b>${money(balance)}</b></span><span class="admin-order-discount admin-order-coupon">優惠券折抵 <b>${adminDiscountLabel(couponDiscount)}</b></span><span class="admin-order-discount admin-order-points">點數折抵 <b>${adminDiscountLabel(pointDiscount)}</b></span></div></details>`;
     // 一鍵確認卡片已在上方顯示末五碼／收款帳戶，這裡不重複顯示匯款列
     const bankRow = quick ? "" : `<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span>匯款末五碼：<b>${escapeHtml(order.payment_last_five || "尚未回報")}</b></span></div>`;
-    const transitionForm = transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status" required>${optionsWithPlaceholder}</select></label><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消與退款相關操作必填；其他操作可選填"></textarea></label><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>';
+    const transitionForm = transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status" required>${optionsWithPlaceholder}</select></label><div class="admin-order-note-row"><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消與退款相關操作必填；其他操作可選填"></textarea></label><label class="admin-order-refund" hidden>退款金額（NT$）<input name="refund_amount" type="number" min="0" step="1" inputmode="numeric" /></label></div><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>';
     // 一鍵確認卡片把其餘操作（取消、備註）收進 details，避免與主按鈕搶注意力
     // 只剩退款／取消時（例如已完成訂單）同樣收成次要入口，不讓高風險表單佔據卡片
     const riskOnlyLabel = riskOnlyEntryLabel(transitions);
@@ -197,8 +197,22 @@ export function renderAdminOrders() {
     const target = form.querySelector("select[name='target_status']");
     const button = form.querySelector("button[type='submit']");
     if (!(target instanceof HTMLSelectElement) || !(button instanceof HTMLButtonElement)) return;
+    const refundLabel = form.querySelector(".admin-order-refund");
+    const refundInput = refundLabel?.querySelector("input[name='refund_amount']");
+    const formOrder = (adminData.orders || []).find((order) => order.id === form.dataset.adminOrderForm);
     const syncRiskState = () => {
       const dangerous = isDangerousTarget(target.value);
+      // 取消／確認已退款：備註縮成一半，旁邊顯示退款金額（預填已收金額）
+      const refund = refundFieldFor(formOrder, target.value);
+      if (refundLabel && refundInput) {
+        const wasHidden = refundLabel.hidden;
+        refundLabel.hidden = !refund;
+        form.classList.toggle("has-refund", Boolean(refund));
+        if (refund) {
+          refundInput.max = String(refund.max);
+          if (wasHidden) refundInput.value = String(refund.defaultAmount);
+        }
+      }
       button.classList.toggle("danger-button", dangerous);
       button.disabled = !target.value;
       button.textContent = transitionSubmitLabel(target.value, target.selectedOptions[0]?.textContent.trim());
@@ -213,8 +227,8 @@ export function renderAdminOrders() {
 
 // submitAdminOrderTransition 與 quickConfirmAdminOrder 共用：送出同一個 transition API 並刷新同一組畫面。
 // 後端行為不變，仍是 POST /api/admin/orders/:id/transition，body 為 { target_status, note }。
-async function postAdminOrderTransition(orderId, targetStatus, note) {
-  await adminFetch(`/api/admin/orders/${orderId}/transition`, { method: "POST", body: JSON.stringify({ target_status: targetStatus, note }) });
+async function postAdminOrderTransition(orderId, targetStatus, note, refundAmount = null) {
+  await adminFetch(`/api/admin/orders/${orderId}/transition`, { method: "POST", body: JSON.stringify({ target_status: targetStatus, note, ...(refundAmount === null ? {} : { refund_amount: refundAmount }) }) });
   await refreshAdminSections(["orders", "overview", "inventory", "products"]);
   switchAdminTab("orders");
   showToast("訂單狀態已更新", "success");
@@ -235,6 +249,8 @@ export async function submitAdminOrderTransition(event) {
   if (!targetStatus) throw Object.assign(new Error("請先選擇下一步"), { field: "target_status" });
   if (isDangerousTarget(targetStatus) && !note) throw Object.assign(new Error("取消或退款相關操作必須填寫原因"), { field: "note" });
   const currentOrder = (adminData.orders || []).find((order) => order.id === form.dataset.adminOrderForm);
+  const refundField = refundFieldFor(currentOrder, targetStatus);
+  const refundAmount = refundField ? parseRefundAmount(form.querySelector("input[name='refund_amount']")?.value, refundField.max) : null;
   let confirmed;
   if (targetStatus === "confirmed" && currentOrder) {
     // 確認款項：改用附金額、末五碼與收款帳戶的加強版確認框，取代看不出金額的通用文字
@@ -244,14 +260,14 @@ export async function submitAdminOrderTransition(event) {
     // 標題寫出動作，明細列出訂單、會員與金額（退款顯示已收金額），高風險時附上原因
     const optionLabel = targetStatusField.selectedOptions[0]?.textContent.trim() || "";
     const memberName = relationOne(currentOrder?.profiles)?.full_name || "";
-    const { title, details, message, confirmLabel, danger } = transitionConfirmation(currentOrder, { targetStatus, optionLabel, memberName, note });
+    const { title, details, message, confirmLabel, danger } = transitionConfirmation(currentOrder, { targetStatus, optionLabel, memberName, note, refundAmount });
     confirmed = await adminConfirm({ title, details, message, confirmLabel, danger, trigger: event.submitter });
   }
   if (!confirmed) return;
   const button = form.querySelector("button[type='submit']");
   button.disabled = true;
   try {
-    await postAdminOrderTransition(form.dataset.adminOrderForm, targetStatus, note);
+    await postAdminOrderTransition(form.dataset.adminOrderForm, targetStatus, note, refundAmount);
   } finally {
     button.disabled = false;
   }

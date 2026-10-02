@@ -78,9 +78,9 @@ end;
 $$;
 
 -- 管理員透過 Worker 變更訂單狀態。
-create or replace function tests.transition(p_order uuid, p_status text, p_note text default null) returns jsonb
+create or replace function tests.transition(p_order uuid, p_status text, p_note text default null, p_refund integer default null) returns jsonb
 language sql
-as $$ select public.admin_transition_order(tests.id('admin'), p_order, p_status::public.order_status, p_note) $$;
+as $$ select public.admin_transition_order(tests.id('admin'), p_order, p_status::public.order_status, p_note, p_refund) $$;
 
 create or replace function tests.point_balance(p_member uuid) returns integer
 language sql stable security definer set search_path = ''

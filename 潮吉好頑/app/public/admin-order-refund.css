@@ -1,0 +1,10 @@
+/* 訂單「下一步」選取消或確認已退款時：管理備註縮成一半，旁邊顯示退款金額（admin-orders-panel.js 切換 .has-refund）。 */
+#admin-dialog .admin-order-note-row { display: grid; grid-template-columns: 1fr; gap: 9px; min-width: 0; }
+#admin-dialog .admin-order-action.has-refund .admin-order-note-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+#admin-dialog .admin-order-refund[hidden] { display: none; }
+#admin-dialog .admin-order-refund input { display: block; width: 100%; min-height: 44px; margin-top: 4px; padding: 8px; border: 1px solid var(--admin-border, #e5dfcf); border-radius: 7px; background: #fff; font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
+#admin-dialog .admin-order-refund input:focus { border-color: #141414; outline: none; box-shadow: 0 0 0 3px #fff6b8; }
+/* 窄畫面上下排列，金額欄維持完整寬度 */
+@media (max-width: 760px) {
+  #admin-dialog .admin-order-action.has-refund .admin-order-note-row { grid-template-columns: 1fr; }
+}

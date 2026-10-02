@@ -11,6 +11,17 @@ const lineOrderStatusLabels: Record<string, string> = {
   cancelled: "已取消", refund_pending: "退款處理中", refunded: "已退款"
 };
 
+// 狀態文字帶出實際金額：確認付款顯示後台確認收到的金額（paid_amount），取消／確認已退款顯示退款金額（refunded_amount）
+export function orderStatusLabel(status: string, refundedAmount?: number | null, paidAmount?: number | null) {
+  const ntd = (value: number) => `NT$${value.toLocaleString("zh-TW")}`;
+  const refund = Number(refundedAmount || 0);
+  const paid = Number(paidAmount || 0);
+  if (status === "confirmed" && paid > 0) return `已確認付款 ${ntd(paid)}`;
+  if (status === "cancelled") return refund > 0 ? `已取消訂單，並已退款 ${ntd(refund)}` : "已取消訂單";
+  if (status === "refunded" && refundedAmount != null) return `已退款 ${ntd(refund)}`;
+  return lineOrderStatusLabels[status] || status;
+}
+
 function lineNotificationEnabled(env: Env) {
   return env.LINE_NOTIFY_ENABLED !== "false" && Boolean(env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN);
 }
@@ -53,7 +64,7 @@ export async function testTelegramNotification(request: Request, env: Env): Prom
 async function loadOrderNotification(env: Env, orderId: string) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set("select", "id,order_number,status,delivery_method,bank_account_id,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,paid_amount,final_payment_last_five,final_payment_confirmed_at,updated_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,profiles!orders_member_id_fkey(full_name,line_user_id,is_admin),order_items(product_name,variant_name,quantity,kind)");
+  url.searchParams.set("select", "id,order_number,status,delivery_method,bank_account_id,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,paid_amount,refunded_amount,final_payment_last_five,final_payment_confirmed_at,updated_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,profiles!orders_member_id_fkey(full_name,line_user_id,is_admin),order_items(product_name,variant_name,quantity,kind)");
   url.searchParams.set("id", `eq.${orderId}`);
   let response: Response;
   // 這裡沒有上層 try/catch（呼叫端以 ctx.waitUntil 執行），逾時或網路錯誤需自行吞掉，
@@ -62,7 +73,7 @@ async function loadOrderNotification(env: Env, orderId: string) {
   catch { return null; }
   if (!response.ok) return null;
   const rows = await response.json() as unknown[];
-  return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; shipping_address?: string | null; shipping_recipient_name?: string | null; shipping_phone?: string | null; shipping_fee_notified_at?: string | null; paid_amount?: number; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string; is_admin?: boolean }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number; kind?: string }> };
+  return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; shipping_address?: string | null; shipping_recipient_name?: string | null; shipping_phone?: string | null; shipping_fee_notified_at?: string | null; paid_amount?: number; refunded_amount?: number | null; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string; is_admin?: boolean }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number; kind?: string }> };
 }
 
 /** Resolves true once every recipient's notification is sent or owned by the delivery state machine. */
@@ -79,7 +90,7 @@ export async function notifyOrderEvent(env: Env, orderId: string, eventType: Ord
     storeName: env.STORE_NAME,
     eventType,
     orderStatus: order.status,
-    statusLabel: lineOrderStatusLabels[order.status] || order.status,
+    statusLabel: orderStatusLabel(order.status, order.refunded_amount, order.paid_amount),
     orderNumber: order.order_number,
     items,
     deliveryLine,

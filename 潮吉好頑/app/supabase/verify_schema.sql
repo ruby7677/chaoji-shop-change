@@ -11,7 +11,7 @@ select
   to_regprocedure('public.admin_create_product(uuid,text,text,text,text,text,public.product_kind,integer,integer,text,numeric,text,boolean,integer,boolean,integer)') is not null as admin_create_product_latest_exists,
   to_regprocedure('public.admin_adjust_inventory(uuid,uuid,integer,text)') is not null as admin_adjust_inventory_exists,
   to_regclass('public.order_status_history') is not null as order_status_history_exists,
-  to_regprocedure('public.admin_transition_order(uuid,uuid,public.order_status,text)') is not null as admin_transition_order_exists,
+  to_regprocedure('public.admin_transition_order(uuid,uuid,public.order_status,text,integer)') is not null as admin_transition_order_exists,
   to_regprocedure('public.sync_order_confirmation_timestamp()') is not null as order_confirmation_timestamp_trigger_exists,
   to_regclass('public.point_settings') is not null as point_settings_exists,
   to_regclass('public.admin_member_summary') is not null as admin_member_summary_exists,

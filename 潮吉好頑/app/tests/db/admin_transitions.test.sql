@@ -58,7 +58,7 @@ select tests.as_service();
 select tests.transition((select id from t_order), 'confirmed');
 select tests.expect_error(format($$select tests.transition(%L, 'cancelled')$$, (select id from t_order)),
                           'ORDER_NOTE_REQUIRED', 'cancellation needs a reason');
-select tests.transition((select id from t_order), 'cancelled', '客人取消');
+select tests.transition((select id from t_order), 'cancelled', '客人取消', 2000);
 select tests.expect_error(format($$select tests.transition(%L, 'cancelled', '再取消一次')$$, (select id from t_order)),
                           'ORDER_STATUS_UNCHANGED', 'cancelling twice is rejected');
 select tests.logout();
@@ -105,7 +105,7 @@ select tests.logout();
 select tests.assert(tests.point_balance(tests.id('member_a')) = 39, 'completing earns floor((2000 - 30) / 100) = 19 points');
 select tests.as_service();
 select tests.transition((select id from t_order), 'refund_pending', '退款');
-select tests.transition((select id from t_order), 'refunded', '已退款');
+select tests.transition((select id from t_order), 'refunded', '已退款', 1970);
 select tests.logout();
 select tests.assert(tests.point_balance(tests.id('member_a')) = 50, 'refund returns redeemed points and removes earned points');
 select tests.assert((select count(*) = 1 from public.point_ledger where order_id = (select id from t_order) and kind = 'earn'), 'points are earned once');
@@ -127,4 +127,44 @@ select tests.expect_error($$select public.admin_adjust_inventory(tests.id('admin
                           'permission denied', 'inventory RPC is not exposed to members');
 select tests.logout();
 select tests.assert((select status = 'pending_payment' from public.orders where id = (select id from t_order)), 'order is unchanged');
+rollback;
+
+-- 退款金額：取消已付款訂單與確認已退款必填、0 到應付總額之間；未付款取消固定 0；其他狀態不可帶金額；寫入訂單與狀態歷程。
+begin;
+select tests.seed();
+select tests.login(tests.id('member_a'));
+create temp table t_order on commit drop as select tests.place_order(tests.id('variant_stock'), 1) as id;
+grant select on t_order to public;
+select public.submit_order_payment((select id from t_order), tests.id('bank'), '12345');
+select tests.as_service();
+select tests.transition((select id from t_order), 'confirmed');
+select tests.expect_error(format($$select tests.transition(%L, 'cancelled', '客人取消')$$, (select id from t_order)),
+                          'REFUND_AMOUNT_REQUIRED', 'cancelling a paid order needs a refund amount');
+select tests.expect_error(format($$select tests.transition(%L, 'cancelled', '客人取消', -1)$$, (select id from t_order)),
+                          'INVALID_REFUND_AMOUNT', 'negative refund is rejected');
+select tests.expect_error(format($$select tests.transition(%L, 'cancelled', '客人取消', 1001)$$, (select id from t_order)),
+                          'INVALID_REFUND_AMOUNT', 'refund above the amount due is rejected');
+select tests.expect_error(format($$select tests.transition(%L, 'ready_for_pickup', null, 100)$$, (select id from t_order)),
+                          'REFUND_AMOUNT_NOT_APPLICABLE', 'other transitions cannot carry a refund amount');
+select (tests.transition((select id from t_order), 'cancelled', '客人取消', 1000) ->> 'refunded_amount')::integer = 1000 as returned;
+select tests.logout();
+select tests.assert((select status = 'cancelled' and refunded_amount = 1000 from public.orders where id = (select id from t_order)),
+                    'refund amount is stored on the cancelled order');
+select tests.assert((select note = '客人取消（退款 NT$1000）' from public.order_status_history where order_id = (select id from t_order) and to_status = 'cancelled'),
+                    'status history note records the refund');
+rollback;
+
+begin;
+select tests.seed();
+select tests.login(tests.id('member_a'));
+create temp table t_order on commit drop as select tests.place_order(tests.id('variant_stock'), 1) as id;
+grant select on t_order to public;
+select tests.as_service();
+select tests.expect_error(format($$select tests.transition(%L, 'cancelled', '未付款', 500)$$, (select id from t_order)),
+                          'REFUND_NOT_ALLOWED_UNPAID', 'an unpaid order cannot record a refund');
+select tests.transition((select id from t_order), 'cancelled', '未付款');
+select tests.logout();
+select tests.assert((select refunded_amount = 0 from public.orders where id = (select id from t_order)), 'unpaid cancellation stores a zero refund');
+select tests.assert((select note = '未付款' from public.order_status_history where order_id = (select id from t_order) and to_status = 'cancelled'),
+                    'unpaid cancellation note is unchanged');
 rollback;
