@@ -15,7 +15,6 @@ const ADMIN_ORDERS_SELECT = "id,member_id,order_number,status,pickup_plan,delive
 
 const ADMIN_ORDER_HISTORY_SELECT = "id,order_id,from_status,to_status,note,created_at,profiles(full_name)";
 
-const ADMIN_RETURNS_SELECT = "id,order_id,order_item_id,sale_movement_id,received_quantity,restock_quantity,scrap_quantity,note,created_at";
 
 const ADMIN_MEMBER_SELECT = "id,full_name,phone,birthday,address,is_admin,created_at,point_balance,lifetime_spend,order_count";
 
@@ -84,14 +83,13 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
       if (!searchResponse.ok) return databaseError(searchResponse);
       const searchResult = await searchResponse.json() as { ids?: unknown; pagination?: Record<string, unknown> };
       const ids = Array.isArray(searchResult.ids) ? searchResult.ids.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)) : [];
-      if (!ids.length) return json({ orders: [], orderHistory: [], returns: [], pagination: { orders: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, orderHistory: { page: page.page, pageSize: page.pageSize, hasMore: false }, returns: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+      if (!ids.length) return json({ orders: [], orderHistory: [], pagination: { orders: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, orderHistory: { page: page.page, pageSize: page.pageSize, hasMore: false }, returns: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
       const idFilter = adminIdFilter(ids);
-      const [orders, orderHistory, returns] = await Promise.all([
+      const [orders, orderHistory] = await Promise.all([
         rows("orders", ADMIN_ORDERS_SELECT, { id: idFilter, order: "created_at.desc", limit: String(page.pageSize) }),
-        rows("order_status_history", ADMIN_ORDER_HISTORY_SELECT, { order_id: idFilter, order: "created_at.desc", limit: "500" }),
-        rows("inventory_return_confirmations", ADMIN_RETURNS_SELECT, { order_id: idFilter, order: "created_at.desc", limit: "500" })
+        rows("order_status_history", ADMIN_ORDER_HISTORY_SELECT, { order_id: idFilter, order: "created_at.desc", limit: "500" })
       ]);
-      return json({ orders: orderRowsByIds(orders, ids), orderHistory, returns, pagination: { orders: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, orderHistory: { page: page.page, pageSize: page.pageSize, hasMore: false }, returns: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+      return json({ orders: orderRowsByIds(orders, ids), orderHistory, pagination: { orders: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, orderHistory: { page: page.page, pageSize: page.pageSize, hasMore: false }, returns: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
     }
     if (section === "members") {
       const page = adminPage(request, 100);

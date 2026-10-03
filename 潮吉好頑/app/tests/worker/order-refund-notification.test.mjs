@@ -15,8 +15,6 @@ test("status labels carry the refunded or confirmed amount", () => {
   assert.equal(notifications.orderStatusLabel("cancelled", 1180), "已取消訂單，並已退款 NT$1,180");
   assert.equal(notifications.orderStatusLabel("cancelled", 0), "已取消訂單");
   assert.equal(notifications.orderStatusLabel("cancelled", null), "已取消訂單");
-  assert.equal(notifications.orderStatusLabel("refunded", 1970), "已退款 NT$1,970");
-  assert.equal(notifications.orderStatusLabel("refunded", null), "已退款");
   assert.equal(notifications.orderStatusLabel("confirmed", null, 600), "已確認付款 NT$600");
   assert.equal(notifications.orderStatusLabel("confirmed", null, 0), "已確認付款");
   assert.equal(notifications.orderStatusLabel("completed", 500, 1000), "已完成訂單");
@@ -33,9 +31,8 @@ const statusNode = (data) => {
   return body.find((node) => node.text === data.statusLabel);
 };
 
-test("cancelled and refunded cards use red status text, others stay LINE green", () => {
+test("cancelled cards use red status text, others stay LINE green", () => {
   assert.equal(statusNode({ ...base, orderStatus: "cancelled", statusLabel: "已取消訂單，並已退款 NT$1,200" }).color, "#D92D20");
-  assert.equal(statusNode({ ...base, orderStatus: "refunded", statusLabel: "已退款 NT$1,200" }).color, "#D92D20");
   assert.equal(statusNode({ ...base, orderStatus: "confirmed", statusLabel: "已確認付款 NT$1,200" }).color, "#06C755");
   assert.match(flexTexts({ ...base, orderStatus: "cancelled", statusLabel: "已取消訂單" }), /您的訂單已取消/);
 });

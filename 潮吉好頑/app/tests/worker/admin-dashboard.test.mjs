@@ -56,17 +56,17 @@ test("overview returns stats, todo orders, recent orders and low stock in one re
   assert.deepEqual(seen.bodies["/rest/v1/rpc/low_stock_variants"], { p_limit: 20 }, "low stock comes from the shared database definition, capped at 20");
 });
 
-test("todo orders are filtered by the database with the four manual-work rules", async () => {
+test("todo orders are filtered by the database with the three manual-work rules", async () => {
   const seen = fakeSupabase();
   await dashboard("?section=overview");
   const todoQuery = seen.queries.find((url) => url.pathname === "/rest/v1/orders" && url.searchParams.has("or"));
   const filter = todoQuery.searchParams.get("or");
   for (const rule of [
     "status.eq.pending_review",
-    "status.eq.refund_pending",
     "and(delivery_method.eq.seller_delivery,status.eq.pending_payment,bank_account_id.is.null)",
     "and(delivery_method.eq.home_delivery,status.eq.ready_for_pickup,final_payment_confirmed_at.is.null)"
   ]) assert.ok(filter.includes(rule), `todo filter includes ${rule}`);
+  assert.ok(!filter.includes("refund_pending"), "refund flow is no longer a todo");
   assert.match(todoQuery.searchParams.get("select"), /order_items\(kind\)/, "status labels can tell preorders apart");
   assert.doesNotMatch(todoQuery.searchParams.get("select"), /shipping_address|shipping_phone|account_number/, "overview does not load unnecessary personal or bank fields");
 });

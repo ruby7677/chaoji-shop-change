@@ -8,17 +8,16 @@ import { fetchWithTimeout, json, serviceHeaders } from "./http";
 const lineOrderStatusLabels: Record<string, string> = {
   pending_payment: "待付款", pending_review: "待確認款項", confirmed: "已確認付款",
   partially_ready: "部分到貨", ready_for_pickup: "配送處理中", completed: "已完成訂單",
-  cancelled: "已取消", refund_pending: "退款處理中", refunded: "已退款"
+  cancelled: "已取消"
 };
 
-// 狀態文字帶出實際金額：確認付款顯示後台確認收到的金額（paid_amount），取消／確認已退款顯示退款金額（refunded_amount）
+// 狀態文字帶出實際金額：確認付款顯示後台確認收到的金額（paid_amount），取消顯示退款金額（refunded_amount）
 export function orderStatusLabel(status: string, refundedAmount?: number | null, paidAmount?: number | null) {
   const ntd = (value: number) => `NT$${value.toLocaleString("zh-TW")}`;
   const refund = Number(refundedAmount || 0);
   const paid = Number(paidAmount || 0);
   if (status === "confirmed" && paid > 0) return `已確認付款 ${ntd(paid)}`;
   if (status === "cancelled") return refund > 0 ? `已取消訂單，並已退款 ${ntd(refund)}` : "已取消訂單";
-  if (status === "refunded" && refundedAmount != null) return `已退款 ${ntd(refund)}`;
   return lineOrderStatusLabels[status] || status;
 }
 

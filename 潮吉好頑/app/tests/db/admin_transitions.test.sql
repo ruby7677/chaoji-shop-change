@@ -81,7 +81,7 @@ select tests.expect_error(format($$select tests.transition(%L, 'confirmed')$$, (
                           'INVALID_ORDER_TRANSITION', 'bank transfer order needs a payment report before confirmation');
 rollback;
 
--- 點數：下單折抵、取消退回；完成訂單入點，退款扣回已賺點數並退回折抵。
+-- 點數：下單折抵；完成訂單入點；退款流程移除後完成訂單不能再退款或取消。
 begin;
 select tests.seed();
 insert into public.point_ledger(member_id, kind, points, reason) values (tests.id('member_a'), 'manual', 50, '測試贈點');
@@ -103,11 +103,14 @@ select tests.transition((select id from t_order), 'confirmed');
 select tests.transition((select id from t_order), 'completed');
 select tests.logout();
 select tests.assert(tests.point_balance(tests.id('member_a')) = 39, 'completing earns floor((2000 - 30) / 100) = 19 points');
+-- 退款流程已移除（202610030001）：完成後的訂單不能再進入退款處理，也不能取消，點數維持不變。
 select tests.as_service();
-select tests.transition((select id from t_order), 'refund_pending', '退款');
-select tests.transition((select id from t_order), 'refunded', '已退款', 1970);
+select tests.expect_error(format($$select tests.transition(%L, 'refund_pending', '退款')$$, (select id from t_order)),
+                          'INVALID_ORDER_TRANSITION', 'completed orders can no longer enter a refund');
+select tests.expect_error(format($$select tests.transition(%L, 'cancelled', '取消', 0)$$, (select id from t_order)),
+                          'INVALID_ORDER_TRANSITION', 'completed orders cannot be cancelled');
 select tests.logout();
-select tests.assert(tests.point_balance(tests.id('member_a')) = 50, 'refund returns redeemed points and removes earned points');
+select tests.assert(tests.point_balance(tests.id('member_a')) = 39, 'rejected refund attempts leave points unchanged');
 select tests.assert((select count(*) = 1 from public.point_ledger where order_id = (select id from t_order) and kind = 'earn'), 'points are earned once');
 rollback;
 
@@ -167,4 +170,19 @@ select tests.logout();
 select tests.assert((select refunded_amount = 0 from public.orders where id = (select id from t_order)), 'unpaid cancellation stores a zero refund');
 select tests.assert((select note = '未付款' from public.order_status_history where order_id = (select id from t_order) and to_status = 'cancelled'),
                     'unpaid cancellation note is unchanged');
+rollback;
+
+-- 退款流程已移除：已確認訂單不能進入退款處理；退貨驗收函式已刪除。
+begin;
+select tests.seed();
+select tests.login(tests.id('member_a'));
+create temp table t_order on commit drop as select tests.place_order(tests.id('variant_stock'), 1) as id;
+grant select on t_order to public;
+select public.submit_order_payment((select id from t_order), tests.id('bank'), '12345');
+select tests.as_service();
+select tests.transition((select id from t_order), 'confirmed');
+select tests.expect_error(format($$select tests.transition(%L, 'refund_pending', '退款')$$, (select id from t_order)),
+                          'INVALID_ORDER_TRANSITION', 'confirmed orders can no longer enter a refund');
+select tests.logout();
+select tests.assert(to_regprocedure('public.admin_confirm_order_return(uuid,uuid,integer,integer,integer,text)') is null, 'return confirmation RPC is removed');
 rollback;

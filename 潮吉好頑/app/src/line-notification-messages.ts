@@ -255,9 +255,9 @@ function orderFlexTitle(data: OrderMessageData) {
   return "訂單狀態更新";
 }
 
-// 取消與退款以紅色標示，其餘狀態維持 LINE 綠
+// 取消以紅色標示，其餘狀態維持 LINE 綠
 function orderStatusColor(orderStatus: string) {
-  return ["cancelled", "refunded"].includes(orderStatus) ? "#D92D20" : "#06C755";
+  return orderStatus === "cancelled" ? "#D92D20" : "#06C755";
 }
 
 function orderFlexSummary(data: OrderMessageData) {
@@ -278,9 +278,6 @@ function orderFlexSummary(data: OrderMessageData) {
   }
   if (data.eventType === "status_changed" && data.orderStatus === "cancelled") {
     return "您的訂單已取消，如有疑問請直接回覆官方帳號。";
-  }
-  if (data.eventType === "status_changed" && data.orderStatus === "refunded") {
-    return "退款已完成，請留意帳戶入帳，如有疑問請直接回覆官方帳號。";
   }
   return "訂單進度已更新，請留意後續通知。";
 }

@@ -144,11 +144,6 @@ function bindAdminSubmitDelegation() {
       catch (error) { failAdminForm(event, error); }
       return;
     }
-    if (event.target.matches("[data-admin-return-form]")) {
-      try { await adminOrdersPanel.submitAdminOrderReturn(event); }
-      catch (error) { failAdminForm(event, error); }
-      return;
-    }
     if (event.target.matches("[data-admin-fulfillment-form]")) {
       try { await adminOrdersPanel.submitAdminOrderFulfillment(event); }
       catch (error) { failAdminForm(event, error); }

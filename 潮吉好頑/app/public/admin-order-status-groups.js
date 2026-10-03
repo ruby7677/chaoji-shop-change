@@ -9,13 +9,11 @@ export const ORDER_STATUS_GROUPS = [
   ] },
   { key: "active", label: "處理中", statuses: [
     ["confirmed", "已確認"],
-    ["ready_for_pickup", "配送處理中", (s) => s.readyForPickup],
-    ["refund_pending", "退款處理中"]
+    ["ready_for_pickup", "配送處理中", (s) => s.readyForPickup]
   ] },
   { key: "closed", label: "結案", statuses: [
     ["completed", "已完成"],
-    ["cancelled", "已取消"],
-    ["refunded", "已退款"]
+    ["cancelled", "已取消"]
   ] }
 ];
 

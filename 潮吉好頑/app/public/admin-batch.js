@@ -4,7 +4,7 @@ import { money } from "./product-format.js";
 import { availableTransitions } from "./admin-order-transition.js";
 
 export const BATCH_LIMIT = 10;
-// 只有「取貨／交付」階段的完成可批次；退款中恢復為已完成是另一種操作，不列入
+// 只有「取貨／交付」階段的完成可批次
 const PICKUP_STATUSES = new Set(["confirmed", "partially_ready", "ready_for_pickup"]);
 
 // 選取數量檢查：回傳錯誤訊息，通過時回傳空字串

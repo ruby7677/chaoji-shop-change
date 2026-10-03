@@ -4,11 +4,13 @@ import { ORDER_STATUS_GROUPS, defaultStatusOfGroup, groupCount, groupOfStatus } 
 
 const byKey = (key) => ORDER_STATUS_GROUPS.find((group) => group.key === key);
 
-test("九個訂單狀態各屬於一個分組，沒有遺漏或重複", () => {
+test("七個訂單狀態各屬於一個分組，沒有遺漏或重複；退款狀態已移除", () => {
   const all = ORDER_STATUS_GROUPS.flatMap((group) => group.statuses.map(([value]) => value));
-  assert.equal(all.length, 9);
-  assert.equal(new Set(all).size, 9);
-  assert.equal(groupOfStatus("refund_pending").key, "active");
+  assert.equal(all.length, 7);
+  assert.equal(new Set(all).size, 7);
+  assert.equal(groupOfStatus("ready_for_pickup").key, "active");
+  assert.equal(groupOfStatus("refund_pending"), null);
+  assert.equal(groupOfStatus("refunded"), null);
   assert.equal(groupOfStatus("all"), null);
 });
 

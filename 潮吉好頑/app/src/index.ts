@@ -4,7 +4,7 @@ import { isShareMetaRequest, withShareMeta } from "./share-meta";
 import { createWebSession } from "./web-session";
 import { adjustInventory, createAdminCategory, createAdminProduct, createVariant, updateAdminCategory, updateProduct, updateVariant } from "./admin-catalog";
 import { adminAuditLogs, adminDashboard, adminNotificationDeliveries, requeueAdminNotificationDelivery } from "./admin-dashboard";
-import { confirmAdminOrderReturn, transitionAdminOrder, updateAdminOrderFulfillment } from "./admin-orders";
+import { transitionAdminOrder, updateAdminOrderFulfillment } from "./admin-orders";
 import { adjustMemberPoints, createBankAccount, issueBirthdayCoupons, saveCoupon, updateBankAccount, updateBirthdaySettings, updatePointSettings } from "./admin-settings";
 import { forgetLiffSession, hasLineIdentity, refreshedAuthUser, rememberLiffSession, requireAdmin, restoreLiffSession, syncMemberIdentity, verifyLiffIdentity } from "./auth";
 import { publicCatalog, runtimeConfig, serveProductImage, uploadProductImage } from "./catalog";
@@ -94,8 +94,6 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
     if (response.ok) ctx.waitUntil(notifyOrderEvent(env, orderFulfillmentMatch[1], "fulfillment_updated"));
     return response;
   }
-  const orderReturnMatch = url.pathname.match(/^\/api\/admin\/order-items\/([0-9a-f-]{36})\/return$/i);
-  if (request.method === "POST" && orderReturnMatch) return confirmAdminOrderReturn(request, env, orderReturnMatch[1]);
   if (request.method === "PUT" && url.pathname === "/api/admin/point-settings") return updatePointSettings(request, env);
   if (request.method === "POST" && url.pathname === "/api/admin/coupons") return saveCoupon(request, env, null);
   const couponMatch = url.pathname.match(/^\/api\/admin\/coupons\/([0-9a-f-]{36})$/i);

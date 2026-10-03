@@ -5,8 +5,8 @@ import { fetchWithTimeout } from "./http";
 
 // 概況只需要列表與狀態文字用得到的欄位；order_items(kind) 供前端判斷預購狀態文字。
 const OVERVIEW_ORDER_SELECT = "id,order_number,status,delivery_method,bank_account_id,payment_last_five,deposit_due,amount_due,paid_amount,shipping_fee,final_payment_confirmed_at,created_at,profiles!orders_member_id_fkey(full_name),order_items(kind)";
-// 與前端 TODO_RULES 相同的四種人工待辦：確認款項、退款處理、核對賣貨便、宅配尾款／運費。
-const TODO_FILTER = "(status.eq.pending_review,status.eq.refund_pending,and(delivery_method.eq.seller_delivery,status.eq.pending_payment,bank_account_id.is.null),and(delivery_method.eq.home_delivery,status.eq.ready_for_pickup,final_payment_confirmed_at.is.null))";
+// 與前端 TODO_RULES 相同的三種人工待辦：確認款項、核對賣貨便、宅配尾款／運費。
+const TODO_FILTER = "(status.eq.pending_review,and(delivery_method.eq.seller_delivery,status.eq.pending_payment,bank_account_id.is.null),and(delivery_method.eq.home_delivery,status.eq.ready_for_pickup,final_payment_confirmed_at.is.null))";
 const TODO_LIMIT = 50;
 const RECENT_LIMIT = 6;
 const LOW_STOCK_LIMIT = 20;

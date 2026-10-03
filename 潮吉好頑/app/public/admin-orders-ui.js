@@ -5,7 +5,7 @@ import { adminIcon } from "./admin-icons.js";
 import { escapeHtml } from "./product-format.js";
 import { ORDER_STATUS_GROUPS, defaultStatusOfGroup, groupCount, groupOfStatus, statusCount } from "./admin-order-status-groups.js";
 // 這些訂單需要店長動作，預設展開
-const ACTION_STATUSES = new Set(["pending_review", "refund_pending"]);
+const ACTION_STATUSES = new Set(["pending_review"]);
 
 let deps = null;
 let list = null;

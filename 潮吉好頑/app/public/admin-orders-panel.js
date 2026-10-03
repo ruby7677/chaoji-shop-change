@@ -1,4 +1,4 @@
-// 後台訂單分頁：狀態篩選、訂單卡片、狀態轉換、退貨驗收與宅配尾款／運費。
+// 後台訂單分頁：狀態篩選、訂單卡片、狀態轉換（含取消退款金額）與宅配尾款／運費。
 import { escapeHtml, money } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { adminOrderStatusLabel, deliveryMethodLabels, formatDateTime, orderIncludesPreorder, orderInventoryTypeLabel, showToast } from "./app-core.js";
@@ -12,7 +12,7 @@ import { availableTransitions, isDangerousTarget, parseRefundAmount, refundField
 const adminOrderStatusFilterGroups = [
   { label: "待處理", options: [["seller_pending", "賣貨便待核對"], ["pending_payment", "待付款"], ["pending_review", "待確認款項"]] },
   { label: "處理中", options: [["confirmed", "已確認款項（依配送狀態）"], ["ready_for_pickup", "配送處理中（到貨／出貨／待尾款）"]] },
-  { label: "結案／退款", options: [["completed", "已完成訂單"], ["cancelled", "已取消"], ["refund_pending", "退款處理中"], ["refunded", "已退款"]] }
+  { label: "結案", options: [["completed", "已完成訂單"], ["cancelled", "已取消"]] }
 ];
 
 export function renderAdminOrderStatusFilter() {
@@ -33,25 +33,6 @@ export function renderAdminOrderStatusFilter() {
 
 function adminOrderHistory(orderId) {
   return (adminData.orderHistory || []).filter((entry) => entry.order_id === orderId);
-}
-
-function adminReturnConfirmation(orderItemId) {
-  return (adminData.returns || []).find((entry) => entry.order_item_id === orderItemId);
-}
-
-function renderAdminReturnPanel(order) {
-  if (order.status !== "refunded") return "";
-  const items = (order.order_items || []).filter((item) => item.id);
-  if (!items.length) return "";
-  const rows = items.map((item) => {
-    const confirmation = adminReturnConfirmation(item.id);
-    const itemLabel = `${item.product_name || "商品"}${item.variant_name && item.variant_name !== "單一規格" ? ` · ${item.variant_name}` : ""}`;
-    if (confirmation) {
-      return `<div class="admin-return-confirmed"><strong>${escapeHtml(itemLabel)} × ${item.quantity}</strong><small>已驗收 ${confirmation.received_quantity} 件：可再售 ${confirmation.restock_quantity} 件、報廢 ${confirmation.scrap_quantity} 件 · ${formatDateTime(confirmation.created_at)}</small>${confirmation.note ? `<small>備註：${escapeHtml(confirmation.note)}</small>` : ""}</div>`;
-    }
-    return `<form class="admin-return-form" data-admin-return-form="${escapeHtml(item.id)}" data-return-max="${Number(item.quantity) || 0}"><strong>${escapeHtml(itemLabel)} × ${item.quantity}</strong><p class="admin-order-note">收到退貨後才填寫。可再售數量才會回補庫存，報廢數量只留下稽核紀錄。</p><div class="form-grid"><label>收到數量<input name="received_quantity" type="number" min="1" max="${Number(item.quantity) || 0}" required /></label><label>可再售回補<input name="restock_quantity" type="number" min="0" max="${Number(item.quantity) || 0}" value="0" required /></label><label>報廢數量<input name="scrap_quantity" type="number" min="0" max="${Number(item.quantity) || 0}" value="0" required /></label><label class="wide">驗收備註<textarea name="note" rows="2" maxlength="1000" placeholder="例如：外盒損傷、配件缺少"></textarea></label></div><button class="secondary-button" type="submit">確認退貨驗收</button></form>`;
-  }).join("");
-  return `<section class="admin-return-panel"><h4>退貨驗收</h4><p class="admin-order-note">已退款訂單不會自動回補；逐項確認實際收到數量，再分為可再售或報廢。</p>${rows}</section>`;
 }
 
 function adminDiscountLabel(value) {
@@ -104,7 +85,7 @@ export function renderAdminOrders() {
         : item.label;
       return `<option value="${item.value}">${escapeHtml(label)}</option>`;
     }).join("");
-    // 不預選任何動作：避免只剩退款／取消時，高風險動作直接成為預設值
+    // 不預選任何動作：避免只剩取消時，高風險動作直接成為預設值
     const optionsWithPlaceholder = `<option value="" selected disabled>選擇下一步…</option>${options}`;
     const history = adminOrderHistory(order.id).slice(0, 5).map((entry) => { const actor = relationOne(entry.profiles); return `<li><span>${escapeHtml(adminOrderStatusLabel(order, entry.from_status))} → ${escapeHtml(adminOrderStatusLabel(order, entry.to_status))}</span><small>${formatDateTime(entry.created_at)}${actor?.full_name ? ` · ${escapeHtml(actor.full_name)}` : ""}${entry.note ? ` · ${escapeHtml(entry.note)}` : ""}</small></li>`; }).join("");
     const balance = Math.max(order.amount_due - order.paid_amount, 0);
@@ -122,14 +103,14 @@ export function renderAdminOrders() {
     const moneyGrid = `<details class="admin-order-money"><summary>${escapeHtml(moneySummary(order))}</summary><div class="admin-order-payment"><span class="admin-order-total">總額 <b>${money(order.amount_due)}</b></span><span class="admin-order-payment-method">運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span class="admin-order-deposit">訂金應付 <b>${money(order.deposit_due)}</b></span><span class="admin-order-paid">已確認 <b>${money(order.paid_amount || 0)}</b></span><span class="admin-order-balance">待收尾款 <b>${money(balance)}</b></span><span class="admin-order-discount admin-order-coupon">優惠券折抵 <b>${adminDiscountLabel(couponDiscount)}</b></span><span class="admin-order-discount admin-order-points">點數折抵 <b>${adminDiscountLabel(pointDiscount)}</b></span></div></details>`;
     // 一鍵確認卡片已在上方顯示末五碼／收款帳戶，這裡不重複顯示匯款列
     const bankRow = quick ? "" : `<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span>匯款末五碼：<b>${escapeHtml(order.payment_last_five || "尚未回報")}</b></span></div>`;
-    const transitionForm = transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status" required>${optionsWithPlaceholder}</select></label><div class="admin-order-note-row"><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消與退款相關操作必填；其他操作可選填"></textarea></label><label class="admin-order-refund" hidden>退款金額（NT$）<input name="refund_amount" type="number" min="0" step="1" inputmode="numeric" /></label></div><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>';
+    const transitionForm = transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status" required>${optionsWithPlaceholder}</select></label><div class="admin-order-note-row"><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消訂單必填；其他操作可選填"></textarea></label><label class="admin-order-refund" hidden>退款金額（NT$）<input name="refund_amount" type="number" min="0" step="1" inputmode="numeric" /></label></div><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>';
     // 一鍵確認卡片把其餘操作（取消、備註）收進 details，避免與主按鈕搶注意力
-    // 只剩退款／取消時（例如已完成訂單）同樣收成次要入口，不讓高風險表單佔據卡片
+    // 只剩取消時同樣收成次要入口，不讓高風險表單佔據卡片
     const riskOnlyLabel = riskOnlyEntryLabel(transitions);
     const actionBlock = quick && transitions.length
       ? `<details class="admin-order-more"><summary>其他操作（取消訂單、備註）</summary>${transitionForm}</details>`
       : riskOnlyLabel ? `<details class="admin-order-more"><summary>${escapeHtml(riskOnlyLabel)}</summary>${transitionForm}</details>` : transitionForm;
-    return `<article class="admin-order-card" data-admin-order-card="${escapeHtml(order.id)}"><header>${orderSelectMarkup(order)}<div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(orderDeliveryLabel)}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(adminOrderStatusLabel(order))}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div>${quickBlock}${moneyGrid}${shippingInfo}${bankRow}${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${actionBlock}${renderAdminReturnPanel(order)}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
+    return `<article class="admin-order-card" data-admin-order-card="${escapeHtml(order.id)}"><header>${orderSelectMarkup(order)}<div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(orderDeliveryLabel)}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(adminOrderStatusLabel(order))}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div>${quickBlock}${moneyGrid}${shippingInfo}${bankRow}${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${actionBlock}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
   }).join("");
   renderAdminPagination("orders");
   container.querySelectorAll(".admin-order-card").forEach((card, index) => {
@@ -145,7 +126,7 @@ export function renderAdminOrders() {
     if (order.delivery_method === "home_delivery") {
       const currentStockHomePending = order.delivery_method === "home_delivery" && !hasPreorder && order.status === "pending_review";
       const canUpdateFulfillment = currentStockHomePending || ["partially_ready", "ready_for_pickup"].includes(order.status);
-      const terminalStatuses = ["completed", "cancelled", "refund_pending", "refunded"];
+      const terminalStatuses = ["completed", "cancelled"];
       // 一鍵確認卡片把 .admin-order-action 表單包進 <details class="admin-order-more">，不再是 card 的直接子節點；
       // insertBefore 要求錨點必須是直接子節點，改以 :scope 依序找可用的直接子錨點。
       const insertBefore = card.querySelector(":scope > .admin-order-more, :scope > .admin-order-action, :scope > .admin-order-history");
@@ -202,7 +183,7 @@ export function renderAdminOrders() {
     const formOrder = (adminData.orders || []).find((order) => order.id === form.dataset.adminOrderForm);
     const syncRiskState = () => {
       const dangerous = isDangerousTarget(target.value);
-      // 取消／確認已退款：備註縮成一半，旁邊顯示退款金額（預填已收金額）
+      // 取消已付款訂單：備註縮成一半，旁邊顯示退款金額（預填已收金額）
       const refund = refundFieldFor(formOrder, target.value);
       if (refundLabel && refundInput) {
         const wasHidden = refundLabel.hidden;
@@ -247,7 +228,7 @@ export async function submitAdminOrderTransition(event) {
   const note = noteField.value.trim();
   // field：交給 admin-form-errors.js 標示並聚焦出錯欄位
   if (!targetStatus) throw Object.assign(new Error("請先選擇下一步"), { field: "target_status" });
-  if (isDangerousTarget(targetStatus) && !note) throw Object.assign(new Error("取消或退款相關操作必須填寫原因"), { field: "note" });
+  if (isDangerousTarget(targetStatus) && !note) throw Object.assign(new Error("取消訂單必須填寫原因"), { field: "note" });
   const currentOrder = (adminData.orders || []).find((order) => order.id === form.dataset.adminOrderForm);
   const refundField = refundFieldFor(currentOrder, targetStatus);
   const refundAmount = refundField ? parseRefundAmount(form.querySelector("input[name='refund_amount']")?.value, refundField.max) : null;
@@ -257,7 +238,7 @@ export async function submitAdminOrderTransition(event) {
     const { title, details, confirmLabel, warnings } = paymentConfirmation(currentOrder);
     confirmed = await adminConfirm({ title, details, message: warnings, confirmLabel, trigger: event.submitter });
   } else {
-    // 標題寫出動作，明細列出訂單、會員與金額（退款顯示已收金額），高風險時附上原因
+    // 標題寫出動作，明細列出訂單、會員、總額與退款金額，取消時附上原因
     const optionLabel = targetStatusField.selectedOptions[0]?.textContent.trim() || "";
     const memberName = relationOne(currentOrder?.profiles)?.full_name || "";
     const { title, details, message, confirmLabel, danger } = transitionConfirmation(currentOrder, { targetStatus, optionLabel, memberName, note, refundAmount });
@@ -284,33 +265,6 @@ export async function quickConfirmAdminOrder(orderId, trigger) {
     await postAdminOrderTransition(orderId, "confirmed", "");
   } finally {
     if (trigger instanceof HTMLButtonElement) trigger.disabled = false;
-  }
-}
-
-export async function submitAdminOrderReturn(event) {
-  event.preventDefault();
-  const form = event.target;
-  if (!(form instanceof HTMLFormElement)) throw new Error("退貨驗收表單資料無法讀取");
-  const receivedField = form.elements.namedItem("received_quantity");
-  const restockField = form.elements.namedItem("restock_quantity");
-  const scrapField = form.elements.namedItem("scrap_quantity");
-  const noteField = form.elements.namedItem("note");
-  if (!(receivedField instanceof HTMLInputElement) || !(restockField instanceof HTMLInputElement) || !(scrapField instanceof HTMLInputElement) || !(noteField instanceof HTMLTextAreaElement)) throw new Error("退貨驗收表單欄位不完整");
-  const received = Number(receivedField.value);
-  const restock = Number(restockField.value);
-  const scrap = Number(scrapField.value);
-  const max = Number(form.dataset.returnMax || 0);
-  if (![received, restock, scrap].every(Number.isInteger) || received <= 0 || received > max || restock < 0 || scrap < 0 || restock + scrap !== received) throw new Error("收到、可再售與報廢數量必須正確相等，且不可超過原購買數量");
-  if (!(await adminConfirm({ title: "確認退貨驗收？", message: `收到 ${received} 件，其中可再售 ${restock} 件、報廢 ${scrap} 件。`, confirmLabel: "確認驗收", trigger: event.submitter }))) return;
-  const button = form.querySelector("button[type='submit']");
-  if (button instanceof HTMLButtonElement) button.disabled = true;
-  try {
-    await adminFetch(`/api/admin/order-items/${form.dataset.adminReturnForm}/return`, { method: "POST", body: JSON.stringify({ received_quantity: received, restock_quantity: restock, scrap_quantity: scrap, note: noteField.value.trim() }) });
-    await refreshAdminSections(["orders", "overview", "inventory", "products"]);
-    switchAdminTab("orders");
-    showToast("退貨驗收已記錄", "success");
-  } finally {
-    if (button instanceof HTMLButtonElement) button.disabled = false;
   }
 }
 

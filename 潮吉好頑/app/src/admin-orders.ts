@@ -1,11 +1,11 @@
-// 後台訂單操作：狀態轉換、宅配尾款／運費、退貨驗收。
+// 後台訂單操作：狀態轉換（含取消退款金額）、宅配尾款／運費。
 import { invalidateCatalogCache } from "./catalog";
 import { requireAdmin } from "./auth";
-import { databaseError, databaseErrors } from "./database-errors";
+import { databaseError } from "./database-errors";
 import { type Env } from "./env";
 import { fetchWithTimeout, json, serviceHeaders } from "./http";
 
-const adminOrderStatuses = ["pending_payment", "pending_review", "confirmed", "partially_ready", "ready_for_pickup", "completed", "cancelled", "refund_pending", "refunded"] as const;
+const adminOrderStatuses = ["pending_payment", "pending_review", "confirmed", "partially_ready", "ready_for_pickup", "completed", "cancelled"] as const;
 
 export async function transitionAdminOrder(request: Request, env: Env, orderId: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
@@ -13,7 +13,7 @@ export async function transitionAdminOrder(request: Request, env: Env, orderId: 
   let body: { target_status?: string; note?: string; refund_amount?: number | null };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   const targetStatus = body.target_status;
-  // 退款金額只在取消／確認已退款時送出；最終上限與「未付款必為 0」由 admin_transition_order 檢查
+  // 退款金額只在取消時送出；最終上限與「未付款必為 0」由 admin_transition_order 檢查
   const refundAmount = body.refund_amount ?? null;
   if (refundAmount !== null && (!Number.isInteger(refundAmount) || refundAmount < 0)) return json({ error: "退款金額必須是 0 或正整數" }, { status: 400 });
   if (!targetStatus || !adminOrderStatuses.includes(targetStatus as typeof adminOrderStatuses[number])) return json({ error: "訂單狀態不正確" }, { status: 400 });
@@ -88,43 +88,4 @@ export async function updateAdminOrderFulfillment(request: Request, env: Env, or
   });
   if (!response.ok) return databaseError(response);
   return json({ order: await response.json() });
-}
-
-/**
- * Records the physical return after the refund is completed. The database
- * restores only the quantity the admin marked as resellable.
- */
-
-export async function confirmAdminOrderReturn(request: Request, env: Env, orderItemId: string): Promise<Response> {
-  const admin = await requireAdmin(request, env);
-  if (admin instanceof Response) return admin;
-  let body: { received_quantity?: number; restock_quantity?: number; scrap_quantity?: number; note?: string };
-  try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
-  const received = body.received_quantity;
-  const restock = body.restock_quantity;
-  const scrap = body.scrap_quantity;
-  if (![received, restock, scrap].every(Number.isInteger)
-      || (received as number) <= 0
-      || (restock as number) < 0
-      || (scrap as number) < 0
-      || (restock as number) + (scrap as number) !== received) {
-    return json({ error: databaseErrors.INVALID_RETURN_QUANTITY }, { status: 400 });
-  }
-  if ((body.note || "").length > 1000) return json({ error: "退貨驗收備註不可超過 1000 字" }, { status: 400 });
-  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_confirm_order_return`, {
-    method: "POST",
-    headers: serviceHeaders(env),
-    body: JSON.stringify({
-      p_actor_id: admin.user.id,
-      p_order_item_id: orderItemId,
-      p_received_quantity: received,
-      p_restock_quantity: restock,
-      p_scrap_quantity: scrap,
-      p_note: body.note?.trim() || null
-    })
-  });
-  if (!response.ok) return databaseError(response);
-  // 退貨驗收會把可再售數量回補庫存，影響前台型錄的可售量。
-  invalidateCatalogCache();
-  return json({ return_confirmation: await response.json() });
 }

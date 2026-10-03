@@ -23,7 +23,6 @@ const isSellerPending = (order) => order.delivery_method === "seller_delivery" &
 // 依緊急程度排序的待辦規則；只列出需要店長人工處理的狀態
 const TODO_RULES = [
   { match: (o) => o.status === "pending_review", icon: "bank", urgent: true, title: (o) => `確認款項 ${o.order_number}`, detail: (o) => `末五碼 ${o.payment_last_five || "未回報"}・應收 ${money(o.deposit_due || o.amount_due)}` },
-  { match: (o) => o.status === "refund_pending", icon: "refresh", urgent: true, title: (o) => `退款處理 ${o.order_number}`, detail: (o) => `已收 ${money(o.paid_amount || 0)}` },
   { match: isSellerPending, icon: "bag", urgent: false, title: (o) => `核對賣貨便 ${o.order_number}`, detail: (o) => `訂單金額 ${money(o.amount_due)}` },
   { match: (o) => o.delivery_method === "home_delivery" && o.status === "ready_for_pickup" && !o.final_payment_confirmed_at, icon: "truck", urgent: false, title: (o) => `宅配尾款／運費 ${o.order_number}`, detail: (o) => (o.shipping_fee ? `運費 ${money(o.shipping_fee)}，待確認入帳` : "尚未填寫實際運費") }
 ];

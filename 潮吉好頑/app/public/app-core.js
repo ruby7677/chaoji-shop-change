@@ -17,9 +17,7 @@ const orderStatusLabels = {
   partially_ready: "部分到貨",
   ready_for_pickup: "配送處理中",
   completed: "已完成訂單",
-  cancelled: "已取消",
-  refund_pending: "退款處理中",
-  refunded: "已退款"
+  cancelled: "已取消"
 };
 
 export const customerServiceLineUrl = "https://line.me/R/ti/p/@078isxfl?ts=03122133&oat_content=url";

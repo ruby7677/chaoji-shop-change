@@ -154,7 +154,7 @@ select
   ) as notification_purge_cron_exists,
   to_regclass('public.line_low_stock_states') is not null as line_low_stock_states_exists,
   to_regclass('public.inventory_return_confirmations') is not null as inventory_return_confirmations_exists,
-  to_regprocedure('public.admin_confirm_order_return(uuid,uuid,integer,integer,integer,text)') is not null as admin_confirm_order_return_exists,
+  to_regprocedure('public.admin_confirm_order_return(uuid,uuid,integer,integer,integer,text)') is null as admin_confirm_order_return_removed,
   to_regprocedure('public.admin_dashboard_stats(uuid)') is not null as admin_dashboard_stats_exists,
   -- 202609250007_unified_low_stock：低庫存唯一定義，後台統計共用。
   coalesce((
