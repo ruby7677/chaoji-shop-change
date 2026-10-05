@@ -185,12 +185,13 @@ async function bootstrapAuth() {
     });
     if (liffStage.primary) return;
     if (liffPrimaryRedirect) captureAuthSession();
-    loadLocalCart();
     const liffRedirecting = liffLaunchIntent && liffStage.initialized && liffStage.state?.isInClient
       ? await initializeLiffBridge(liffStage.state)
       : false;
     if (liffRedirecting) return;
     await loadProducts();
+    // 購物車只存商品 id，要等正式型錄載入後才能對回商品；先還原會被內建示範資料全部濾掉。
+    loadLocalCart();
     renderInitialPageOnce();
     await waitForHeroImageDecode();
     finishAuthBoot();

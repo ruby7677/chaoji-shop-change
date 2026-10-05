@@ -61,9 +61,18 @@ async function attachBankAccounts(env: Env, orders: MemberOrderRow[]): Promise<b
     const url = new URL(`${env.SUPABASE_URL}/rest/v1/bank_accounts`);
     url.searchParams.set("select", "id,label,bank_name,account_name,account_number");
     url.searchParams.set("id", `in.(${ids.join(",")})`);
-    const response = await fetchWithTimeout(url, { headers: serviceHeaders(env) });
-    if (!response.ok) return false;
-    for (const { id, ...account } of await response.json() as BankAccountRow[]) accounts.set(id, account);
+    let loaded = false;
+    try {
+      const response = await fetchWithTimeout(url, { headers: serviceHeaders(env) });
+      if (response.ok) {
+        for (const { id, ...account } of await response.json() as BankAccountRow[]) accounts.set(id, account);
+        loaded = true;
+      }
+    } catch { /* 逾時或網路錯誤：與非 2xx 相同處理 */ }
+    if (!loaded) {
+      for (const order of orders) order.bank_accounts = null;
+      return false;
+    }
   }
   for (const order of orders) order.bank_accounts = order.bank_account_id ? accounts.get(order.bank_account_id) ?? null : null;
   return true;
@@ -96,8 +105,9 @@ export async function listOrders(request: Request, env: Env): Promise<Response> 
   const response = await fetchWithTimeout(url, { headers: memberHeaders(env, authResult.authorization) });
   if (!response.ok) return json({ error: "訂單紀錄暫時無法載入" }, { status: 503 });
   const orders = await response.json() as MemberOrderRow[];
-  if (!await attachBankAccounts(env, orders)) return json({ error: "訂單紀錄暫時無法載入" }, { status: 503 });
-  return json({ orders });
+  // 收款帳戶查詢失敗時仍列出訂單（帳戶欄位為 null），前台改顯示「匯款帳號暫時無法載入」，不讓客人連訂單都看不到。
+  const bankAccountsLoaded = await attachBankAccounts(env, orders);
+  return json({ orders, bank_accounts_unavailable: !bankAccountsLoaded });
 }
 
 type MemberCartRow = { variant_id: string; quantity: number; updated_at?: string };

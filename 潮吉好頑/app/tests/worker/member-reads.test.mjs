@@ -66,10 +66,34 @@ test("orders without a bank account skip the bank lookup", async () => {
   assert.equal(calls.some((call) => call.path === "/rest/v1/bank_accounts"), false);
 });
 
-test("a failed bank lookup is reported instead of returning orders without payment details", async () => {
-  fakeSupabase({ orders: [{ id: "o1", bank_account_id: BANK_ID }], bankStatus: 503 });
+test("a failed bank lookup still lists the orders, with no bank details and an unavailable flag", async () => {
+  fakeSupabase({ orders: [{ id: "o1", bank_account_id: BANK_ID }, { id: "o2", bank_account_id: null }], bankStatus: 503 });
   const response = await get("/api/orders");
-  assert.equal(response.status, 503);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.orders.map((order) => order.id), ["o1", "o2"]);
+  assert.deepEqual(body.orders.map((order) => order.bank_accounts), [null, null]);
+  assert.equal(body.bank_accounts_unavailable, true);
+});
+
+test("a bank lookup that throws (timeout) is degraded the same way", async () => {
+  fakeSupabase({ orders: [{ id: "o1", bank_account_id: BANK_ID }] });
+  const inner = globalThis.fetch;
+  globalThis.fetch = (input, init) => new URL(String(input instanceof Request ? input.url : input)).pathname === "/rest/v1/bank_accounts"
+    ? Promise.reject(new Error("timeout")) : inner(input, init);
+  try {
+    const response = await get("/api/orders");
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.orders[0].bank_accounts, null);
+    assert.equal(body.bank_accounts_unavailable, true);
+  } finally { globalThis.fetch = inner; }
+});
+
+test("a successful lookup reports bank accounts as available", async () => {
+  fakeSupabase({ orders: [{ id: "o1", bank_account_id: BANK_ID }] });
+  const body = await (await get("/api/orders")).json();
+  assert.equal(body.bank_accounts_unavailable, false);
 });
 
 test("point history is read with the member's token; shared point settings with the service role", async () => {
