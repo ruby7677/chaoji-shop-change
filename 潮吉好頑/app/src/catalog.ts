@@ -26,14 +26,29 @@ export function invalidateCatalogCache() {
   catalogInflight = null;
 }
 
+// 分類排序（anon 沒有 display_order 欄位權限，用 service role 只讀名稱與排序）；
+// 讀取失敗不影響型錄，前台會退回依商品出現順序排列系列按鈕。
+async function loadCategoryOrder(env: Env): Promise<Map<string, number>> {
+  const order = new Map<string, number>();
+  if (!env.SUPABASE_SERVICE_ROLE_KEY) return order;
+  try {
+    const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/categories?select=name,display_order`, { headers: serviceHeaders(env) });
+    if (!response.ok) return order;
+    for (const row of await response.json() as Array<{ name: string; display_order: number | null }>) order.set(row.name, Number(row.display_order ?? 0));
+  } catch { /* 逾時或網路錯誤：維持空排序 */ }
+  return order;
+}
+
 async function loadPublicCatalog(env: Env): Promise<Product[]> {
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,hero_rank,hero_tagline&is_published=eq.true&order=display_order.desc,id.desc`, {
     headers: { apikey: env.SUPABASE_ANON_KEY as string, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
   });
   if (!response.ok) throw new Error("Unable to load catalog");
   const rows = await response.json() as Array<Product & { has_image?: boolean; image_updated_at?: string }>;
+  const categoryOrder = await loadCategoryOrder(env);
   return rows.map(({ has_image, image_updated_at, ...product }) => ({
     ...product,
+    ...(categoryOrder.has(product.category) ? { category_order: categoryOrder.get(product.category) } : {}),
     image_url: has_image && product.product_id
       ? `/api/product-images/${product.product_id}?v=${encodeURIComponent(image_updated_at || "1")}`
       : undefined

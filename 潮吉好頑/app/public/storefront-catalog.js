@@ -74,7 +74,10 @@ export function selectCategory(category) {
 function renderCategoryFilters() {
   const row = document.querySelector(".filter-row");
   if (!row) return;
-  const categories = [...new Set(products.map((product) => product.category).filter(Boolean))];
+  // 依後台分類排序（數字小的在前）；沒有排序資料時維持商品出現順序（sort 為穩定排序）
+  const categoryOrder = new Map();
+  for (const product of products) if (product.category && !categoryOrder.has(product.category)) categoryOrder.set(product.category, Number.isFinite(product.category_order) ? product.category_order : Infinity);
+  const categories = [...categoryOrder.keys()].sort((left, right) => categoryOrder.get(left) - categoryOrder.get(right) || 0);
   const hasPreorder = products.some(isPreorderItem);
   const values = ["all", ...categories, ...(hasPreorder ? [PREORDER_FILTER] : [])];
   if (!values.includes(activeCategory)) activeCategory = "all";

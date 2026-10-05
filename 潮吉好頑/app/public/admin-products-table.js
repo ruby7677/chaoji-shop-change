@@ -332,6 +332,16 @@ async function setVariantPublished(variant, next, { moveToTop = false } = {}) {
   if (result?.moveError) deps.showToast(result.moveError, "error");
 }
 
+// 只把商品改為上架，其他欄位照目前資料送出（API 需要完整商品內容）
+async function setProductPublished(product) {
+  const result = await deps.adminFetch(`/api/admin/products/${product.id}`, { method: "PATCH", body: JSON.stringify({
+    name: product.name, description: product.description || "", category_id: product.category_id || null,
+    purchase_limit: product.purchase_limit ?? null, points_eligible: product.points_eligible !== false,
+    display_order: Number(product.display_order || 0), is_published: true
+  }) });
+  product.is_published = typeof result?.product?.is_published === "boolean" ? result.product.is_published : true;
+}
+
 // 復原：把剛變更的規格改回原狀態（不再跳確認視窗）
 async function undoPublish(items, appliedValue) {
   const failed = [];
@@ -353,11 +363,13 @@ async function togglePublish(button) {
   const { product, variant } = found;
   const next = !variant.is_published;
   const label = `${product.name}／${variant.name}`;
+  // 商品本身未上架時，開啟規格會一併上架商品（新增時忘了勾「立即上架」的常見情況），前台才會顯示
+  const publishProductToo = next && !product.is_published;
   const message = !next
     ? "下架後前台不再顯示此規格，顧客無法再加入購物車。"
-    : product.is_published
-      ? "上架後前台會顯示此規格，顧客可加入購物車。"
-      : "此規格會設為上架，但商品目前未上架，前台仍不會顯示；需在「編輯」中勾選「上架商品」。";
+    : publishProductToo
+      ? "此商品目前未上架，將同時上架「商品」與此規格，前台會顯示且顧客可加入購物車。"
+      : "上架後前台會顯示此規格，顧客可加入購物車。";
   const { confirmed, checked: moveToTop } = await adminConfirmChoice({
     title: `${next ? "上架" : "下架"}「${label}」？`, message, confirmLabel: next ? "確定上架" : "確定下架", danger: !next, trigger: button,
     option: next ? { label: "重新上架並排到最前面（前台排序改為目前最大值 + 1）", checked: false } : null
@@ -368,6 +380,10 @@ async function togglePublish(button) {
   button.setAttribute("aria-busy", "true");
   try {
     await setVariantPublished(variant, next, { moveToTop });
+    if (publishProductToo) {
+      try { await setProductPublished(product); }
+      catch (error) { deps.showToast(`規格已上架，但商品上架失敗：${error.message || "請到「編輯」勾選上架商品"}`, "error"); }
+    }
     deps.onCatalogChanged();
     drawTable();
     // 表格重繪後按鈕已換新，焦點移回同一規格的開關

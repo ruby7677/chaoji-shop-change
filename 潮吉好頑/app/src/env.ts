@@ -25,6 +25,8 @@ export interface Env {
 export type Product = {
   id: string;
   category: string;
+  /** 分類（系列）在後台設定的排序，數字小的排前面；前台系列按鈕依此排列。 */
+  category_order?: number;
   name: string;
   product_id?: string;
   product_name?: string;

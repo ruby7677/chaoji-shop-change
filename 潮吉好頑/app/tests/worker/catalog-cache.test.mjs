@@ -63,6 +63,33 @@ test("a read started before invalidation does not write stale data back into the
   assert.equal(calls, 2);
 });
 
+const serviceEnv = Object.freeze({ ...env, SUPABASE_SERVICE_ROLE_KEY: "service-key" });
+
+test("each product carries its category's admin sort order (read with the service role)", async () => {
+  let categoryAuth = null;
+  restoreFetch = stubFetch((url, init) => {
+    if (url.pathname === "/rest/v1/categories") {
+      categoryAuth = new Headers(init.headers).get("Authorization");
+      assert.equal(url.searchParams.get("select"), "name,display_order");
+      return jsonResponse([{ name: "A", display_order: 20 }, { name: "B", display_order: 10 }]);
+    }
+    return jsonResponse([{ id: "v1", category: "A", name: "甲", price: 1, stock: 1, type: "現貨" }, { id: "v2", category: "C", name: "丙", price: 1, stock: 1, type: "現貨" }]);
+  });
+  const result = await publicCatalog(serviceEnv);
+  assert.equal(categoryAuth, "Bearer service-key");
+  assert.equal(result[0].category_order, 20);
+  assert.equal("category_order" in result[1], false, "a category without a row gets no order");
+});
+
+test("a failed category lookup still returns the catalog without sort orders", async () => {
+  restoreFetch = stubFetch((url) => url.pathname === "/rest/v1/categories"
+    ? jsonResponse({ message: "down" }, 503)
+    : jsonResponse([{ id: "v1", category: "A", name: "甲", price: 1, stock: 1, type: "現貨" }]));
+  const result = await publicCatalog(serviceEnv);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].category_order, undefined);
+});
+
 test("a failed upstream load is not cached and the next read retries", async () => {
   let calls = 0;
   restoreFetch = stubFetch(() => {
