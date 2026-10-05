@@ -80,7 +80,8 @@ function renderCategoryFilters() {
   if (!values.includes(activeCategory)) activeCategory = "all";
   row.innerHTML = values.map((value) => {
     const label = value === "all" ? "全部" : value === PREORDER_FILTER ? PREORDER_FILTER : filterLabel(value);
-    return `<button class="filter${value === activeCategory ? " active" : ""}" type="button" data-category="${escapeHtml(value)}" aria-pressed="${value === activeCategory}">${escapeHtml(label)}</button>`;
+    const count = value === "all" ? products.length : value === PREORDER_FILTER ? products.filter(isPreorderItem).length : products.filter((product) => product.category === value).length;
+    return `<button class="filter${value === activeCategory ? " active" : ""}" type="button" data-category="${escapeHtml(value)}" aria-pressed="${value === activeCategory}">${escapeHtml(label)}<span class="filter-count" aria-label="${count} 件商品">${count}</span></button>`;
   }).join("");
 }
 

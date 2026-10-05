@@ -1,0 +1,16 @@
+/* 前台系列篩選：桌面版加大、白底膠囊、滑過黃框浮起、附商品數量；手機版維持原樣（隱藏數量）。 */
+.filter-count{display:none}
+@media (min-width:761px){
+  .shelf-title{flex:0 0 auto;white-space:nowrap}
+  .filter-row{gap:10px;justify-content:flex-end}
+  .filter-row .filter{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 18px;border:1.5px solid #bfb39b;background:#fff;color:var(--home-ink);font-size:.95rem;font-weight:800;box-shadow:0 2px 6px rgba(58,48,30,.08);transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
+  .filter-row .filter:hover{border-color:var(--home-yellow);transform:translateY(-2px);box-shadow:0 8px 16px rgba(58,48,30,.14)}
+  .filter-row .filter:focus-visible{outline:3px solid var(--home-yellow);outline-offset:2px}
+  .filter-row .filter.active{background:var(--home-ink);border-color:var(--home-ink);color:#fff}
+  .filter-count{display:inline-block;min-width:24px;padding:2px 7px;border-radius:999px;background:var(--home-cream);color:var(--home-muted);font-size:.75rem;font-weight:900;line-height:1.4;text-align:center}
+  .filter.active .filter-count{background:var(--home-yellow);color:var(--home-ink)}
+}
+@media (min-width:761px) and (prefers-reduced-motion:reduce){
+  .filter-row .filter{transition:none}
+  .filter-row .filter:hover{transform:none}
+}
