@@ -11,7 +11,7 @@
 - DB：`app/supabase/migrations/`；部署：`app/wrangler.jsonc`。
 - Git 根目錄可能在上一層並包含其他專案；用指定路徑查看 diff、暫存與提交，避免 `git add .`。
 - 單檔維持在 500 行內：新功能放新的 ES module（`public/*.js`）、新 CSS 檔或 `src/*.ts` 模組，入口檔只加 import 與接線。ES module 不能重新指定別的模組的 `let`：跨模組修改狀態要由擁有該狀態的模組匯出函式（例：`invalidateBankAccounts()`、`forgetCartSyncUser()`、`selectCheckoutScope()`、`captureAuthReturn()`、`resumePendingReturnCheckout()`）。
-- CSP 無 `unsafe-inline`：動態 HTML 不可寫 `style="…"` 屬性（改用 class 或 `el.style.setProperty()`）；圖片只能走同源 Worker；修改 `index.html` 的 `auth-boot-critical` inline style 必須同步更新 `src/http.ts` 的 CSP hash。
+- CSP 無 `unsafe-inline`：動態 HTML 不可寫 `style="…"` 屬性（改用 class 或 `el.style.setProperty()`）；圖片只能走同源 Worker；修改 `index.html` 的 `auth-boot-critical` inline style 必須同步更新 `src/http.ts` 的 CSP hash。`src/http.ts` 的 `SECURITY_HEADERS` 與 `public/_headers` 必須一致（靜態檔由資產層直接回應、不經過 Worker，只有 `wrangler.jsonc` 的 `run_worker_first` 列出的路徑才執行 Worker）。
 - 進行中的功能規劃放在 `app/*_PLAN.md`（例：`app/PRODUCT_SHOWCASE_PLAN.md`），實作前先讀對應規劃並更新各 Stage 狀態。
 
 ## 範圍與讀取順序
