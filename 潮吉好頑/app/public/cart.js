@@ -6,6 +6,7 @@ import { products } from "./storefront-catalog.js";
 import { activeCheckoutItems, activeCheckoutScope, openCheckout } from "./checkout-flow.js";
 import { beginLineLogin, profileIsComplete, showProfileDialog } from "./member-profile.js";
 import { requireLineFriendshipForCheckout } from "./member-benefits.js";
+import { cartLoginStrategy, readCartOwner, writeCartOwner } from "./cart-merge.js";
 
 export const cart = [];
 
@@ -201,7 +202,10 @@ function runMemberCartSync({ silent = false } = {}) {
         if (!silent && cartSyncGeneration === generation && auth.user?.id === userId) showToast(error.message || "會員購物車同步失敗，稍後會再試", "warning");
         return;
       }
-      if (cartSyncGeneration === generation && auth.user?.id === userId) lastSyncedCartHash = hash;
+      if (cartSyncGeneration === generation && auth.user?.id === userId) {
+        lastSyncedCartHash = hash;
+        writeCartOwner(userId, hash);
+      }
     }
   })();
   const guardedPump = pump.finally(() => {
@@ -260,14 +264,15 @@ export async function loadMemberCart() {
       return { variant_id: product?.id ?? remote?.variant_id, quantity: remote?.quantity };
     });
     const remoteCartHash = stableCartHash(remoteHashItems);
-    const localItems = cart.slice();
+    const strategy = cartLoginStrategy({ owner: readCartOwner(), userId: auth.user.id, localHash: stableCartHash(cart), remoteHash: remoteCartHash });
+    const localItems = strategy === "remote" ? [] : cart.slice();
     const merged = new Map();
     for (const item of localItems) {
       const product = products.find((entry) => String(entry.id).toLowerCase() === String(item.id).toLowerCase());
       const quantity = Number(item.quantity);
       if (product && Number.isInteger(quantity) && quantity > 0 && Number(product.stock || 0) > 0) merged.set(item.id, { ...product, quantity: Math.min(quantity, Number(product.stock || 0), 100) });
     }
-    for (const remote of remoteItems) {
+    for (const remote of strategy === "local" ? [] : remoteItems) {
       const product = products.find((entry) => String(entry.id).toLowerCase() === String(remote.variant_id).toLowerCase());
       const quantity = Number(remote.quantity);
       if (!product || !Number.isInteger(quantity) || quantity < 1 || Number(product.stock || 0) <= 0) continue;
@@ -277,6 +282,7 @@ export async function loadMemberCart() {
     cart.splice(0, cart.length, ...[...merged.values()].slice(0, 50));
     cartSyncUserId = auth.user.id;
     lastSyncedCartHash = remoteCartHash;
+    writeCartOwner(auth.user.id, remoteCartHash);
     saveCart({ sync: false });
     if (stableCartHash(cart) !== remoteCartHash) await syncMemberCartNow({ silent: true });
     if (document.body.classList.contains("auth-boot-ready")) renderCart();

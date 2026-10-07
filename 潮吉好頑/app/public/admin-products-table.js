@@ -332,24 +332,27 @@ async function setVariantPublished(variant, next, { moveToTop = false } = {}) {
   if (result?.moveError) deps.showToast(result.moveError, "error");
 }
 
-// 只把商品改為上架，其他欄位照目前資料送出（API 需要完整商品內容）
-async function setProductPublished(product) {
+// 只改商品的上架狀態，其他欄位照目前資料送出（API 需要完整商品內容）
+async function setProductPublished(product, isPublished) {
   const result = await deps.adminFetch(`/api/admin/products/${product.id}`, { method: "PATCH", body: JSON.stringify({
     name: product.name, description: product.description || "", category_id: product.category_id || null,
     purchase_limit: product.purchase_limit ?? null, points_eligible: product.points_eligible !== false,
-    display_order: Number(product.display_order || 0), is_published: true
+    display_order: Number(product.display_order || 0), is_published: isPublished
   }) });
-  product.is_published = typeof result?.product?.is_published === "boolean" ? result.product.is_published : true;
+  product.is_published = typeof result?.product?.is_published === "boolean" ? result.product.is_published : isPublished;
 }
 
 // 復原：把剛變更的規格改回原狀態（不再跳確認視窗）
 async function undoPublish(items, appliedValue) {
   const failed = [];
-  for (const { product, variant, previousOrder } of items) {
+  for (const { product, variant, previousOrder, unpublishProduct } of items) {
     // 重新上架時排到最前面的話，復原也要把前台排序還原
     if (Number.isInteger(previousOrder)) variant.display_order = previousOrder;
-    try { await setVariantPublished(variant, !appliedValue); }
-    catch (error) { failed.push(`${product.name}／${variant.name}（${error.message}）`); }
+    try {
+      // 這次一併上架了商品：先把商品下架，商品的其他規格也立即從前台隱藏
+      if (unpublishProduct) await setProductPublished(product, false);
+      await setVariantPublished(variant, !appliedValue);
+    } catch (error) { failed.push(`${product.name}／${variant.name}（${error.message}）`); }
   }
   deps.onCatalogChanged();
   drawTable();
@@ -380,8 +383,9 @@ async function togglePublish(button) {
   button.setAttribute("aria-busy", "true");
   try {
     await setVariantPublished(variant, next, { moveToTop });
+    let productPublished = false;
     if (publishProductToo) {
-      try { await setProductPublished(product); }
+      try { await setProductPublished(product, true); productPublished = true; }
       catch (error) { deps.showToast(`規格已上架，但商品上架失敗：${error.message || "請到「編輯」勾選上架商品"}`, "error"); }
     }
     deps.onCatalogChanged();
@@ -389,7 +393,7 @@ async function togglePublish(button) {
     // 表格重繪後按鈕已換新，焦點移回同一規格的開關
     list.querySelector(`[data-variant-publish="${CSS.escape(variant.id)}"]`)?.focus({ preventScroll: true });
     const moved = variant.display_order !== previousOrder;
-    offerUndo(variant.is_published ? `已上架：${label}${moved ? "（已排到最前面）" : ""}` : `已下架：${label}（前台隱藏）`, () => undoPublish([{ ...found, previousOrder: moved ? previousOrder : undefined }], next));
+    offerUndo(variant.is_published ? `已上架：${label}${moved ? "（已排到最前面）" : ""}` : `已下架：${label}（前台隱藏）`, () => undoPublish([{ ...found, previousOrder: moved ? previousOrder : undefined, unpublishProduct: productPublished }], next));
   } catch (error) {
     button.disabled = false;
     button.removeAttribute("aria-busy");
