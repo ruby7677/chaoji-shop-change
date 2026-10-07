@@ -2,7 +2,34 @@
 // 已同步過的會員快照不再相加（否則每次重新整理數量倍增），庫存裁切不算使用者修改。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeCartItems, planLoginCart } from "../../public/cart-merge.js";
+import { markCartGuestStart, normalizeCartItems, planLoginCart, readCartOwner, readStoredCartItems } from "../../public/cart-merge.js";
+
+function fakeSessionStorage(initial = {}) {
+  const data = new Map(Object.entries(initial));
+  globalThis.sessionStorage = { getItem: (k) => (data.has(k) ? data.get(k) : null), setItem: (k, val) => data.set(k, String(val)), removeItem: (k) => data.delete(k) };
+}
+
+test("a legacy sync record (syncedHash only) is read as the synced items, so the snapshot is not added again", () => {
+  fakeSessionStorage({ "cj-cart-owner": JSON.stringify({ userId: "user-a", syncedHash: JSON.stringify([{ variant_id: "v1", quantity: 2 }]) }) });
+  const owner = readCartOwner();
+  assert.deepEqual(owner.items, [{ variant_id: "v1", quantity: 2 }]);
+  const plan = planLoginCart({ owner, userId: "user-a", localItems: [{ variant_id: "v1", quantity: 2 }], remoteItems: [{ variant_id: "v1", quantity: 5 }] });
+  assert.deepEqual(normalizeCartItems([...plan.local, ...plan.remote]), [{ variant_id: "v1", quantity: 5 }]);
+});
+
+test("signing out records the cart once as the guest starting point", () => {
+  fakeSessionStorage({ "cj-cart-owner": JSON.stringify({ userId: "user-a", items: [{ variant_id: "v1", quantity: 1 }] }) });
+  markCartGuestStart([{ id: "v1", quantity: 2 }]);
+  markCartGuestStart([{ id: "v1", quantity: 9 }]);
+  assert.deepEqual(readCartOwner().guestBase, [{ variant_id: "v1", quantity: 2 }]);
+});
+
+test("unreadable storage returns null so the caller falls back to the in-memory cart", () => {
+  globalThis.sessionStorage = { getItem: () => { throw new Error("blocked"); } };
+  assert.equal(readStoredCartItems(), null);
+  fakeSessionStorage();
+  assert.deepEqual(readStoredCartItems(), []);
+});
 
 const A = "user-a";
 const B = "user-b";
@@ -46,6 +73,13 @@ test("switching member carries only what was added as a guest after the previous
 test("a guest cart started after A synced an empty cart is kept when B logs in", () => {
   const plan = planLoginCart({ owner: { userId: A, items: [] }, userId: B, localItems: [v("v2", 1)], remoteItems: [] });
   assert.deepEqual(total(plan), [v("v2", 1)]);
+});
+
+test("the previous member's unsynced additions are not carried; only what was added after sign-out is", () => {
+  // A 最後同步 v1×1；登入期間又加 v1×1 尚未同步就失效（guestBase 記下 v1×2），之後以訪客身分加 v3×1
+  const owner = { userId: A, items: [v("v1", 1)], guestBase: [v("v1", 2)] };
+  const plan = planLoginCart({ owner, userId: B, localItems: [v("v1", 2), v("v3", 1)], remoteItems: [] });
+  assert.deepEqual(plan.local, [v("v3", 1)]);
 });
 
 test("the previous member's own items are not carried into another member's cart", () => {

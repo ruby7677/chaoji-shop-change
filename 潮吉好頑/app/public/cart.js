@@ -6,7 +6,7 @@ import { products } from "./storefront-catalog.js";
 import { activeCheckoutItems, activeCheckoutScope, openCheckout } from "./checkout-flow.js";
 import { beginLineLogin, profileIsComplete, showProfileDialog } from "./member-profile.js";
 import { requireLineFriendshipForCheckout } from "./member-benefits.js";
-import { planLoginCart, readCartOwner, readStoredCartItems, writeCartOwner } from "./cart-merge.js";
+import { markCartGuestStart, planLoginCart, readCartOwner, readStoredCartItems, writeCartOwner } from "./cart-merge.js";
 
 export const cart = [];
 
@@ -26,6 +26,7 @@ let cartSyncGeneration = 0;
 // 登出或切換會員時清除購物車同步對象（登入模組不能直接重新指定這個 let）
 export function forgetCartSyncUser() {
   cartSyncUserId = null;
+  markCartGuestStart(cartPayload(cart));
 }
 
 export function resetMemberCartSyncState() {
@@ -265,7 +266,7 @@ export async function loadMemberCart() {
     });
     const remoteCartHash = stableCartHash(remoteHashItems);
     // 用 sessionStorage 裡裁切前的內容判斷，庫存變動不會被當成使用者修改而覆寫雲端
-    const plan = planLoginCart({ owner: readCartOwner(), userId: auth.user.id, localItems: readStoredCartItems(), remoteItems });
+    const plan = planLoginCart({ owner: readCartOwner(), userId: auth.user.id, localItems: readStoredCartItems() ?? cartPayload(cart), remoteItems });
     const merged = new Map();
     for (const item of [...plan.local, ...plan.remote]) {
       const product = products.find((entry) => String(entry.id).toLowerCase() === item.variant_id);

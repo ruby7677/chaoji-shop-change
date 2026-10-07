@@ -19,11 +19,17 @@ export function normalizeCartItems(items) {
 
 const sameItems = (left, right) => JSON.stringify(normalizeCartItems(left)) === JSON.stringify(normalizeCartItems(right));
 
-/** 本機購物車最後一次與哪位會員同步，以及當時的品項；沒有紀錄代表是訪客購物車。 */
+/**
+ * 本機購物車最後一次與哪位會員同步（items），以及登入身分清除當下的購物車（guestBase，之後的增量才是訪客加入的）。
+ * 沒有紀錄代表是訪客購物車。舊版只存 syncedHash（stableCartHash 的 JSON），解析成品項沿用。
+ */
 export function readCartOwner() {
   try {
     const owner = JSON.parse(sessionStorage.getItem(OWNER_KEY) || "null");
-    return owner && typeof owner.userId === "string" && Array.isArray(owner.items) ? owner : null;
+    if (!owner || typeof owner.userId !== "string") return null;
+    const items = Array.isArray(owner.items) ? owner.items : typeof owner.syncedHash === "string" ? JSON.parse(owner.syncedHash) : null;
+    if (!Array.isArray(items)) return null;
+    return { userId: owner.userId, items, ...(Array.isArray(owner.guestBase) ? { guestBase: owner.guestBase } : {}) };
   } catch {
     return null;
   }
@@ -33,9 +39,21 @@ export function writeCartOwner(userId, items) {
   try { sessionStorage.setItem(OWNER_KEY, JSON.stringify({ userId, items: normalizeCartItems(items) })); } catch { /* restricted storage */ }
 }
 
-/** sessionStorage 裡尚未經型錄裁切的本機購物車。 */
+/** 登入身分被清除（登出或登入過期）時記下當下的購物車；之後多出來的部分才算訪客加入的商品。 */
+export function markCartGuestStart(items) {
+  const owner = readCartOwner();
+  if (!owner || owner.guestBase) return;
+  try { sessionStorage.setItem(OWNER_KEY, JSON.stringify({ ...owner, guestBase: normalizeCartItems(items) })); } catch { /* restricted storage */ }
+}
+
+/** sessionStorage 裡尚未經型錄裁切的本機購物車；無法讀取時回傳 null，由呼叫端改用記憶體中的購物車。 */
 export function readStoredCartItems() {
-  try { return normalizeCartItems(JSON.parse(sessionStorage.getItem("cj-cart") || "[]")); } catch { return []; }
+  try {
+    const stored = sessionStorage.getItem("cj-cart");
+    return stored === null ? [] : normalizeCartItems(JSON.parse(stored));
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -43,7 +61,8 @@ export function readStoredCartItems() {
  * - 本機與雲端相同：只用雲端。
  * - 訪客購物車（沒有同步紀錄）：本機 + 雲端。
  * - 同一位會員：本機與上次同步相同就用雲端，否則本機有未同步的修改，只用本機並重新上傳。
- * - 別位會員留下的快照：只帶入比那次同步多出來的部分（登出後以訪客身分新加的商品）+ 雲端。
+ * - 別位會員留下的快照：只帶入登入身分清除後多出來的部分（以訪客身分新加的商品）+ 雲端；
+ *   沒有清除當下的紀錄時以那位會員最後同步的內容為基準。前一位會員未同步的修改不會帶入。
  */
 export function planLoginCart({ owner, userId, localItems, remoteItems }) {
   const local = normalizeCartItems(localItems);
@@ -51,7 +70,7 @@ export function planLoginCart({ owner, userId, localItems, remoteItems }) {
   if (sameItems(local, remote)) return { local: [], remote };
   if (!owner) return { local, remote };
   if (owner.userId === userId) return sameItems(local, owner.items) ? { local: [], remote } : { local, remote: [] };
-  const synced = new Map(normalizeCartItems(owner.items).map((item) => [item.variant_id, item.quantity]));
+  const synced = new Map(normalizeCartItems(owner.guestBase ?? owner.items).map((item) => [item.variant_id, item.quantity]));
   const guestAdded = local
     .map((item) => ({ variant_id: item.variant_id, quantity: item.quantity - (synced.get(item.variant_id) || 0) }))
     .filter((item) => item.quantity > 0);
