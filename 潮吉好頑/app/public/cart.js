@@ -140,7 +140,8 @@ function cartPayload(items = cart) { return items.map((item) => ({ variant_id: i
 let storedCartStale = false;
 function persistCartLocally() {
   try { sessionStorage.setItem("cj-cart", JSON.stringify(cart)); storedCartStale = false; } catch { storedCartStale = true; }
-  if (!auth.user) shrinkCartGuestBase(cartPayload(cart));
+  // 基準只跟著成功保存的購物車調整，避免與儲存中的舊內容不一致
+  if (!auth.user && !storedCartStale) shrinkCartGuestBase(cartPayload(cart));
 }
 function stableCartHash(items = cart) {
   const entries = (Array.isArray(items) ? items : []).map((item) => {

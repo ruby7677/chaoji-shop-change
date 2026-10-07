@@ -62,14 +62,16 @@ export function readStoredCartItems() {
  * - 訪客購物車（沒有同步紀錄）：本機 + 雲端。
  * - 同一位會員：本機與上次同步相同就用雲端，否則本機有未同步的修改，只用本機並重新上傳。
  * - 別位會員留下的快照：只帶入登入身分清除後多出來的部分（以訪客身分新加的商品）+ 雲端；
- *   沒有清除當下的紀錄時以那位會員最後同步的內容為基準。前一位會員未同步的修改不會帶入。
+ *   沒有清除當下的紀錄時不帶入。前一位會員的商品與未同步的修改不會帶入。
  */
 export function planLoginCart({ owner, userId, localItems, remoteItems }) {
   const local = normalizeCartItems(localItems);
   const remote = normalizeCartItems(remoteItems);
   if (owner && owner.userId !== userId) {
-    // 跨會員：內容剛好與新會員雲端相同也不代表已同步，一律只取訪客增量
-    const base = new Map(normalizeCartItems(owner.guestBase ?? owner.items).map((item) => [item.variant_id, item.quantity]));
+    // 跨會員：內容剛好與新會員雲端相同也不代表已同步，一律只取訪客增量。
+    // 沒有登出當下的起點（未經登出就直接換成另一位會員）時無法分辨哪些是訪客加入的，不帶入任何本機品項。
+    if (!owner.guestBase) return { local: [], remote };
+    const base = new Map(normalizeCartItems(owner.guestBase).map((item) => [item.variant_id, item.quantity]));
     const guestAdded = local
       .map((item) => ({ variant_id: item.variant_id, quantity: item.quantity - (base.get(item.variant_id) || 0) }))
       .filter((item) => item.quantity > 0);

@@ -80,14 +80,19 @@ test("an unmarked local cart identical to the server is not added again", () => 
 
 test("switching member carries only what was added as a guest after the previous member's sync", () => {
   // A 同步過 v1×2，登出後以訪客身分再加 v1×1 與 v3×1，接著 B 登入
-  const plan = planLoginCart({ owner: { userId: A, items: [v("v1", 2)] }, userId: B, localItems: [v("v1", 3), v("v3", 1)], remoteItems: [v("v9", 4)] });
+  const plan = planLoginCart({ owner: { userId: A, items: [v("v1", 2)], guestBase: [v("v1", 2)] }, userId: B, localItems: [v("v1", 3), v("v3", 1)], remoteItems: [v("v9", 4)] });
   assert.deepEqual(plan.local, [v("v1", 1), v("v3", 1)]);
   assert.deepEqual(total(plan), [v("v1", 1), v("v3", 1), v("v9", 4)]);
 });
 
 test("a guest cart started after A synced an empty cart is kept when B logs in", () => {
-  const plan = planLoginCart({ owner: { userId: A, items: [] }, userId: B, localItems: [v("v2", 1)], remoteItems: [] });
+  const plan = planLoginCart({ owner: { userId: A, items: [], guestBase: [] }, userId: B, localItems: [v("v2", 1)], remoteItems: [] });
   assert.deepEqual(total(plan), [v("v2", 1)]);
+});
+
+test("switching straight to another member without a sign-out carries nothing local, not even A's unsynced edits", () => {
+  const plan = planLoginCart({ owner: { userId: A, items: [v("v1", 1)] }, userId: B, localItems: [v("v1", 2)], remoteItems: [] });
+  assert.deepEqual(total(plan), []);
 });
 
 test("the previous member's unsynced additions are not carried; only what was added after sign-out is", () => {
