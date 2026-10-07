@@ -25,7 +25,7 @@ test("signing out records the cart once as the guest starting point", () => {
 });
 
 test("guest additions are carried even when the total happens to equal the next member's server cart", () => {
-  const plan = planLoginCart({ owner: { userId: "user-a", items: [{ variant_id: "v1", quantity: 1 }] }, userId: "user-b", localItems: [{ variant_id: "v1", quantity: 2 }], remoteItems: [{ variant_id: "v1", quantity: 2 }] });
+  const plan = planLoginCart({ owner: { userId: "user-a", items: [{ variant_id: "v1", quantity: 1 }], guestBase: [{ variant_id: "v1", quantity: 1 }] }, userId: "user-b", localItems: [{ variant_id: "v1", quantity: 2 }], remoteItems: [{ variant_id: "v1", quantity: 2 }] });
   assert.deepEqual(normalizeCartItems([...plan.local, ...plan.remote]), [{ variant_id: "v1", quantity: 3 }]);
 });
 
