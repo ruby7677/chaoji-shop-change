@@ -5,7 +5,10 @@ import { productCardMarkup } from "./product-card.js";
 import { variantMaxQuantity } from "./cart-quantity.js";
 import { formatProductDetails } from "./product-details-format.js";
 import { bindProductGallery, productGalleryMarkup } from "./product-gallery.js";
-import { createProductRouter } from "./product-router.js";
+import { createProductRouter, productIdFromLocation } from "./product-router.js";
+
+// 與 index.html 的 <title>、meta description 相同
+const HOME_META = { title: "潮吉好頑｜好頑玩具選物", description: "潮吉好頑｜玩具、公仔、戰鬥陀螺選物" };
 import { scrollToAnchor } from "./anchor-scroll.js";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,7 +26,10 @@ function purchaseLimit(variant) {
 export function createProductPage(deps) {
   const page = document.querySelector("#product-page");
   const metaDescription = document.querySelector('meta[name="description"]');
-  const home = { title: document.title, description: metaDescription?.content || "" };
+  // 直接開啟商品網址時，Worker 已把 <title>／description 改成該商品，不能當成首頁的值；改用 index.html 的原始值
+  const home = productIdFromLocation()
+    ? HOME_META
+    : { title: document.title, description: metaDescription?.content || HOME_META.description };
   const detailCache = new Map();
   let state = null;
   let renderToken = 0;
@@ -263,7 +269,10 @@ export function createProductPage(deps) {
     const homeLink = event.target.closest("a[data-pp-home]") || (isActive() ? event.target.closest('a[href^="#"]') : null);
     if (homeLink && isActive()) {
       event.preventDefault();
-      router.goHome(homeLink.dataset.ppHome ?? homeLink.getAttribute("href").slice(1));
+      const hash = homeLink.dataset.ppHome ?? homeLink.getAttribute("href").slice(1);
+      // 分類連結（回商品列表）：從列表點進來的回到離開時的位置，直接開啟的才跳到列表開頭
+      if (hash === "quick-pick" && router.backToList()) return;
+      router.goHome(hash);
       return;
     }
     // 商品卡的圖片與名稱也能進入商品頁。名稱連結的一般點擊改走站內切換；
