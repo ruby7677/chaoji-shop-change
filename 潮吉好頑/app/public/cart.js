@@ -6,7 +6,7 @@ import { products } from "./storefront-catalog.js";
 import { activeCheckoutItems, activeCheckoutScope, openCheckout } from "./checkout-flow.js";
 import { beginLineLogin, profileIsComplete, showProfileDialog } from "./member-profile.js";
 import { requireLineFriendshipForCheckout } from "./member-benefits.js";
-import { markCartGuestStart, planLoginCart, readCartOwner, readStoredCartItems, writeCartOwner } from "./cart-merge.js";
+import { markCartGuestStart, planLoginCart, readCartOwner, readStoredCartItems, shrinkCartGuestBase, writeCartOwner } from "./cart-merge.js";
 
 export const cart = [];
 
@@ -27,7 +27,7 @@ let cartSyncGeneration = 0;
 export function forgetCartSyncUser() {
   cartSyncUserId = null;
   // 用儲存裡未裁切的內容：開機早期（還原購物車前）記憶體中的 cart 可能還是空的
-  markCartGuestStart(readStoredCartItems() ?? cartPayload(cart));
+  markCartGuestStart((storedCartStale ? null : readStoredCartItems()) ?? cartPayload(cart));
 }
 
 export function resetMemberCartSyncState() {
@@ -136,8 +136,11 @@ export function renderCart() {
   updateCartCheckoutAction();
 }
 function cartPayload(items = cart) { return items.map((item) => ({ variant_id: item.id, quantity: item.quantity })); }
+// 寫入失敗（容量或權限限制）時，儲存的內容比記憶體舊；登入合併改用記憶體中的 cart
+let storedCartStale = false;
 function persistCartLocally() {
-  try { sessionStorage.setItem("cj-cart", JSON.stringify(cart)); } catch { /* ignore restricted storage */ }
+  try { sessionStorage.setItem("cj-cart", JSON.stringify(cart)); storedCartStale = false; } catch { storedCartStale = true; }
+  if (!auth.user) shrinkCartGuestBase(cartPayload(cart));
 }
 function stableCartHash(items = cart) {
   const entries = (Array.isArray(items) ? items : []).map((item) => {
@@ -267,7 +270,7 @@ export async function loadMemberCart() {
     });
     const remoteCartHash = stableCartHash(remoteHashItems);
     // 用 sessionStorage 裡裁切前的內容判斷，庫存變動不會被當成使用者修改而覆寫雲端
-    const plan = planLoginCart({ owner: readCartOwner(), userId: auth.user.id, localItems: readStoredCartItems() ?? cartPayload(cart), remoteItems });
+    const plan = planLoginCart({ owner: readCartOwner(), userId: auth.user.id, localItems: (storedCartStale ? null : readStoredCartItems()) ?? cartPayload(cart), remoteItems });
     const merged = new Map();
     for (const item of [...plan.local, ...plan.remote]) {
       const product = products.find((entry) => String(entry.id).toLowerCase() === item.variant_id);

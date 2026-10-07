@@ -24,6 +24,21 @@ test("signing out records the cart once as the guest starting point", () => {
   assert.deepEqual(readCartOwner().guestBase, [{ variant_id: "v1", quantity: 2 }]);
 });
 
+test("guest additions are carried even when the total happens to equal the next member's server cart", () => {
+  const plan = planLoginCart({ owner: { userId: "user-a", items: [{ variant_id: "v1", quantity: 1 }] }, userId: "user-b", localItems: [{ variant_id: "v1", quantity: 2 }], remoteItems: [{ variant_id: "v1", quantity: 2 }] });
+  assert.deepEqual(normalizeCartItems([...plan.local, ...plan.remote]), [{ variant_id: "v1", quantity: 3 }]);
+});
+
+test("removing an inherited item as a guest lowers the base, so re-adding it counts as a guest addition", async () => {
+  const { shrinkCartGuestBase } = await import("../../public/cart-merge.js");
+  fakeSessionStorage({ "cj-cart-owner": JSON.stringify({ userId: "user-a", items: [{ variant_id: "v1", quantity: 2 }], guestBase: [{ variant_id: "v1", quantity: 2 }] }) });
+  shrinkCartGuestBase([]);
+  const owner = readCartOwner();
+  assert.deepEqual(owner.guestBase, []);
+  const plan = planLoginCart({ owner, userId: "user-b", localItems: [{ variant_id: "v1", quantity: 1 }], remoteItems: [] });
+  assert.deepEqual(plan.local, [{ variant_id: "v1", quantity: 1 }]);
+});
+
 test("unreadable storage returns null so the caller falls back to the in-memory cart", () => {
   globalThis.sessionStorage = { getItem: () => { throw new Error("blocked"); } };
   assert.equal(readStoredCartItems(), null);

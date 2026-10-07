@@ -67,12 +67,26 @@ export function readStoredCartItems() {
 export function planLoginCart({ owner, userId, localItems, remoteItems }) {
   const local = normalizeCartItems(localItems);
   const remote = normalizeCartItems(remoteItems);
+  if (owner && owner.userId !== userId) {
+    // 跨會員：內容剛好與新會員雲端相同也不代表已同步，一律只取訪客增量
+    const base = new Map(normalizeCartItems(owner.guestBase ?? owner.items).map((item) => [item.variant_id, item.quantity]));
+    const guestAdded = local
+      .map((item) => ({ variant_id: item.variant_id, quantity: item.quantity - (base.get(item.variant_id) || 0) }))
+      .filter((item) => item.quantity > 0);
+    return { local: guestAdded, remote };
+  }
   if (sameItems(local, remote)) return { local: [], remote };
   if (!owner) return { local, remote };
-  if (owner.userId === userId) return sameItems(local, owner.items) ? { local: [], remote } : { local, remote: [] };
-  const synced = new Map(normalizeCartItems(owner.guestBase ?? owner.items).map((item) => [item.variant_id, item.quantity]));
-  const guestAdded = local
-    .map((item) => ({ variant_id: item.variant_id, quantity: item.quantity - (synced.get(item.variant_id) || 0) }))
+  return sameItems(local, owner.items) ? { local: [], remote } : { local, remote: [] };
+}
+
+/** 未登入時減少或移除品項：繼承自前一位會員的基準跟著下修，之後再加入的才算訪客新增。 */
+export function shrinkCartGuestBase(items) {
+  const owner = readCartOwner();
+  if (!owner?.guestBase) return;
+  const current = new Map(normalizeCartItems(items).map((item) => [item.variant_id, item.quantity]));
+  const guestBase = normalizeCartItems(owner.guestBase)
+    .map((item) => ({ variant_id: item.variant_id, quantity: Math.min(item.quantity, current.get(item.variant_id) || 0) }))
     .filter((item) => item.quantity > 0);
-  return { local: guestAdded, remote };
+  try { sessionStorage.setItem(OWNER_KEY, JSON.stringify({ ...owner, guestBase })); } catch { /* restricted storage */ }
 }
