@@ -6,7 +6,7 @@ import { products } from "./storefront-catalog.js";
 import { activeCheckoutItems, activeCheckoutScope, openCheckout } from "./checkout-flow.js";
 import { beginLineLogin, profileIsComplete, showProfileDialog } from "./member-profile.js";
 import { requireLineFriendshipForCheckout } from "./member-benefits.js";
-import { cartLoginStrategy, readCartOwner, writeCartOwner } from "./cart-merge.js";
+import { planLoginCart, readCartOwner, readStoredCartItems, writeCartOwner } from "./cart-merge.js";
 
 export const cart = [];
 
@@ -204,7 +204,7 @@ function runMemberCartSync({ silent = false } = {}) {
       }
       if (cartSyncGeneration === generation && auth.user?.id === userId) {
         lastSyncedCartHash = hash;
-        writeCartOwner(userId, hash);
+        writeCartOwner(userId, cartPayload(snapshot));
       }
     }
   })();
@@ -264,25 +264,19 @@ export async function loadMemberCart() {
       return { variant_id: product?.id ?? remote?.variant_id, quantity: remote?.quantity };
     });
     const remoteCartHash = stableCartHash(remoteHashItems);
-    const strategy = cartLoginStrategy({ owner: readCartOwner(), userId: auth.user.id, localHash: stableCartHash(cart), remoteHash: remoteCartHash });
-    const localItems = strategy === "remote" ? [] : cart.slice();
+    // 用 sessionStorage 裡裁切前的內容判斷，庫存變動不會被當成使用者修改而覆寫雲端
+    const plan = planLoginCart({ owner: readCartOwner(), userId: auth.user.id, localItems: readStoredCartItems(), remoteItems });
     const merged = new Map();
-    for (const item of localItems) {
-      const product = products.find((entry) => String(entry.id).toLowerCase() === String(item.id).toLowerCase());
-      const quantity = Number(item.quantity);
-      if (product && Number.isInteger(quantity) && quantity > 0 && Number(product.stock || 0) > 0) merged.set(item.id, { ...product, quantity: Math.min(quantity, Number(product.stock || 0), 100) });
-    }
-    for (const remote of strategy === "local" ? [] : remoteItems) {
-      const product = products.find((entry) => String(entry.id).toLowerCase() === String(remote.variant_id).toLowerCase());
-      const quantity = Number(remote.quantity);
-      if (!product || !Number.isInteger(quantity) || quantity < 1 || Number(product.stock || 0) <= 0) continue;
+    for (const item of [...plan.local, ...plan.remote]) {
+      const product = products.find((entry) => String(entry.id).toLowerCase() === item.variant_id);
+      if (!product || Number(product.stock || 0) <= 0) continue;
       const existing = merged.get(product.id);
-      merged.set(product.id, { ...product, quantity: Math.min((existing?.quantity || 0) + quantity, Number(product.stock || 0), 100) });
+      merged.set(product.id, { ...product, quantity: Math.min((existing?.quantity || 0) + item.quantity, Number(product.stock || 0), 100) });
     }
     cart.splice(0, cart.length, ...[...merged.values()].slice(0, 50));
     cartSyncUserId = auth.user.id;
     lastSyncedCartHash = remoteCartHash;
-    writeCartOwner(auth.user.id, remoteCartHash);
+    writeCartOwner(auth.user.id, remoteItems);
     saveCart({ sync: false });
     if (stableCartHash(cart) !== remoteCartHash) await syncMemberCartNow({ silent: true });
     if (document.body.classList.contains("auth-boot-ready")) renderCart();

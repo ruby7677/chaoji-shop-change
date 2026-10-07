@@ -130,6 +130,24 @@ function hideToast() {
   toast.setAttribute("aria-hidden", "true");
   toastTimer = null;
 }
+// 頁面底部固定列（選物托盤、商品頁的加入購物車列）的上緣距離視窗底部多少 px。
+// 用 CSS 的 bottom＋高度計算，不用 getBoundingClientRect：托盤剛出現時還在滑入動畫中，量到的位置會偏低。
+const TOAST_GAP = 10;
+function bottomBarClearance() {
+  let clearance = 0;
+  for (const bar of document.querySelectorAll(".selection-tray.has-items, .pp-sticky-cta.is-visible")) {
+    const style = getComputedStyle(bar);
+    if (style.display === "none" || style.position !== "fixed" || !bar.offsetHeight) continue;
+    clearance = Math.max(clearance, (parseFloat(style.bottom) || 0) + bar.offsetHeight);
+  }
+  return clearance;
+}
+// 通知預設離底部 26px（styles.css）；有底部固定列時改放在它上方，避免互相遮住
+function placeToast(toast) {
+  const clearance = toast.parentElement === document.body ? bottomBarClearance() : 0;
+  if (clearance) toast.style.setProperty("bottom", `${clearance + TOAST_GAP}px`);
+  else toast.style.removeProperty("bottom");
+}
 export function showToast(message, kind = "neutral") {
   const toast = document.querySelector("#toast");
   const openDialog = document.querySelector("dialog[open]");
@@ -141,7 +159,10 @@ export function showToast(message, kind = "neutral") {
   if (toastKind !== "neutral") toast.classList.add(`toast-${toastKind}`);
   toast.setAttribute("role", toastKind === "error" ? "alert" : "status");
   toast.setAttribute("aria-hidden", "false");
-  window.requestAnimationFrame(() => toast.classList.add("show"));
+  window.requestAnimationFrame(() => {
+    placeToast(toast);
+    toast.classList.add("show");
+  });
   if (toastTimer) window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(hideToast, 3000);
 }
