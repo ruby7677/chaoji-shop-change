@@ -26,7 +26,8 @@ let cartSyncGeneration = 0;
 // 登出或切換會員時清除購物車同步對象（登入模組不能直接重新指定這個 let）
 export function forgetCartSyncUser() {
   cartSyncUserId = null;
-  markCartGuestStart(cartPayload(cart));
+  // 用儲存裡未裁切的內容：開機早期（還原購物車前）記憶體中的 cart 可能還是空的
+  markCartGuestStart(readStoredCartItems() ?? cartPayload(cart));
 }
 
 export function resetMemberCartSyncState() {
