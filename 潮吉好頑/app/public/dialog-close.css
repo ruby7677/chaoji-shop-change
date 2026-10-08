@@ -1,0 +1,16 @@
+/* 前台浮動視窗（結帳、付款回報、我的訂單、會員資料、LINE 好友）的關閉鈕：
+   貼齊視窗右上角內側（距邊 6px）、無外框與陰影，點擊範圍 44px；捲動時以 sticky 留在右上角。
+   --dlg-pt／--dlg-px 等於各表單的 padding，用來把按鈕從內容區推到視窗角落。 */
+:is(#checkout-form,#payment-form,.orders-shell,#profile-form,#line-friend-form){--dlg-pt:30px;--dlg-px:30px}
+@media(max-width:430px){:is(#checkout-form,#payment-form,.orders-shell,#profile-form){--dlg-pt:25px;--dlg-px:20px}}
+:is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog) .dialog-close{
+  /* sticky 的 top／right 以捲動區的內容框為準：負的 padding 才能貼到視窗邊；right 清掉舊的 absolute 定位值 */
+  top:calc(6px - var(--dlg-pt));right:auto;width:44px;height:44px;
+  /* 下方負邊距讓標題回到原本的 padding 位置，與按鈕同一列 */
+  margin:calc(6px - var(--dlg-pt)) calc(6px - var(--dlg-px)) calc(var(--dlg-pt) - 50px) auto;
+  border-radius:999px;background:rgba(255,255,255,.92);box-shadow:none;color:var(--home-ink);font-size:26px;line-height:1
+}
+:is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog) .dialog-close:hover{background:var(--home-paper)}
+:is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog) .dialog-close ~ h2{padding-right:40px}
+/* 視窗打開時焦點放在視窗本身（tabindex=-1，由 app-core.js 的 showDialog 設定），不再自動停在關閉鈕而出現提示框；鍵盤按 Tab 仍會先到關閉鈕 */
+:is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog):focus{outline:none}

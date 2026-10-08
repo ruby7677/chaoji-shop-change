@@ -13,7 +13,7 @@ export const CSS_BUNDLES = {
   "bundle-storefront.css": [
     "product-showcase.css", "hero-desktop.css", "hero-ratio.css", "store-info.css", "product-page.css",
     "storefront-legibility.css", "hero-flag-shine.css", "header-orders.css", "card-subgrid.css",
-    "filter-chips.css", "catalog-paging.css", "member-profile.css"
+    "filter-chips.css", "catalog-paging.css", "member-profile.css", "dialog-close.css"
   ]
 };
 

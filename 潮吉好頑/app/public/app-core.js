@@ -113,6 +113,8 @@ export function showDialog(dialog) {
   if (!dialog.open) {
     lockPageScroll();
     dialog.showModal();
+    // 前台視窗（tabindex=-1）打開時焦點放在視窗本身，不自動停在關閉鈕而顯示焦點框；按 Tab 仍會先到關閉鈕
+    if (dialog.getAttribute("tabindex") === "-1") dialog.focus({ preventScroll: true });
   }
   syncPageScrollLock();
 }
