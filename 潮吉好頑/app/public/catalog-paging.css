@@ -1,0 +1,12 @@
+/* 首頁商品列表「載入更多」：黑底膠囊按鈕＋黃色件數標籤（與選中的系列按鈕同色系）；新出現的商品卡淡入。 */
+.catalog-more{display:grid;justify-items:center;gap:12px;margin-top:34px;text-align:center}
+.catalog-more:empty{display:none}
+.catalog-more-count,.catalog-more-done{margin:0;color:var(--home-muted);font-size:.85rem;font-variant-numeric:tabular-nums}
+.catalog-more-button{display:inline-flex;align-items:center;gap:10px;min-height:48px;padding:0 28px;border:0;border-radius:999px;background:var(--home-ink);color:#fff;font-size:1rem;font-weight:900;cursor:pointer;box-shadow:0 10px 24px rgba(21,21,21,.18);transition:transform .18s ease,box-shadow .18s ease}
+.catalog-more-button:hover{transform:translateY(-2px);box-shadow:0 14px 28px rgba(21,21,21,.24)}
+.catalog-more-button:focus-visible{outline:3px solid var(--home-yellow);outline-offset:3px}
+.catalog-more-next{padding:2px 9px;border-radius:999px;background:var(--home-yellow);color:var(--home-ink);font-size:.78rem}
+.product-card.is-revealed{animation:catalog-reveal .45s cubic-bezier(.2,.8,.2,1) both}
+@keyframes catalog-reveal{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@media (max-width:760px){.catalog-more{margin-top:26px}.catalog-more-button{width:100%;justify-content:center}}
+@media (prefers-reduced-motion:reduce){.catalog-more-button{transition:none}.catalog-more-button:hover{transform:none}.product-card.is-revealed{animation:none}}

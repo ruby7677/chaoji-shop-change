@@ -1,6 +1,7 @@
 // 前台型錄：商品列表與搜尋、首頁 Hero 輪播、商品頁入口與載入型錄。
 import { escapeHtml, isPreorderItem, productAvailability, productMark, productPriceMarkup } from "./product-format.js";
 import { productCardMarkup } from "./product-card.js";
+import { loadMoreMarkup, showMore, visibleLimit } from "./catalog-paging.js";
 import { mountHeroCarousel } from "./hero-carousel.js";
 import { selectHeroSlides } from "./hero-slides.js";
 import { showToast } from "./app-core.js";
@@ -88,11 +89,32 @@ function renderCategoryFilters() {
   }).join("");
 }
 
-export function renderProducts() {
+// 「載入更多」區塊放在商品格下方（index.html 不用改）
+function loadMoreSlot() {
+  let slot = document.querySelector("[data-catalog-more-slot]");
+  if (!slot && grid) {
+    slot = document.createElement("div");
+    slot.className = "catalog-more";
+    slot.dataset.catalogMoreSlot = "";
+    grid.after(slot);
+    slot.addEventListener("click", (event) => {
+      if (!event.target.closest("[data-catalog-more]")) return;
+      renderProducts({ revealFrom: showMore() });
+    });
+  }
+  return slot;
+}
+
+export function renderProducts({ revealFrom = 0 } = {}) {
   renderCategoryFilters();
   const keyword = search.value.trim().toLowerCase();
-  const visible = products.filter((product) => (activeCategory === "all" || product.category === activeCategory || product.type === activeCategory) && `${product.category}${product.name}`.toLowerCase().includes(keyword));
-  grid.innerHTML = visible.length ? visible.map(productCardMarkup).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
+  const matches = products.filter((product) => (activeCategory === "all" || product.category === activeCategory || product.type === activeCategory) && `${product.category}${product.name}`.toLowerCase().includes(keyword));
+  const shown = matches.slice(0, visibleLimit(`${activeCategory}|${keyword}`));
+  grid.innerHTML = shown.length ? shown.map(productCardMarkup).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
+  // 剛載入的那批卡片淡入
+  if (revealFrom > 0) [...grid.children].slice(revealFrom).forEach((card) => card.classList.add("is-revealed"));
+  const slot = loadMoreSlot();
+  if (slot) slot.innerHTML = loadMoreMarkup(shown.length, matches.length);
 }
 
 // 商品卡、推薦卡與輪播按鈕都以規格 ID 進入獨立商品頁。
