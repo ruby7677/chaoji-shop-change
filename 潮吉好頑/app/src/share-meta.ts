@@ -2,6 +2,9 @@
 // 因此由 Worker 回傳 index.html 時以 HTMLRewriter 寫入標題、描述與 Open Graph 標籤。
 // 只讀取已上架商品（storefront_variants + anon key），查詢失敗時退回全站預設值，不影響頁面本身。
 import { fetchWithTimeout } from "./http";
+import { publicCatalog } from "./catalog";
+import { type Env } from "./env";
+import { firstHeroImageUrl } from "./hero-preload";
 
 export interface ShareMetaEnv {
   ASSETS: Fetcher;
@@ -47,12 +50,33 @@ async function productMeta(env: ShareMetaEnv, productId: string): Promise<ShareM
   };
 }
 
+// 首頁型錄最多等這麼久（通常命中快取只需幾毫秒）；逾時只少了輪播圖預先載入，不拖慢首頁
+const HOME_CATALOG_WAIT_MS = 150;
+
+function isHomePage(url: URL) {
+  return url.pathname === "/" || url.pathname === "/index.html";
+}
+
+// 型錄 API 一律預先載入（前端 fetch 預設 credentials 為 same-origin，對應 crossorigin=anonymous）；
+// 能及時取得型錄時，再預先載入第一張輪播圖
+// 型錄讀取會被之後的 /api/catalog 共用（isolate 內同一個 in-flight）：必須用 waitUntil 讓它在首頁回應送出後
+// 仍能完成，否則讀取被中斷、in-flight 永遠不會結束，之後所有型錄請求都會卡住
+export async function homePreloadMarkup(env: Env, url: URL, ctx?: ExecutionContext) {
+  const catalog = publicCatalog(env, url.origin).catch(() => null);
+  ctx?.waitUntil(catalog);
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), HOME_CATALOG_WAIT_MS));
+  const products = await Promise.race([catalog, timeout]);
+  const image = products ? firstHeroImageUrl(products) : null;
+  return '<link rel="preload" href="/api/catalog" as="fetch" crossorigin="anonymous" />'
+    + (image ? `<link rel="preload" href="${escapeAttribute(image)}" as="image" fetchpriority="high" />` : "");
+}
+
 export function isShareMetaRequest(request: Request, url: URL) {
   if (request.method !== "GET") return false;
   return url.pathname === "/" || url.pathname === "/index.html" || PRODUCT_PAGE.test(url.pathname);
 }
 
-export async function withShareMeta(request: Request, env: ShareMetaEnv, url: URL): Promise<Response> {
+export async function withShareMeta(request: Request, env: Env, url: URL, ctx?: ExecutionContext): Promise<Response> {
   // 不帶條件式標頭向 ASSETS 取 index.html：所有商品頁共用同一個 ETag，
   // 若回 304 瀏覽器會沿用其他商品（或舊名稱）的標籤。
   const headers = new Headers(request.headers);
@@ -80,11 +104,16 @@ export async function withShareMeta(request: Request, env: ShareMetaEnv, url: UR
   ];
   const headMarkup = tags.map(([attribute, name, content]) => `<meta ${attribute}="${name}" content="${escapeAttribute(content)}" />`).join("")
     + `<link rel="canonical" href="${escapeAttribute(canonical)}" />`;
+  const preloadMarkup = isHomePage(url) ? await homePreloadMarkup(env, url, ctx) : "";
 
   const rewritten = new HTMLRewriter()
     .on("title", { element(element) { element.setInnerContent(meta.title); } })
     .on('meta[name="description"]', { element(element) { element.setAttribute("content", meta.description); } })
-    .on("head", { element(element) { element.append(headMarkup, { html: true }); } })
+    .on("head", { element(element) {
+      element.append(headMarkup, { html: true });
+    } })
+    // 預先載入緊接在 charset 之後，比 CSS 更早被瀏覽器發現
+    .on("meta[charset]", { element(element) { if (preloadMarkup) element.after(preloadMarkup, { html: true }); } })
     .transform(assetResponse);
   const responseHeaders = new Headers(rewritten.headers);
   responseHeaders.delete("ETag");

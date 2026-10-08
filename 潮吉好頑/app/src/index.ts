@@ -1,6 +1,7 @@
 import { retryDueNotificationDeliveries } from "./notification-delivery";
 import { createProductShowcase, isShowcaseImageUpload } from "./product-showcase";
 import { isShareMetaRequest, withShareMeta } from "./share-meta";
+import { backfillProductImageDimensions } from "./product-image-dimensions";
 import { createWebSession } from "./web-session";
 import { adjustInventory, createAdminCategory, createAdminProduct, createVariant, updateAdminCategory, updateProduct, updateVariant } from "./admin-catalog";
 import { adminAuditLogs, adminDashboard, adminNotificationDeliveries, requeueAdminNotificationDelivery } from "./admin-dashboard";
@@ -125,7 +126,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   const showcaseResponse = await productShowcase.route(request, env, url, ctx);
   if (showcaseResponse) return showcaseResponse;
   if (url.pathname.startsWith("/api/")) return json({ error: "找不到 API" }, { status: 404 });
-  if (isShareMetaRequest(request, url)) return withSecurityHeaders(await withShareMeta(request, env, url));
+  if (isShareMetaRequest(request, url)) return withSecurityHeaders(await withShareMeta(request, env, url, ctx));
   return withSecurityHeaders(await env.ASSETS.fetch(request));
 }
 
@@ -145,7 +146,8 @@ export default {
   scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     const task = _controller.cron === "*/5 * * * *"
       ? retryDueNotificationDeliveries(env)
-      : Promise.all([retryDueNotificationDeliveries(env), runScheduledNotifications(env)]).then(() => undefined);
+      // 每小時：通知排程，並補齊尚未記錄寬高的商品主圖（補完後只剩一次查詢）
+      : Promise.all([retryDueNotificationDeliveries(env), runScheduledNotifications(env), backfillProductImageDimensions(env).catch((error) => console.error("商品主圖寬高補齊失敗", error))]).then(() => undefined);
     ctx.waitUntil(task);
     // 每日一次唯讀保活（每小時排程在固定時刻觸發），與通知任務互不影響。
     if (_controller.cron !== "*/5 * * * *" && isKeepaliveHour(_controller.scheduledTime)) ctx.waitUntil(pingSupabase(env));

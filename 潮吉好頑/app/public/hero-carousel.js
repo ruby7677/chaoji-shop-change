@@ -14,6 +14,8 @@ export function mountHeroCarousel(root, slides) {
   root.setAttribute("aria-roledescription", "carousel");
   root.setAttribute("aria-label", "精選商品輪播");
   root.innerHTML = heroCarouselMarkup(slides);
+  // CSP 不允許 style 屬性：比例以 CSS 變數設定（hero-ratio.css 使用）
+  root.querySelectorAll("[data-hero-ratio]").forEach((media) => media.style.setProperty("--hero-ratio", media.dataset.heroRatio));
 
   const slideNodes = [...root.querySelectorAll("[data-hero-slide]")];
   const dots = [...root.querySelectorAll("[data-hero-go]")];

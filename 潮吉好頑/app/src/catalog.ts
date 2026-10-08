@@ -3,6 +3,8 @@ import { IMAGE_CACHE_CONTROL, IMAGE_STALE_VERSION_CACHE_CONTROL, PRODUCT_IMAGE_B
 import { requireAdmin } from "./auth";
 import { databaseError, databaseErrors } from "./database-errors";
 import { type Env, type Product } from "./env";
+import { readImageDimensions } from "./image-dimensions";
+import { saveProductImageDimensions } from "./product-image-dimensions";
 import { deleteEdgeCatalog, readEdgeCatalog, writeEdgeCatalog } from "./catalog-edge-cache";
 import { SECURITY_HEADERS, UPLOAD_TIMEOUT_MS, fetchWithTimeout, json, serviceHeaders } from "./http";
 
@@ -42,18 +44,19 @@ async function loadCategoryOrder(env: Env): Promise<Map<string, number>> {
 }
 
 async function loadPublicCatalog(env: Env): Promise<Product[]> {
-  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,hero_rank,hero_tagline&is_published=eq.true&order=display_order.desc,id.desc`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,hero_rank,hero_tagline,image_width,image_height&is_published=eq.true&order=display_order.desc,id.desc`, {
     headers: { apikey: env.SUPABASE_ANON_KEY as string, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
   });
   if (!response.ok) throw new Error("Unable to load catalog");
-  const rows = await response.json() as Array<Product & { has_image?: boolean; image_updated_at?: string }>;
+  const rows = await response.json() as Array<Product & { has_image?: boolean; image_updated_at?: string; image_width?: number | null; image_height?: number | null }>;
   const categoryOrder = await loadCategoryOrder(env);
-  return rows.map(({ has_image, image_updated_at, ...product }) => ({
+  return rows.map(({ has_image, image_updated_at, image_width, image_height, ...product }) => ({
     ...product,
     ...(categoryOrder.has(product.category) ? { category_order: categoryOrder.get(product.category) } : {}),
     image_url: has_image && product.product_id
       ? `/api/product-images/${product.product_id}?v=${encodeURIComponent(image_updated_at || "1")}`
-      : undefined
+      : undefined,
+    ...(has_image && image_width && image_height ? { image_width, image_height } : {})
   }));
 }
 
@@ -151,6 +154,7 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
   if (!extension) return json({ error: "照片僅支援 JPG、PNG 或 WebP" }, { status: 400 });
   if (!image.size || image.size > PRODUCT_IMAGE_MAX_BYTES) return json({ error: "商品照片必須小於 5MB" }, { status: 400 });
   if (!(await hasImageSignature(image, image.type))) return json({ error: "照片格式與檔案內容不一致" }, { status: 400 });
+  const dimensions = readImageDimensions(await image.arrayBuffer());
 
   // 縮圖是選填欄位，但一旦附上就套用與主圖相同的驗證（另加限定 WebP）；
   // 驗證在任何 storage 寫入之前失敗，讓整個請求連同主圖一起被拒絕，管理員才會注意到問題。
@@ -191,6 +195,8 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
     body: JSON.stringify({ p_actor_id: admin.user.id, p_product_id: productId, p_image_path: imagePath, p_image_updated_at: updatedAt })
   });
   if (!updateResponse.ok) return databaseError(updateResponse);
+  // 寬高寫入失敗只影響前台保留空間，不讓上傳失敗；讀不到時寫 null，避免沿用舊照片的比例
+  await saveProductImageDimensions(env, productId, dimensions).catch((error) => console.error(`商品主圖寬高寫入發生例外 productId=${productId}`, error));
   await invalidateCatalogCache(request);
   await purgeProductImageCache(request, productId, undefined, previousVersion);
   await purgeProductImageCache(request, productId, undefined, previousVersion, "thumb");

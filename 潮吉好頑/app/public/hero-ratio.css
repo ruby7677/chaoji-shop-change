@@ -1,0 +1,9 @@
+/* 首頁輪播：手機與平板直向的照片框依照片比例撐滿寬度。型錄帶有主圖寬高時（data-hero-ratio），
+   照片框先用同比例保留高度，照片載入後下方商品區不再往下跳（CLS）；過高的直式照仍限制在 68svh／70svh。
+   沒有寬高的照片維持原本依載入結果排版；手機橫放（高度 ≤540）由 hero-desktop.css 的固定高度處理。 */
+@media (max-width: 760px) and (min-height: 541px) {
+  .hero-slide-media[data-hero-ratio] { aspect-ratio: var(--hero-ratio); max-height: 68svh; }
+}
+@media (min-width: 761px) and (max-width: 1020px) and (min-height: 541px) {
+  .hero-slide-media[data-hero-ratio] { aspect-ratio: var(--hero-ratio); max-height: 70svh; }
+}

@@ -45,6 +45,8 @@ function toSlide(variants) {
     preorder,
     intro: introText(lead, preorder),
     imageUrl: lead.image_url,
+    // 主圖寬高比（型錄有記錄時）：手機版照片框先保留空間，避免照片載入後版面跳動
+    ratio: lead.image_width > 0 && lead.image_height > 0 ? lead.image_width / lead.image_height : null,
     rank: Number.isInteger(lead.hero_rank) ? lead.hero_rank : null,
     order: Number(lead.display_order || 0)
   };
@@ -65,7 +67,7 @@ function slideMarkup(slide, index, total) {
   const id = escapeHtml(slide.variantId);
   const feature = FEATURE_LABELS[slide.preorder ? "preorder" : "in_stock"];
   return `<div class="hero-slide${index % 2 ? " hero-slide--alt" : ""}" role="group" aria-roledescription="slide" aria-label="${index + 1} / ${total}：${escapeHtml(slide.name)}" data-hero-slide="${index}">
-<button type="button" class="hero-slide-link" data-detail="${id}" tabindex="-1" aria-hidden="true"><span class="hero-slide-media"><img src="${escapeHtml(slide.imageUrl)}" alt="" decoding="async" ${loading} /></span></button>
+<button type="button" class="hero-slide-link" data-detail="${id}" tabindex="-1" aria-hidden="true"><span class="hero-slide-media"${slide.ratio ? ` data-hero-ratio="${slide.ratio.toFixed(4)}"` : ""}><img src="${escapeHtml(slide.imageUrl)}" alt="" decoding="async" ${loading} /></span></button>
 <div class="hero-slide-info"><p class="hero-slide-kicker" data-stagger><span class="hero-slide-flag${slide.preorder ? " hero-slide-flag--new" : ""}">${feature.flag}</span><span class="hero-slide-feature">${feature.label}</span><span class="hero-slide-category">${escapeHtml(slide.category)}</span></p><h2 class="hero-slide-name" data-stagger>${escapeHtml(slide.name)}</h2><p class="hero-slide-intro" data-stagger>${escapeHtml(slide.intro)}</p><button type="button" class="hero-slide-more" data-detail="${id}" data-stagger>查看商品<span class="sr-only">：${escapeHtml(slide.name)}</span><svg class="hero-slide-more-arrow" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
 </div>`;
 }

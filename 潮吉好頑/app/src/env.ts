@@ -43,6 +43,9 @@ export type Product = {
   preorder_arrival?: string;
   seller_link?: string;
   image_url?: string;
+  /** 主圖原始寬高（未補齊時沒有），前台用來先保留照片空間 */
+  image_width?: number;
+  image_height?: number;
   hero_rank?: number | null;
   hero_tagline?: string | null;
 };
