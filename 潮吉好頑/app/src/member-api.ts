@@ -275,7 +275,7 @@ export async function createOrder(request: Request, env: Env): Promise<Response>
   });
   if (!response.ok) return databaseError(response);
   // 建單會保留庫存，前台型錄的可售量隨之減少
-  invalidateCatalogCache();
+  await invalidateCatalogCache();
   const orderId = await response.json() as string;
   const order = await loadOrder(env, orderId, user.id, authorization);
   if (!order) return json({ error: "訂單已建立，但明細載入失敗，請至我的訂單查看" }, { status: 502 });

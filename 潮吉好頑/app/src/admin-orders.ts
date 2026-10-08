@@ -47,7 +47,7 @@ export async function transitionAdminOrder(request: Request, env: Env, orderId: 
   });
   if (!response.ok) return databaseError(response);
   // 取消會釋放保留量，改變前台型錄的可售量
-  invalidateCatalogCache();
+  await invalidateCatalogCache();
   return json({ order: await response.json() });
 }
 

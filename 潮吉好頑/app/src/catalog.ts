@@ -3,6 +3,7 @@ import { IMAGE_CACHE_CONTROL, IMAGE_STALE_VERSION_CACHE_CONTROL, PRODUCT_IMAGE_B
 import { requireAdmin } from "./auth";
 import { databaseError, databaseErrors } from "./database-errors";
 import { type Env, type Product } from "./env";
+import { deleteEdgeCatalog, readEdgeCatalog, writeEdgeCatalog } from "./catalog-edge-cache";
 import { SECURITY_HEADERS, UPLOAD_TIMEOUT_MS, fetchWithTimeout, json, serviceHeaders } from "./http";
 
 const demoProducts: Product[] = [
@@ -19,11 +20,12 @@ let catalogInflight: Promise<Product[]> | null = null;
 // 失效時遞增：失效前就開始的讀取完成後不可把舊資料寫回快取
 let catalogGeneration = 0;
 
-/** 任何會改變前台型錄資料的管理端寫入成功後呼叫，強制下一次 publicCatalog() 重新讀取。 */
-export function invalidateCatalogCache() {
+/** 任何會改變前台型錄資料的寫入成功後呼叫（並 await），強制下一次 publicCatalog() 重新讀取，也清除本機房的邊緣快取。 */
+export async function invalidateCatalogCache(): Promise<void> {
   catalogGeneration += 1;
   catalogCache = null;
   catalogInflight = null;
+  await deleteEdgeCatalog();
 }
 
 // 分類排序（anon 沒有 display_order 欄位權限，用 service role 只讀名稱與排序）；
@@ -55,13 +57,22 @@ async function loadPublicCatalog(env: Env): Promise<Product[]> {
   }));
 }
 
-export async function publicCatalog(env: Env): Promise<Product[]> {
+/** origin：請求網址的來源，提供時多一層同機房共用的邊緣快取（見 catalog-edge-cache.ts）。 */
+export async function publicCatalog(env: Env, origin?: string): Promise<Product[]> {
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return demoProducts;
   const now = Date.now();
   if (catalogCache && catalogCache.expiresAt > now) return catalogCache.data;
   if (catalogInflight) return catalogInflight;
   const generation = catalogGeneration;
-  const inflight = loadPublicCatalog(env).then((data) => {
+  const load = async () => {
+    const edge = origin ? await readEdgeCatalog(origin) : null;
+    if (edge) return edge;
+    const data = await loadPublicCatalog(env);
+    // 讀取期間若已失效，不把可能過期的資料寫進邊緣快取
+    if (origin && generation === catalogGeneration) await writeEdgeCatalog(origin, data);
+    return data;
+  };
+  const inflight = load().then((data) => {
     if (generation === catalogGeneration) {
       catalogCache = { data, expiresAt: Date.now() + CATALOG_CACHE_TTL_MS };
       catalogInflight = null;
@@ -179,7 +190,7 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
     body: JSON.stringify({ p_actor_id: admin.user.id, p_product_id: productId, p_image_path: imagePath, p_image_updated_at: updatedAt })
   });
   if (!updateResponse.ok) return databaseError(updateResponse);
-  invalidateCatalogCache();
+  await invalidateCatalogCache();
   await purgeProductImageCache(request, productId, undefined, previousVersion);
   await purgeProductImageCache(request, productId, undefined, previousVersion, "thumb");
   if (previousImagePath && previousImagePath !== imagePath) {

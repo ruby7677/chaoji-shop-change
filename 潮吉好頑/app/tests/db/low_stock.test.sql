@@ -3,7 +3,7 @@
 begin;
 select tests.seed();
 -- 上架中且低於門檻；等於門檻也算低庫存。
-update public.product_variants set stock_on_hand = 1 where id = tests.id('variant_stock');
+update public.product_variants set stock_on_hand = 1, safety_stock = 3 where id = tests.id('variant_stock');
 update public.product_variants set stock_on_hand = 3, safety_stock = 3 where id = tests.id('variant_pre');
 -- 規格下架、商品下架：即使缺貨也不算。
 insert into public.product_variants(id, product_id, name, sku, kind, price, stock_on_hand, safety_stock, deposit_rate, is_published) values
@@ -22,4 +22,8 @@ select tests.login(tests.id('member_a'));
 select tests.expect_error($$select * from public.low_stock_variants()$$, 'permission denied', 'members cannot list low stock');
 select tests.login(null);
 select tests.expect_error($$select * from public.low_stock_variants()$$, 'permission denied', 'anon cannot list low stock');
+-- 新規格的安全庫存預設 0：只有售完才算低庫存
+select tests.assert((select column_default = '0' from information_schema.columns
+                      where table_schema = 'public' and table_name = 'product_variants' and column_name = 'safety_stock'),
+                    'new variants default to a safety stock of 0');
 rollback;

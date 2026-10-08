@@ -63,6 +63,42 @@ test("a read started before invalidation does not write stale data back into the
   assert.equal(calls, 2);
 });
 
+// 邊緣快取（Cache API）替身：同機房其他 isolate 已存好的型錄，這個 isolate 直接取用、不打 Supabase
+function fakeEdgeCache() {
+  const store = new Map();
+  globalThis.caches = { default: {
+    match: async (key) => (store.has(key) ? new Response(store.get(key)) : undefined),
+    put: async (key, response) => { store.set(key, await response.text()); },
+    delete: async (key) => store.delete(key)
+  } };
+  return store;
+}
+const ORIGIN = "https://shop.test";
+const EDGE_KEY = `${ORIGIN}/__edge-cache/catalog/v1`;
+
+test("a catalog another isolate stored in the edge cache is served without calling Supabase", async () => {
+  const store = fakeEdgeCache();
+  store.set(EDGE_KEY, JSON.stringify([{ id: "edge", category: "A", name: "邊緣", price: 1, stock: 1, type: "現貨" }]));
+  let calls = 0;
+  restoreFetch = stubFetch(() => { calls += 1; return jsonResponse([]); });
+  try {
+    const result = await publicCatalog(env, ORIGIN);
+    assert.equal(result[0].id, "edge");
+    assert.equal(calls, 0);
+  } finally { delete globalThis.caches; }
+});
+
+test("a fresh load is written to the edge cache and invalidation removes it", async () => {
+  const store = fakeEdgeCache();
+  fakeSupabase([{ id: "v1", category: "A", name: "商品", price: 100, stock: 5, type: "現貨" }]);
+  try {
+    await publicCatalog(env, ORIGIN);
+    assert.equal(JSON.parse(store.get(EDGE_KEY))[0].id, "v1");
+    await invalidateCatalogCache();
+    assert.equal(store.has(EDGE_KEY), false);
+  } finally { delete globalThis.caches; }
+});
+
 const serviceEnv = Object.freeze({ ...env, SUPABASE_SERVICE_ROLE_KEY: "service-key" });
 
 test("each product carries its category's admin sort order (read with the service role)", async () => {

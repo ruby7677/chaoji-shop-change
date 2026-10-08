@@ -300,7 +300,7 @@ export async function submitNewVariant(event) {
     kind,
     price: Number(document.querySelector("#admin-new-price").value),
     compare_at_price: document.querySelector("#admin-new-compare-at-price")?.value ? Number(document.querySelector("#admin-new-compare-at-price").value) : null,
-    safety_stock: Number(document.querySelector("#admin-new-safety-stock").value || 3),
+    safety_stock: Number(document.querySelector("#admin-new-safety-stock").value || 0),
     deposit_rate: kind === "preorder" ? 0.5 : Number(document.querySelector("#admin-new-deposit-rate").value || 0) / 100,
     preorder_arrival: preorderArrivalValue(document.querySelector("#admin-new-arrival-from").value, document.querySelector("#admin-new-arrival-until").value),
     seller_link: document.querySelector("#admin-new-seller-link").value,
@@ -309,7 +309,7 @@ export async function submitNewVariant(event) {
   await adminFetch("/api/admin/variants", { method: "POST", body: JSON.stringify(body) });
   invalidateAdminManagementOptions();
   event.currentTarget.reset();
-  document.querySelector("#admin-new-safety-stock").value = "3";
+  document.querySelector("#admin-new-safety-stock").value = "0";
   const newCompareAtPriceInput = document.querySelector("#admin-new-compare-at-price");
   if (newCompareAtPriceInput) newCompareAtPriceInput.value = "";
   document.querySelector("#admin-new-deposit-rate").value = "0";
@@ -348,7 +348,7 @@ export async function submitDynamicAdminForm(event) {
     try {
       const kind = formData.get("kind");
       const compareAtPrice = String(formData.get("compare_at_price") || "").trim();
-      await adminFetch(`/api/admin/variants/${variantId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), kind, price: Number(formData.get("price")), compare_at_price: compareAtPrice ? Number(compareAtPrice) : null, safety_stock: Number(formData.get("safety_stock") || 3), deposit_rate: kind === "preorder" ? 0.5 : Number(formData.get("deposit_rate") || 0) / 100, preorder_arrival: preorderArrivalValue(formData.get("preorder_arrival_from"), formData.get("preorder_arrival_until"), formData.get("preorder_arrival_raw")), display_order: Number(formData.get("display_order") || 0), seller_link: formData.get("seller_link"), is_published: formData.get("is_published") === "on" }) });
+      await adminFetch(`/api/admin/variants/${variantId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), kind, price: Number(formData.get("price")), compare_at_price: compareAtPrice ? Number(compareAtPrice) : null, safety_stock: Number(formData.get("safety_stock") || 0), deposit_rate: kind === "preorder" ? 0.5 : Number(formData.get("deposit_rate") || 0) / 100, preorder_arrival: preorderArrivalValue(formData.get("preorder_arrival_from"), formData.get("preorder_arrival_until"), formData.get("preorder_arrival_raw")), display_order: Number(formData.get("display_order") || 0), seller_link: formData.get("seller_link"), is_published: formData.get("is_published") === "on" }) });
       invalidateAdminManagementOptions();
     } finally {
       if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; }

@@ -29,7 +29,7 @@ export async function createAdminCategory(request: Request, env: Env): Promise<R
     })
   });
   if (!response.ok) return databaseError(response);
-  invalidateCatalogCache();
+  await invalidateCatalogCache();
   return json({ category: await response.json() }, { status: 201 });
 }
 
@@ -47,7 +47,7 @@ export async function updateAdminCategory(request: Request, env: Env, categoryId
     })
   });
   if (!response.ok) return databaseError(response);
-  invalidateCatalogCache();
+  await invalidateCatalogCache();
   return json({ category: await response.json() });
 }
 
@@ -102,7 +102,7 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
     })
   });
   if (!response.ok) return databaseError(response);
-  invalidateCatalogCache();
+  await invalidateCatalogCache();
   const ids = await response.json() as { product_id?: string; variant_id?: string };
   return json({ ids }, { status: 201 });
 }
@@ -124,7 +124,7 @@ function normalizedVariant(body: VariantInput, includeProduct = false) {
   if (compareAtPrice != null && (!Number.isInteger(compareAtPrice) || compareAtPrice < 0 || compareAtPrice < price)) return { error: "原價須為 0 或正整數，且不可低於售價" };
   return { value: {
     ...(includeProduct ? { product_id: body.product_id } : {}), name: body.name.trim(), sku: body.sku?.trim().toUpperCase() || null, kind: body.kind,
-    price: body.price, compare_at_price: compareAtPrice, safety_stock: Number.isInteger(body.safety_stock) ? body.safety_stock : 3,
+    price: body.price, compare_at_price: compareAtPrice, safety_stock: Number.isInteger(body.safety_stock) ? body.safety_stock : 0,
     preorder_arrival: body.preorder_arrival?.trim() || null, deposit_rate: depositRate,
     seller_link: body.seller_link?.trim() || null, is_published: body.is_published === true,
     display_order: Number.isInteger(body.display_order) ? body.display_order : 0, updated_at: new Date().toISOString()
@@ -150,7 +150,7 @@ export async function createVariant(request: Request, env: Env): Promise<Respons
     })
   });
   if (!response.ok) return databaseError(response);
-  invalidateCatalogCache();
+  await invalidateCatalogCache();
   return json({ variant: await response.json() }, { status: 201 });
 }
 
@@ -172,7 +172,7 @@ export async function updateVariant(request: Request, env: Env, variantId: strin
     })
   });
   if (!response.ok) return databaseError(response);
-  invalidateCatalogCache();
+  await invalidateCatalogCache();
   const variant = await response.json() as { is_published?: boolean };
   // 重新上架時選擇「排到最前面」：上架成功後才移動；移動失敗不影響已完成的上架，回傳提示讓後台顯示
   if (body.move_to_top !== true || variant?.is_published !== true) return json({ variant });
@@ -199,7 +199,7 @@ export async function updateProduct(request: Request, env: Env, productId: strin
     })
   });
   if (!response.ok) return databaseError(response);
-  invalidateCatalogCache();
+  await invalidateCatalogCache();
   const product = await response.json() as { image_updated_at?: string | null };
   // This mutation includes is_published; purge the current primary image here.
   // Other data centers drop it within the edge TTL (s-maxage) after unpublishing.
@@ -217,6 +217,6 @@ export async function adjustInventory(request: Request, env: Env, variantId: str
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({ p_actor_id: admin.user.id, p_variant_id: variantId, p_quantity_delta: body.quantity_delta, p_reason: body.reason.trim() })
   });
   if (!response.ok) return databaseError(response);
-  invalidateCatalogCache();
+  await invalidateCatalogCache();
   return json({ stock_on_hand: await response.json() });
 }

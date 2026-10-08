@@ -48,7 +48,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
     return json(await runtimeConfig(env), { headers: { "Cache-Control": "public, max-age=300, s-maxage=300" } });
   }
   if (request.method === "GET" && url.pathname === "/api/catalog") {
-    try { return json({ products: await publicCatalog(env) }); }
+    try { return json({ products: await publicCatalog(env, url.origin) }); }
     catch { return json({ error: "商品暫時無法載入" }, { status: 503 }); }
   }
   const productImageMatch = url.pathname.match(/^\/api\/product-images\/([0-9a-f-]{36})$/i);
