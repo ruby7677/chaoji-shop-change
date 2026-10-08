@@ -2,7 +2,8 @@
 import { type Env } from "./env";
 
 export const SECURITY_HEADERS: Record<string, string> = {
-  "Content-Security-Policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' https://static.line-scdn.net; style-src 'self' 'sha256-L0NsGOdCgMq8WQ+53SoJ4y/OJrxNakwWYcLt+wUiWoE='; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co https://api.line.me https://access.line.me https://liff.line.me https://liffsdk.line-scdn.net; form-action 'self'; upgrade-insecure-requests",
+  // static.cloudflareinsights.com／cloudflareinsights.com：自訂網域啟用的 Cloudflare Web Analytics（Cloudflare 自動插入 beacon 並回報）
+  "Content-Security-Policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' https://static.line-scdn.net https://static.cloudflareinsights.com; style-src 'self' 'sha256-L0NsGOdCgMq8WQ+53SoJ4y/OJrxNakwWYcLt+wUiWoE='; img-src 'self' data:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com https://*.supabase.co https://api.line.me https://access.line.me https://liff.line.me https://liffsdk.line-scdn.net; form-action 'self'; upgrade-insecure-requests",
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",

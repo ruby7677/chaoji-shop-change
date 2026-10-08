@@ -1,0 +1,6 @@
+# 潮吉好頑：允許檢索商店與商品頁；API、後台與會員訂單頁不需要被索引
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin
+Disallow: /orders

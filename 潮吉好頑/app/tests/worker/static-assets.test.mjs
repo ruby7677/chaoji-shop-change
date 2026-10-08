@@ -48,3 +48,11 @@ test("run_worker_first sends share-preview pages and the API to the Worker", asy
   for (const path of ["/api/catalog", "/api/admin/dashboard", "/api/product-images/x"]) assert.ok(workerFirst(path), path);
   for (const path of ["/app.js", "/styles.css", "/admin"]) assert.equal(workerFirst(path), false, `${path} is served as a static asset`);
 });
+
+test("robots.txt is a real robots file, not the single-page fallback", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const robots = await readFile(new URL("../../public/robots.txt", import.meta.url), "utf8");
+  assert.match(robots, /^User-agent: \*$/m);
+  assert.match(robots, /^Disallow: \/api\/$/m);
+  assert.doesNotMatch(robots, /<html/i);
+});
