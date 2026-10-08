@@ -156,7 +156,7 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
       return databaseError(rpc);
     }
     const row = await rpc.json() as GalleryImageRow;
-    await invalidateCatalogCache();
+    await invalidateCatalogCache(request);
     // 主圖若改變，image_updated_at 會更新，前台改用新版本網址，不需 purge。
     return json({ image: { id: row.id, url: galleryImageUrl(productId, row), width: row.width, height: row.height, alt: row.alt_text } }, { status: 201 });
   }
@@ -177,7 +177,7 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
       body: JSON.stringify({ p_actor_id: admin.user.id, p_product_id: productId, p_image_ids: imageIds })
     });
     if (!rpc.ok) return databaseError(rpc);
-    await invalidateCatalogCache();
+    await invalidateCatalogCache(request);
     // 排序會更新各圖 updated_at 與主圖版本，前台自動改用新網址。
     return json({ ok: true });
   }
@@ -196,7 +196,7 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
     if (!rpc.ok) return databaseError(rpc);
     const { storage_path: storagePath } = await rpc.json() as { storage_path: string };
     await deleteStorageObject(env, storagePath);
-    await invalidateCatalogCache();
+    await invalidateCatalogCache(request);
     if (beforeRows[0]) await purgeProductImageCache(request, productId, imageId, beforeRows[0].updated_at);
     return json({ ok: true });
   }
@@ -220,7 +220,7 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
       body: JSON.stringify({ p_actor_id: admin.user.id, p_product_id: productId, p_details: details, p_hero_rank: heroRank, p_hero_tagline: heroTagline })
     });
     if (!rpc.ok) return databaseError(rpc);
-    await invalidateCatalogCache();
+    await invalidateCatalogCache(request);
     return json(await rpc.json());
   }
 

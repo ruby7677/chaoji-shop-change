@@ -22,7 +22,8 @@ select tests.login(tests.id('member_a'));
 select tests.expect_error($$select * from public.low_stock_variants()$$, 'permission denied', 'members cannot list low stock');
 select tests.login(null);
 select tests.expect_error($$select * from public.low_stock_variants()$$, 'permission denied', 'anon cannot list low stock');
--- 新規格的安全庫存預設 0：只有售完才算低庫存
+-- 新規格的安全庫存預設 0：只有售完才算低庫存（anon 看不到 safety_stock 欄位，先切回測試角色）
+select tests.logout();
 select tests.assert((select column_default = '0' from information_schema.columns
                       where table_schema = 'public' and table_name = 'product_variants' and column_name = 'safety_stock'),
                     'new variants default to a safety stock of 0');

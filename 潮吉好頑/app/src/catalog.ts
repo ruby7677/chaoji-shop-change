@@ -21,11 +21,11 @@ let catalogInflight: Promise<Product[]> | null = null;
 let catalogGeneration = 0;
 
 /** 任何會改變前台型錄資料的寫入成功後呼叫（並 await），強制下一次 publicCatalog() 重新讀取，也清除本機房的邊緣快取。 */
-export async function invalidateCatalogCache(): Promise<void> {
+export async function invalidateCatalogCache(request?: Request): Promise<void> {
   catalogGeneration += 1;
   catalogCache = null;
   catalogInflight = null;
-  await deleteEdgeCatalog();
+  await deleteEdgeCatalog(request ? new URL(request.url).origin : undefined);
 }
 
 // 分類排序（anon 沒有 display_order 欄位權限，用 service role 只讀名稱與排序）；
@@ -190,7 +190,7 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
     body: JSON.stringify({ p_actor_id: admin.user.id, p_product_id: productId, p_image_path: imagePath, p_image_updated_at: updatedAt })
   });
   if (!updateResponse.ok) return databaseError(updateResponse);
-  await invalidateCatalogCache();
+  await invalidateCatalogCache(request);
   await purgeProductImageCache(request, productId, undefined, previousVersion);
   await purgeProductImageCache(request, productId, undefined, previousVersion, "thumb");
   if (previousImagePath && previousImagePath !== imagePath) {

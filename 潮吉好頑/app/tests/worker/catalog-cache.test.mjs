@@ -99,6 +99,32 @@ test("a fresh load is written to the edge cache and invalidation removes it", as
   } finally { delete globalThis.caches; }
 });
 
+test("invalidation clears the edge copy for the writing request's origin even if this isolate never read it", async () => {
+  const store = fakeEdgeCache();
+  const otherOrigin = "https://admin.example";
+  store.set(`${otherOrigin}/__edge-cache/catalog/v1`, "[]");
+  try {
+    await invalidateCatalogCache(new Request(`${otherOrigin}/api/admin/products/x`, { method: "PATCH" }));
+    assert.equal(store.has(`${otherOrigin}/__edge-cache/catalog/v1`), false);
+  } finally { delete globalThis.caches; }
+});
+
+test("an edge write still in flight cannot restore stale data after invalidation", async () => {
+  const store = fakeEdgeCache();
+  let releasePut;
+  const put = globalThis.caches.default.put;
+  globalThis.caches.default.put = (key, response) => new Promise((resolve) => { releasePut = () => resolve(put(key, response)); });
+  fakeSupabase([{ id: "old", category: "A", name: "舊", price: 1, stock: 1, type: "現貨" }]);
+  try {
+    const reading = publicCatalog(env, ORIGIN);
+    while (!releasePut) await new Promise((resolve) => setTimeout(resolve, 0));
+    const invalidating = invalidateCatalogCache();
+    releasePut();
+    await Promise.all([reading, invalidating]);
+    assert.equal(store.has(EDGE_KEY), false, "the delete waits for the earlier put and removes it");
+  } finally { delete globalThis.caches; }
+});
+
 const serviceEnv = Object.freeze({ ...env, SUPABASE_SERVICE_ROLE_KEY: "service-key" });
 
 test("each product carries its category's admin sort order (read with the service role)", async () => {

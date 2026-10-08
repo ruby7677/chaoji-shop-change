@@ -29,7 +29,7 @@ export async function createAdminCategory(request: Request, env: Env): Promise<R
     })
   });
   if (!response.ok) return databaseError(response);
-  await invalidateCatalogCache();
+  await invalidateCatalogCache(request);
   return json({ category: await response.json() }, { status: 201 });
 }
 
@@ -47,7 +47,7 @@ export async function updateAdminCategory(request: Request, env: Env, categoryId
     })
   });
   if (!response.ok) return databaseError(response);
-  await invalidateCatalogCache();
+  await invalidateCatalogCache(request);
   return json({ category: await response.json() });
 }
 
@@ -102,7 +102,7 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
     })
   });
   if (!response.ok) return databaseError(response);
-  await invalidateCatalogCache();
+  await invalidateCatalogCache(request);
   const ids = await response.json() as { product_id?: string; variant_id?: string };
   return json({ ids }, { status: 201 });
 }
@@ -150,7 +150,7 @@ export async function createVariant(request: Request, env: Env): Promise<Respons
     })
   });
   if (!response.ok) return databaseError(response);
-  await invalidateCatalogCache();
+  await invalidateCatalogCache(request);
   return json({ variant: await response.json() }, { status: 201 });
 }
 
@@ -172,7 +172,7 @@ export async function updateVariant(request: Request, env: Env, variantId: strin
     })
   });
   if (!response.ok) return databaseError(response);
-  await invalidateCatalogCache();
+  await invalidateCatalogCache(request);
   const variant = await response.json() as { is_published?: boolean };
   // 重新上架時選擇「排到最前面」：上架成功後才移動；移動失敗不影響已完成的上架，回傳提示讓後台顯示
   if (body.move_to_top !== true || variant?.is_published !== true) return json({ variant });
@@ -199,7 +199,7 @@ export async function updateProduct(request: Request, env: Env, productId: strin
     })
   });
   if (!response.ok) return databaseError(response);
-  await invalidateCatalogCache();
+  await invalidateCatalogCache(request);
   const product = await response.json() as { image_updated_at?: string | null };
   // This mutation includes is_published; purge the current primary image here.
   // Other data centers drop it within the edge TTL (s-maxage) after unpublishing.
@@ -217,6 +217,6 @@ export async function adjustInventory(request: Request, env: Env, variantId: str
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({ p_actor_id: admin.user.id, p_variant_id: variantId, p_quantity_delta: body.quantity_delta, p_reason: body.reason.trim() })
   });
   if (!response.ok) return databaseError(response);
-  await invalidateCatalogCache();
+  await invalidateCatalogCache(request);
   return json({ stock_on_hand: await response.json() });
 }
