@@ -24,23 +24,13 @@
   <link rel="preload" href="/Logo.webp" as="image" type="image/webp" fetchpriority="high" />
   <link rel="preconnect" href="https://static.line-scdn.net" crossorigin />
   <link rel="preconnect" href="https://api.line.me" />
-  <link rel="stylesheet" href="/styles.css" />
-  <link rel="stylesheet" href="/storefront-refinements.css" />
+  <!-- 前台樣式合併檔由 scripts/build-css.mjs 產生（順序見該檔 CSS_BUNDLES）；後台樣式 data-admin-href 需留在原位置維持覆寫順序 -->
+  <link rel="stylesheet" href="/bundle-base.css" />
   <link rel="stylesheet" data-admin-href="/admin-operations.css" />
   <link rel="stylesheet" href="/storefront-details.css" />
   <link rel="stylesheet" data-admin-href="/admin-mobile-layout.css" />
   <link rel="stylesheet" data-admin-href="/admin-mobile-lists.css" />
-  <link rel="stylesheet" href="/product-showcase.css" />
-  <link rel="stylesheet" href="/hero-desktop.css" />
-  <link rel="stylesheet" href="/hero-ratio.css" />
-  <link rel="stylesheet" href="/store-info.css" />
-  <link rel="stylesheet" href="/product-page.css" />
-  <link rel="stylesheet" href="/storefront-legibility.css" />
-  <link rel="stylesheet" href="/hero-flag-shine.css" />
-  <link rel="stylesheet" href="/header-orders.css" />
-  <link rel="stylesheet" href="/card-subgrid.css" />
-  <link rel="stylesheet" href="/filter-chips.css" />
-  <link rel="stylesheet" href="/catalog-paging.css" />
+  <link rel="stylesheet" href="/bundle-storefront.css" />
   <link rel="stylesheet" data-admin-href="/admin-shell.css" />
   <link rel="stylesheet" data-admin-href="/admin-pages.css" />
   <link rel="stylesheet" data-admin-href="/admin-forms.css" />

@@ -1,0 +1,1239 @@
+@charset "UTF-8";
+/* 自動產生（scripts/build-css.mjs），請改原始檔：product-showcase.css、hero-desktop.css、hero-ratio.css、store-info.css、product-page.css、storefront-legibility.css、hero-flag-shine.css、header-orders.css、card-subgrid.css、filter-chips.css、catalog-paging.css */
+/* ==== product-showcase.css ==== */
+/* 商品展示升級樣式：Hero 預購輪播、商品頁多圖、詳細介紹、推薦商品。
+   規劃見 app/PRODUCT_SHOWCASE_PLAN.md；載入順序在 styles.css 之後。 */
+
+/* ---------- 後台：商品多圖管理 ---------- */
+#admin-dialog .admin-gallery {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid var(--admin-border);
+  border-radius: 9px;
+  background: var(--admin-surface);
+}
+#admin-dialog .admin-gallery header h4,
+#admin-dialog .admin-showcase-form h4 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+}
+#admin-dialog .admin-gallery header h4 span {
+  color: var(--admin-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+#admin-dialog .admin-gallery header p,
+#admin-dialog .admin-gallery-upload small {
+  margin: 4px 0 0;
+  color: var(--admin-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+#admin-dialog .admin-gallery-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+#admin-dialog .admin-gallery-item {
+  display: grid;
+  align-content: space-between;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+  background: var(--admin-surface-subtle);
+}
+#admin-dialog .admin-gallery-item:first-child {
+  border-color: var(--admin-accent);
+  box-shadow: 0 0 0 1px var(--admin-accent) inset;
+}
+#admin-dialog .admin-gallery-item figure { margin: 0; }
+#admin-dialog .admin-gallery-item img,
+#admin-dialog .admin-gallery-missing {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  background: #fff;
+  object-fit: contain;
+  color: var(--admin-text-muted);
+  font-size: 11px;
+}
+#admin-dialog .admin-gallery-item figcaption {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--admin-text);
+}
+#admin-dialog .admin-gallery-item:first-child figcaption { color: var(--admin-accent); }
+#admin-dialog .admin-gallery-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.4fr;
+  gap: 4px;
+}
+#admin-dialog .admin-gallery-actions button {
+  min-height: 34px;
+  padding: 4px;
+  border: 1px solid var(--admin-border);
+  border-radius: 6px;
+  background: var(--admin-surface);
+  color: var(--admin-text);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+#admin-dialog .admin-gallery-actions button:disabled { opacity: .4; cursor: not-allowed; }
+#admin-dialog .admin-gallery-actions .admin-gallery-delete {
+  border-color: var(--admin-danger);
+  color: var(--admin-danger);
+}
+#admin-dialog .admin-gallery-actions .admin-gallery-delete.is-confirming {
+  grid-column: 1 / -1;
+  border-color: var(--admin-danger, #9a302a);
+  background: var(--admin-danger, #9a302a);
+  color: #fff;
+  font-weight: 800;
+}
+#admin-dialog .admin-gallery-actions button:focus-visible,
+#admin-dialog .admin-gallery-picker:focus-within {
+  outline: 2px solid var(--admin-focus);
+  outline-offset: 2px;
+}
+#admin-dialog .admin-gallery-empty {
+  margin: 12px 0 0;
+  padding: 18px;
+  border: 1px dashed var(--admin-border);
+  border-radius: 8px;
+  color: var(--admin-text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+#admin-dialog .admin-gallery-upload { margin-top: 12px; }
+#admin-dialog .admin-gallery-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px dashed var(--admin-accent);
+  border-radius: 7px;
+  background: var(--admin-accent-surface);
+  color: var(--admin-text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+#admin-dialog .admin-gallery-picker.is-disabled { opacity: .55; cursor: not-allowed; }
+/* 保留原生 input 以支援鍵盤與螢幕報讀，只在視覺上覆蓋於按鈕上。 */
+#admin-dialog .admin-gallery-picker input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: inherit;
+}
+#admin-dialog .admin-gallery-status:empty { display: none; }
+#admin-dialog .admin-gallery-status {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--admin-info-surface);
+  color: var(--admin-info);
+  font-size: 12px;
+  line-height: 1.5;
+}
+#admin-dialog .admin-gallery-status[data-kind="success"] { background: var(--admin-success-surface); color: var(--admin-success); }
+#admin-dialog .admin-gallery-status[data-kind="warning"] { background: var(--admin-warning-surface); color: var(--admin-warning); }
+#admin-dialog .admin-gallery-status[data-kind="error"] { background: var(--admin-danger-surface); color: var(--admin-danger); }
+#admin-dialog .admin-gallery[data-busy="true"] { cursor: progress; }
+
+/* ---------- 後台：商品頁與輪播展示設定 ---------- */
+#admin-dialog .admin-showcase-form { margin-top: 14px; }
+#admin-dialog .admin-showcase-details { display: grid; gap: 6px; margin: 12px 0; }
+#admin-dialog .admin-showcase-details textarea { min-height: 180px; resize: vertical; line-height: 1.6; }
+#admin-dialog .admin-showcase-form .primary-button { margin-top: 12px; }
+
+@media (max-width: 760px) {
+  #admin-dialog .admin-gallery { padding: 12px; }
+  #admin-dialog .admin-gallery-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #admin-dialog .admin-gallery-actions button { min-height: 40px; }
+  #admin-dialog .admin-gallery-picker { width: 100%; justify-content: center; }
+}
+
+/* 只給螢幕報讀器與搜尋引擎讀的文字（首頁標語已依業主要求從畫面移除） */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- 首頁 Hero 輪播 ----------
+   業主調整（2026-09-24）：拿掉黑色外框，商品圖直接放在黃底上放大；文字移到圖片下方重新設計。
+   動畫時間沿用參考站實測：圖片 80px 滑入、文字 60px 分層淡入上移、每層間隔 .1s。 */
+.hero-product-spotlight.hero-carousel {
+  width: 100%;
+  max-width: 560px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--home-ink);
+  transform: none;
+  animation: hero-carousel-in .7s cubic-bezier(.2, .8, .2, 1) both;
+}
+@keyframes hero-carousel-in {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+/* 原本黑色卡片後方的圓環裝飾，在無外框的大圖下會與商品圖重疊，改為隱藏 */
+.hero-selection:has(.hero-carousel) .hero-selection-ring { display: none; }
+/* 業主調整（2026-09-24 第二輪）：拿掉「先看現貨／先看下單規則」，輪播直接接在導航列下方，
+   「現貨／預購／到貨」三格移到輪播下方。全尺寸改為單欄置中；此規則在 styles.css 之後載入，
+   會覆蓋 styles.css 各斷點的雙欄設定。 */
+.hero {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-items: start;
+  gap: 24px;
+  min-height: 0;
+  padding: 20px max(7vw, 30px) 44px;
+}
+.hero > .hero-selection { width: 100%; max-width: 640px; min-height: 0; }
+.hero > .hero-proof { width: 100%; max-width: 640px; margin-top: 0; }
+.hero-product-spotlight.hero-carousel { max-width: 640px; }
+
+.hero-carousel-track {
+  display: grid;
+  /* 裁切進場位移，讓文字由下方「浮上來」；留邊距讓陰影與鍵盤焦點框不被切掉 */
+  overflow: hidden;
+  margin: -14px -14px 0;
+  padding: 14px 14px 4px;
+  touch-action: pan-y;
+}
+.hero-slide {
+  grid-area: 1 / 1;
+  min-width: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .45s cubic-bezier(.25, 1, .5, 1), visibility 0s linear .45s;
+}
+.hero-slide.is-active {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+/* 圖片：固定高度的區塊內保持原比例，依最大寬度或最大高度放到最大（不裁切、不變形） */
+.hero-slide-link {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.hero-slide-media {
+  /* 用 flex 而非 grid：grid 的 auto 列高會讓子元素 max-height:100% 失效，圖片超出框外 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: min(48vh, 500px);
+  opacity: 0;
+  transform: translateX(-80px);
+  transition: opacity .6s ease-out, transform .6s ease-out;
+}
+.hero-slide--alt .hero-slide-media { transform: translateX(80px); }
+.hero-slide-media img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 22px 44px rgba(58, 45, 8, .22), 0 3px 10px rgba(58, 45, 8, .12);
+  object-fit: contain;
+}
+
+/* 文字：分層淡入上移 */
+.hero-slide [data-stagger] {
+  opacity: 0;
+  transform: translateY(60px);
+  transition: opacity .6s ease-out, transform .6s cubic-bezier(.22, 1, .36, 1);
+  transition-delay: calc(.2s + var(--stagger-i, 0) * .1s);
+}
+.hero-slide.is-active .hero-slide-media,
+.hero-slide.is-active [data-stagger] {
+  opacity: 1;
+  transform: none;
+}
+/* 業主要求：文字區加圓角細框使其更明顯；overflow 讓文字在框內浮上來，不會露出框外 */
+.hero-slide-info {
+  display: flex;
+  flex-direction: column;
+  margin-top: 20px;
+  padding: 16px 18px 18px;
+  overflow: hidden;
+  border: 1.5px solid rgba(21, 21, 21, .85);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .38);
+}
+/* 業主決定（2026-09-24）：文字區只介紹商品（新品／熱款標籤、品名、介紹），不放價格與庫存 */
+.hero-slide-kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+  color: rgba(21, 21, 21, .72);
+  font-size: .84rem;
+  font-weight: 800;
+}
+.hero-slide-flag {
+  padding: 3px 10px;
+  border: 1.5px solid var(--home-ink);
+  border-radius: 999px;
+  background: #ff6b3d;
+  color: var(--home-ink);
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+.hero-slide-flag--new { background: var(--home-ink); color: var(--home-yellow); }
+.hero-slide-feature { color: var(--home-ink); font-weight: 900; letter-spacing: .04em; }
+.hero-slide-category::before { content: "／"; margin-right: 6px; color: rgba(21, 21, 21, .45); }
+.hero-slide-name {
+  margin: 10px 0 0;
+  color: var(--home-ink);
+  font-size: clamp(1.5rem, 2.6vw, 2.15rem);
+  font-weight: 900;
+  line-height: 1.22;
+  letter-spacing: -.02em;
+  text-wrap: balance;
+}
+.hero-slide-intro {
+  display: -webkit-box;
+  margin: 8px 0 0;
+  overflow: hidden;
+  color: rgba(21, 21, 21, .8);
+  font-size: 1rem;
+  line-height: 1.65;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+/* 業主要求（2026-09-24）：「查看商品」改為文字卡右下角的圓角外框按鈕；hover 反白為墨黑底 */
+.hero-slide-more {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin-top: 14px;
+  padding: 0 16px 0 20px;
+  border: 1.5px solid var(--home-ink);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .72);
+  color: var(--home-ink);
+  font-size: .92rem;
+  font-weight: 900;
+  letter-spacing: .02em;
+  cursor: pointer;
+}
+/* 與進場動畫共用 transition：進場屬性保留分層延遲，hover 顏色不延遲 */
+.hero-slide .hero-slide-more[data-stagger] {
+  transition:
+    opacity .6s ease-out calc(.2s + var(--stagger-i, 0) * .1s),
+    transform .6s cubic-bezier(.22, 1, .36, 1) calc(.2s + var(--stagger-i, 0) * .1s),
+    background-color .2s cubic-bezier(.22, 1, .36, 1) 0s,
+    color .2s cubic-bezier(.22, 1, .36, 1) 0s;
+}
+.hero-slide-more:hover { background-color: var(--home-ink); color: var(--home-yellow); }
+.hero-slide-more:focus-visible { outline: 3px solid var(--home-ink); outline-offset: 3px; }
+.hero-slide-more-arrow {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform .2s cubic-bezier(.22, 1, .36, 1);
+}
+.hero-slide-more:hover .hero-slide-more-arrow { transform: translateX(3px); }
+.hero-slide-more .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* 控制列：黃底上的深色細線條 */
+.hero-carousel-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.hero-carousel-arrow,
+.hero-carousel-toggle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border: 1.5px solid rgba(21, 21, 21, .45);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--home-ink);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.hero-carousel-toggle { margin-left: auto; font-size: .62rem; letter-spacing: -.1em; }
+.hero-carousel-arrow:hover,
+.hero-carousel-toggle:hover { border-color: var(--home-ink); background: rgba(255, 255, 255, .45); }
+.hero-carousel-dots { display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
+.hero-carousel-dot {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.hero-carousel-dot::before {
+  content: "";
+  width: 20px;
+  height: 7px;
+  clip-path: inset(0 6.5px round 999px); /* 裁成 7px 圓點；切換只改 clip-path，不動 width，避免每幀重排版面 */
+  background: rgba(21, 21, 21, .3);
+  transition: clip-path .3s ease, background-color .3s ease;
+}
+.hero-carousel-dot[aria-current="true"]::before { clip-path: inset(0 round 999px); background: var(--home-ink); }
+.hero-carousel :is(button, a):focus-visible {
+  outline: 2px solid var(--home-ink);
+  outline-offset: 3px;
+}
+
+@media (max-width: 1020px) {
+  .hero-slide-media { height: min(48vh, 440px); }
+}
+/* ---------- 首頁購物須知 ----------
+   業主調整：移除「預購／付款／退換貨」三張說明卡（其中退換貨與保留庫存條款已併入標題說明文字），
+   標題區佔滿整列；流程列與完整規則直接接在標題下方，規則改為直接顯示（原為 <details> 展開）。 */
+.policy-intro { grid-column: 1 / -1; }
+.policy-intro > p { max-width: 760px; }
+.policy-full {
+  grid-column: 1 / -1;
+  padding: 22px 0 14px;
+  border-bottom: 1px solid #47433b;
+}
+.policy-full-title {
+  margin: 0 0 6px;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+.policy-full .policy-full-copy { padding: 0; }
+.policy-full .policy-full-copy p { font-size: .85rem; }
+/* 錨點落點：導航列「商品」與「我已閱讀，回商品區」→ QUICK PICK 好頑選物；導航列「購物須知」→「下單前…」標題。
+   預留固定導航列高度，避免目標被導航列蓋住。 */
+#quick-pick,
+#policy-title { scroll-margin-top: 100px; }
+/* 點 Logo（#top）回到頁面最頂端：main 在固定導航列下方，直接捲到 main 會被導航列蓋住輪播上緣；
+   給足夠大的預留值，捲動位置會被限制在 0。 */
+#top { scroll-margin-top: 100vh; }
+
+@media (max-width: 760px) {
+  .hero { gap: 18px; padding: 12px 20px 32px; }
+  .hero-product-spotlight.hero-carousel { max-width: none; }
+  .policy-full { margin-top: 24px; padding-top: 18px; }
+  #quick-pick,
+  #policy-title { scroll-margin-top: 128px; }
+  /* 業主要求：手機圖片離螢幕左右各 10px。圖片框突破首頁內距（20–24px），
+     寬度 = 螢幕寬 − 20px 並置中；高度上限放寬，讓直式盒裝圖也能撐滿寬度。
+     輪播軌道兩側各有 14px 的溢出空間，足以容納這段延伸，不會被裁切。 */
+  .hero-slide-media {
+    width: calc(100vw - 20px);
+    margin-left: calc(50% - 50vw + 10px);
+    transform: translateX(-40px);
+  }
+  /* 業主要求（2026-09-24）：照片框跟照片同比例，不留上下空白。原本固定高度＋max-height:100%，
+     方形照上下留白；iOS Safari 也可能不縮放直式照（如 UX11）而切掉左右。改為依照片比例：
+     寬度撐滿，過高的直式照限制在 68svh 內等比縮小置中（不裁切、不變形）。 */
+  .hero-slide-media { height: auto; }
+  .hero-slide-media img {
+    width: auto;
+    max-width: 100%;
+    max-height: 68svh;
+    border-radius: 12px;
+  }
+  .hero-slide--alt .hero-slide-media { transform: translateX(40px); }
+  .hero-slide [data-stagger] { transform: translateY(32px); }
+  .hero-slide-intro { font-size: .95rem; -webkit-line-clamp: 2; }
+  .hero-carousel-arrow,
+  .hero-carousel-toggle { width: 42px; height: 42px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-product-spotlight.hero-carousel { animation: none; }
+  .hero-slide,
+  .hero-slide-media,
+  .hero-slide [data-stagger],
+  .hero-slide .hero-slide-more[data-stagger],
+  .hero-slide-more-arrow,
+  .hero-carousel-dot::before {
+    transition: none;
+    transform: none;
+  }
+}
+/* ==== hero-desktop.css ==== */
+/* 首頁 Hero 輪播桌機版面；在 product-showcase.css 之後載入以覆蓋其單欄設定。 */
+/* ---------- Hero 桌機左右版面 ----------
+   業主要求（2026-09-24）：寬螢幕改為左 2/3 照片、右 1/3 說明（參考站為左右分欄、兩側等高、文字垂直置中）。
+   商品照多為直式盒裝，照片區以白底完整呈現（contain 不裁切）；平板與手機維持上圖下文。 */
+/* 手機橫放（寬、矮）同樣左右分欄：上下排列時照片只剩約螢幕高度一半，與下方全寬說明框不成比例（業主回報） */
+@media (min-width: 1021px), (orientation: landscape) and (max-height: 540px) and (min-width: 640px) {
+  /* 業主要求：寬螢幕兩側不要留太多空白。取消 1180px 上限，左右內距改與頁首相同（max(5vw, 24px)），
+     輪播左右緣對齊頁首 Logo 與購物車 */
+  .hero { padding-inline: max(5vw, 24px); }
+  .hero > .hero-selection,
+  .hero > .hero-proof,
+  .hero-product-spotlight.hero-carousel { max-width: none; }
+  .hero-slide {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .hero-slide-link { height: 100%; }
+  .hero-slide-media {
+    /* 業主要求：輪播撐滿第一屏（輪播鈕可在折線下），照片區＝螢幕高度扣頁首 82px 與上下間距；照片在區內等比放到最大、不裁切 */
+    height: max(420px, calc(100svh - 108px));
+    padding: 20px;
+    overflow: hidden;
+    border: 1.5px solid rgba(21, 21, 21, .85);
+    border-right: 0;
+    border-radius: 18px 0 0 18px;
+    background: #fff;
+  }
+  /* 圖片等比放到照片區最大（原圖比照片區小時也放大）；照片區白底，contain 留下的邊與底色相連 */
+  .hero-slide-media img {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+    box-shadow: none;
+    object-fit: contain;
+  }
+  .hero-slide-info {
+    justify-content: center;
+    margin-top: 0;
+    padding: 36px 32px;
+    border-radius: 0 18px 18px 0;
+    background: rgba(255, 255, 255, .55);
+  }
+  /* 業主提醒：參考站左右換邊。偶數張改為左 1/3 說明、右 2/3 照片（照片同步由右側滑入，見 product-showcase.css） */
+  .hero-slide--alt { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+  .hero-slide--alt .hero-slide-link { order: 2; }
+  .hero-slide--alt .hero-slide-media {
+    border-right: 1.5px solid rgba(21, 21, 21, .85);
+    border-left: 0;
+    border-radius: 0 18px 18px 0;
+  }
+  .hero-slide--alt .hero-slide-info { border-radius: 18px 0 0 18px; }
+  /* 業主要求：放大後說明文字顯得太小，字級隨螢幕寬度放大（1030px 約同原尺寸、2000px 約 1.6 倍，有上限） */
+  .hero-slide-info { padding: clamp(32px, 3.2vw, 64px) clamp(28px, 3vw, 60px); }
+  .hero-slide-kicker { gap: 8px 12px; font-size: clamp(.84rem, .85vw, 1.1rem); }
+  .hero-slide-flag { padding: .2em .8em; font-size: clamp(.72rem, .72vw, .95rem); }
+  .hero-slide-name { margin-top: .45em; font-size: clamp(1.6rem, 2.6vw, 3.4rem); }
+  .hero-slide-intro { margin-top: .6em; font-size: clamp(1rem, 1.05vw, 1.35rem); -webkit-line-clamp: 5; }
+  .hero-slide-more { min-height: clamp(44px, 3vw, 58px); margin-top: clamp(22px, 2vw, 36px); padding: 0 1.1em 0 1.35em; font-size: clamp(.92rem, .95vw, 1.2rem); }
+  .hero-slide-more-arrow { width: 1.2em; height: 1.2em; }
+}
+
+/* 平板直向（上下排列）：原本照片區固定高 min(48vh, 440px)，方形照在 640px 寬的框內左右各留約 100px（業主回報）。
+   改同手機：照片區依照片比例、寬度撐滿；過高的直式照限制 70svh 內等比縮小置中。不含手機橫放（高度 ≤540 走左右分欄） */
+@media (min-width: 761px) and (max-width: 1020px) and (min-height: 541px) {
+  .hero-slide-media { height: auto; }
+  .hero-slide-media img { width: 100%; height: auto; max-height: 70svh; object-fit: contain; }
+}
+
+/* 手機橫放：照片區高度＝螢幕高度扣掉頁首與上下間距，文字縮小以放進 1/3 欄 */
+@media (orientation: landscape) and (max-height: 540px) and (min-width: 640px) {
+  .hero { padding-top: 12px; padding-bottom: 20px; }
+  /* 寬 ≤760 的橫放手機也會套到直式手機規則（照片撐滿螢幕寬、負左邊距、圖片上限 68svh），這裡還原 */
+  /* 用最小高度（非固定高度）讓照片欄與說明欄永遠等高；contain:size 讓圖片原始尺寸不會把照片欄撐高 */
+  .hero-slide-media { width: auto; margin-left: 0; height: 100%; min-height: max(220px, calc(100svh - 150px)); padding: 12px; contain: size; }
+  .hero-slide-media img { max-width: none; max-height: none; }
+  .hero-slide-info { padding: 18px 18px; }
+  .hero-slide-kicker { font-size: .78rem; }
+  .hero-slide-name { font-size: clamp(1.15rem, 2.6vw, 1.5rem); }
+  .hero-slide-intro { font-size: .9rem; -webkit-line-clamp: 3; }
+  .hero-slide-more { min-height: 40px; margin-top: 12px; }
+}
+
+/* 購物流程重點（現貨／預購／到貨）：業主要求文字加大 2px（原 12.8px／12px，各斷點相同） */
+.hero > .hero-proof b { font-size: 14.8px; }
+.hero > .hero-proof small { font-size: 14px; }
+/* ==== hero-ratio.css ==== */
+/* 首頁輪播：手機與平板直向的照片框依照片比例撐滿寬度。型錄帶有主圖寬高時（data-hero-ratio），
+   照片框先用同比例保留高度，照片載入後下方商品區不再往下跳（CLS）；過高的直式照仍限制在 68svh／70svh。
+   沒有寬高的照片維持原本依載入結果排版；手機橫放（高度 ≤540）由 hero-desktop.css 的固定高度處理。 */
+@media (max-width: 760px) and (min-height: 541px) {
+  .hero-slide-media[data-hero-ratio] { aspect-ratio: var(--hero-ratio); max-height: 68svh; }
+}
+@media (min-width: 761px) and (max-width: 1020px) and (min-height: 541px) {
+  .hero-slide-media[data-hero-ratio] { aspect-ratio: var(--hero-ratio); max-height: 70svh; }
+}
+/* ==== store-info.css ==== */
+/* 店取資訊與 LINE 客服（業主要求 2026-09-24）：
+   - 「LINE 客服 ↗」在所有尺寸都是 LINE 標準綠（#06C755）填滿的圓角按鈕。
+   - 螢幕夠寬（≥1200px）時，店取地址（營業時間在地址下方）與 LINE 客服移到頁首導航列，並隱藏首頁中段的店取列；
+     較窄時頁首這份隱藏、維持原位。兩份同時只顯示一份（display:none 不會被報讀器重複朗讀）。 */
+.line-service-button,
+.trust-rail a.trust-rail-link.line-service-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: #06c755;
+  color: #fff;
+  font-size: .8rem;
+  font-weight: 900;
+  letter-spacing: .02em;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color .15s ease;
+}
+.line-service-button span,
+.trust-rail a.trust-rail-link.line-service-button span { font-size: 1rem; text-decoration: none; }
+.line-service-button:hover,
+.trust-rail a.trust-rail-link.line-service-button:hover { background: #05a647; }
+.line-service-button:focus-visible { outline: 3px solid #141414; outline-offset: 2px; }
+/* 店取列：地址在左、按鈕在右並垂直置中（手機亦同一列）；拿掉原文字連結的分隔線，觸控目標 44px */
+.trust-rail a.trust-rail-link.line-service-button { align-self: center; justify-self: end; }
+@media (max-width: 760px) {
+  .trust-rail a.trust-rail-link.line-service-button { min-height: 44px; border-top: 0; }
+}
+
+/* 頁首店取資訊：預設隱藏 */
+.header-store { display: none; }
+
+@media (min-width: 1200px) {
+  .trust-rail { display: none; }
+  .header-store {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-left: auto;
+    padding-left: 18px;
+    border-left: 1px solid var(--home-line, #e5dfcf);
+  }
+  .header-store-place { display: grid; gap: 2px; line-height: 1.3; }
+  .header-store-place strong { font-size: .86rem; font-weight: 900; white-space: nowrap; }
+  .header-store-place strong span {
+    margin-right: 6px;
+    color: #776118;
+    font-size: .68rem;
+    font-weight: 900;
+    letter-spacing: .1em;
+  }
+  .header-store-place small { color: var(--home-muted, #6b665c); font-size: .72rem; white-space: nowrap; }
+  /* 導航與店取區貼近中間，會員按鈕維持最右 */
+  .site-header nav { margin-left: auto; }
+  .site-header .header-actions { margin-left: 22px; }
+}
+
+/* 會員名稱按鈕：LINE 顯示名稱可能很長，超出寬度以「…」截斷，避免窄螢幕頁首按鈕換行；
+   完整名稱放在 title／aria-label（member-profile.js） */
+.site-header .login-button { max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 760px) {
+  .site-header .login-button { max-width: 6.5em; }
+}
+/* ==== product-page.css ==== */
+/* 商品頁（/products/:id）：多圖、購買欄、詳細介紹、推薦商品、全螢幕大圖。
+   商品頁開啟時隱藏首頁各區塊，僅顯示 #product-page。 */
+
+.product-page { display: none; }
+body.is-product-view main > :not(#product-page),
+body.is-product-view .selection-tray { display: none !important; }
+body.is-product-view .product-page {
+  display: block;
+  padding: clamp(18px, 3vw, 34px) max(7vw, 30px) clamp(72px, 9vw, 120px);
+  background: var(--home-cream);
+}
+
+.pp-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-bottom: clamp(16px, 2.4vw, 28px);
+  color: var(--home-muted);
+  font-size: .8rem;
+}
+.pp-breadcrumb a { color: var(--home-ink); text-underline-offset: 3px; }
+.pp-breadcrumb [aria-current] { overflow: hidden; max-width: 40ch; text-overflow: ellipsis; white-space: nowrap; }
+
+.pp-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(320px, .92fr);
+  gap: clamp(28px, 4.5vw, 64px);
+  align-items: start;
+}
+.pp-media { position: sticky; top: 16px; min-width: 0; }
+
+/* ---------- 多圖 ---------- */
+.pp-gallery { position: relative; }
+.pp-gallery-track {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  border-radius: 14px;
+}
+.pp-gallery-track::-webkit-scrollbar { display: none; }
+.pp-gallery-track:focus-visible { outline: 2px solid var(--home-ink); outline-offset: 3px; }
+.pp-gallery-slide {
+  flex: 0 0 100%;
+  margin: 0;
+  scroll-snap-align: start;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+}
+.pp-gallery-zoom {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.pp-gallery-slide img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.pp-gallery--empty { aspect-ratio: 1; border-radius: 14px; background: var(--home-paper); }
+.pp-gallery--empty .product-placeholder { height: 100%; }
+
+.pp-gallery-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+.pp-gallery-nav {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--home-line);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--home-ink);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.pp-gallery-nav:disabled { opacity: .35; cursor: default; }
+.pp-gallery-counter { min-width: 4.5em; color: var(--home-muted); font-size: .85rem; font-variant-numeric: tabular-nums; text-align: center; }
+.pp-gallery-counter b { color: var(--home-ink); }
+
+.pp-gallery-thumbs {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.pp-gallery-thumbs button {
+  flex: 0 0 64px;
+  height: 64px;
+  padding: 3px;
+  border: 2px solid transparent;
+  border-radius: 9px;
+  background: #fff;
+  cursor: pointer;
+}
+.pp-gallery-thumbs button[aria-current="true"] { border-color: var(--home-ink); }
+.pp-gallery-thumbs img { width: 100%; height: 100%; object-fit: contain; border-radius: 6px; }
+
+/* ---------- 購買欄 ---------- */
+.pp-buy { min-width: 0; }
+.pp-buy h1 {
+  margin: 10px 0 8px;
+  font-size: clamp(1.55rem, 2.6vw, 2.3rem);
+  line-height: 1.25;
+  letter-spacing: -.02em;
+  text-wrap: balance;
+}
+.pp-buy h1:focus { outline: none; }
+.pp-summary { margin: 0 0 10px; color: var(--home-muted); font-size: .95rem; line-height: 1.7; }
+.pp-price { margin: 16px 0 4px; font-size: clamp(1.5rem, 2.4vw, 1.9rem); }
+.pp-stock { margin: 0; color: var(--home-muted); font-size: .85rem; }
+.pp-variant { display: flex; gap: 12px; margin: 18px 0 0; font-size: .9rem; }
+.pp-variant span { color: var(--home-muted); }
+.pp-field { display: grid; gap: 6px; margin-top: 18px; font-size: .85rem; font-weight: 700; }
+.pp-field select { min-height: 46px; border: 1px solid var(--home-line); border-radius: 9px; padding: 0 12px; background: #fff; font-size: 1rem; }
+.pp-stepper { display: inline-grid; grid-template-columns: 46px 72px 46px; width: max-content; border: 1px solid var(--home-line); border-radius: 9px; background: #fff; overflow: hidden; }
+.pp-stepper button { border: 0; background: transparent; font-size: 1.2rem; cursor: pointer; }
+.pp-stepper button:disabled { opacity: .35; cursor: default; }
+.pp-stepper input {
+  min-height: 46px;
+  border: 0;
+  border-inline: 1px solid var(--home-line);
+  border-radius: 0;
+  font-size: 1rem;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+.pp-stepper input::-webkit-inner-spin-button,
+.pp-stepper input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.pp-limit { display: block; margin-top: 8px; color: var(--home-muted); font-size: .8rem; }
+/* 加入購物車（主要）＋直接購買（次要）並排；無庫存時只剩主要按鈕，撐滿整列 */
+.pp-actions { display: flex; gap: 10px; margin-top: 20px; }
+.pp-actions > button { flex: 1 1 0; min-width: 0; margin: 0; padding-inline: 12px; }
+.pp-add,
+.pp-buy-now { width: 100%; min-height: 52px; font-size: 1rem; }
+.pp-add.is-added,
+.pp-sticky-cta .is-added { background: #e6f5e9 !important; border-color: #23733d !important; color: #145b2b !important; }
+
+.pp-notice {
+  margin-top: 22px;
+  padding: 16px 18px;
+  border: 1px solid var(--home-line);
+  border-left: 4px solid var(--home-yellow);
+  border-radius: 10px;
+  background: #fff;
+  font-size: .86rem;
+  line-height: 1.7;
+}
+.pp-notice strong { display: block; margin-bottom: 4px; }
+.pp-notice ul { margin: 0; padding-left: 1.2em; color: var(--home-muted); }
+.pp-notice a { display: inline-block; margin-top: 8px; color: var(--home-ink); font-weight: 800; text-underline-offset: 3px; }
+
+/* ---------- 詳細介紹與推薦 ---------- */
+.pp-section { margin-top: clamp(56px, 7vw, 96px); }
+.pp-section h2 {
+  margin: 0 0 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--home-line);
+  font-size: clamp(1.35rem, 2.2vw, 1.8rem);
+}
+.pp-details { max-width: 780px; font-size: .95rem; line-height: 1.85; }
+.pp-details p { margin: 0 0 14px; }
+.pp-details-heading { margin: 26px 0 8px; font-size: 1rem; }
+.pp-details-list { margin: 0 0 14px; padding-left: 1.3em; }
+.pp-specs { display: grid; margin: 0 0 18px; border-top: 1px solid var(--home-line); }
+.pp-specs > div { display: grid; grid-template-columns: minmax(84px, 9em) 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--home-line); }
+.pp-specs dt { color: var(--home-muted); font-weight: 700; }
+.pp-specs dd { margin: 0; }
+.pp-loading { color: var(--home-muted); }
+.pp-section .product-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.product-card .product-image,
+.product-card h3 { cursor: pointer; }
+/* 商品卡已無「查看規格」按鈕：名稱加淡底線提示可點進商品頁 */
+.product-card h3 {
+  text-decoration: underline;
+  text-decoration-color: var(--home-line);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+.product-card h3:hover { text-decoration-color: currentColor; }
+
+.pp-missing { max-width: 520px; margin: 48px auto; text-align: center; }
+.pp-missing h1 { font-size: 1.8rem; }
+.pp-missing p { color: var(--home-muted); margin-bottom: 24px; }
+
+/* 區塊進場：與 Hero 同一套淡入上移，距離較短，只觸發一次 */
+.pp-section[data-reveal] { opacity: 0; transform: translateY(24px); transition: opacity .6s ease-out, transform .6s cubic-bezier(.22, 1, .36, 1); }
+.pp-section[data-reveal].is-revealed { opacity: 1; transform: none; }
+
+/* ---------- 手機底部固定購買列 ---------- */
+.pp-sticky-cta { display: none; }
+
+/* ---------- 全螢幕大圖 ---------- */
+.product-lightbox {
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: rgba(10, 10, 10, .96);
+  color: #fff;
+}
+.product-lightbox::backdrop { background: rgba(10, 10, 10, .8); }
+.product-lightbox-body { position: relative; display: grid; align-content: center; height: 100%; padding: 56px 0 20px; }
+/* styles.css 的 `dialog .dialog-close` 會套白底並以 !important 設為 sticky；
+   大圖是黑底，改用 ID 選擇器提高權重：深色圓底＋白色 ×＋白框，固定在右上角。 */
+#product-lightbox .pp-lightbox-close {
+  position: fixed !important;
+  top: max(12px, env(safe-area-inset-top));
+  right: 12px;
+  z-index: 3;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  border: 1.5px solid rgba(255, 255, 255, .7);
+  border-radius: 50%;
+  background: rgba(20, 20, 20, .72);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .35);
+  color: #fff;
+  font-size: 26px;
+  line-height: 1;
+}
+#product-lightbox .pp-lightbox-close:hover,
+#product-lightbox .pp-lightbox-close:focus-visible {
+  border-color: var(--home-yellow);
+  color: var(--home-yellow);
+  outline: none;
+}
+.pp-gallery--lightbox .pp-gallery-track { border-radius: 0; }
+.pp-gallery--lightbox .pp-gallery-slide { aspect-ratio: auto; height: calc(100dvh - 140px); border-radius: 0; background: transparent; }
+.pp-gallery--lightbox .pp-gallery-counter { color: #cfcac0; }
+.pp-gallery--lightbox .pp-gallery-counter b { color: #fff; }
+.pp-gallery--lightbox .pp-gallery-nav { border-color: rgba(255, 255, 255, .35); background: transparent; color: #fff; }
+
+@media (max-width: 1020px) {
+  .pp-main { grid-template-columns: minmax(0, 1fr) minmax(300px, .95fr); }
+}
+
+@media (max-width: 760px) {
+  body.is-product-view .product-page { padding: 14px 20px 110px; }
+  .pp-main { grid-template-columns: 1fr; gap: 22px; }
+  .pp-media { position: static; margin-inline: -20px; }
+  /* 手機露出下一張的邊緣，提示可以滑動 */
+  .pp-gallery-track { gap: 8px; padding-inline: 20px; scroll-padding-inline: 20px; border-radius: 0; }
+  .pp-gallery-slide { flex-basis: 88%; }
+  .pp-gallery-thumbs { display: none; }
+  .pp-section .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pp-sticky-cta {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px max(10px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--home-line);
+    background: rgba(255, 253, 247, .97);
+    box-shadow: 0 -8px 24px rgba(21, 21, 21, .08);
+    transform: translateY(110%);
+    transition: transform .3s cubic-bezier(.2, .8, .2, 1);
+  }
+  .pp-sticky-cta.is-visible { transform: none; }
+  .pp-sticky-cta > div { display: grid; flex: 1; min-width: 0; }
+  .pp-sticky-cta small { overflow: hidden; color: var(--home-muted); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
+  .pp-sticky-cta .price { margin: 0; font-size: 1.05rem; }
+  .pp-sticky-cta > .pp-sticky-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+  .pp-sticky-cta :is(.primary-button, .secondary-button) { flex: 0 0 auto; width: auto; min-width: 0; min-height: 46px; margin: 0; padding-inline: 14px; font-size: .95rem; }
+  .pp-gallery--lightbox .pp-gallery-track { padding-inline: 0; scroll-padding-inline: 0; }
+  .pp-gallery--lightbox .pp-gallery-slide { flex-basis: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pp-section[data-reveal] { opacity: 1; transform: none; transition: none; }
+  .pp-sticky-cta { transition: none; }
+}
+/* ==== storefront-legibility.css ==== */
+/* 前台可讀性與觸控（2026-09-28 critique 修正）：在 product-page.css 之後載入，統一覆蓋先前逐步縮小的字級。
+   原則：手機說明文字 ≥12px、價格 ≥15px、按鈕文字 ≥14px 且觸控高度 44px；空間不夠就減少元素，不再縮字。 */
+
+/* ---------- 商品卡：名稱是連結，點擊範圍延伸到整張卡 ---------- */
+.product-card { position: relative; }
+.product-card-link { color: inherit; text-decoration: inherit; }
+.product-card-link::after { content: ""; position: absolute; inset: 0; z-index: 1; }
+.product-card-link:focus-visible { outline: none; }
+.product-card:has(.product-card-link:focus-visible) { outline: 3px solid var(--home-ink); outline-offset: 3px; }
+.product-card .card-actions { position: relative; z-index: 2; margin-top: auto; }
+/* 同一列卡片的按鈕對齊底部：名稱或標籤行數不同時，按鈕不再高低錯落 */
+.product-card { display: flex; flex-direction: column; }
+.product-card .product-info { display: flex; flex: 1; flex-direction: column; }
+
+/* 商品圖多為白底：圖片區直接用白底，拿掉米色底上再疊一層白框 */
+.product-card:nth-child(n) .product-image { background: #fff; } /* :nth-child(n) 對齊舊有偶數張規則的權重 */
+.product-card .product-image img { border-radius: 0; }
+
+/* ---------- 商品卡字級 ---------- */
+.product-category { font-size: .75rem; letter-spacing: .02em; }
+.product-info h3 { font-size: 1rem; }
+.product-tag { font-size: .75rem; }
+.stock { font-size: .8rem; }
+.preorder-stock { font-size: .8rem; }
+.product-info .price { font-size: 1.15rem; }
+.card-actions button,
+.card-actions a { min-height: 42px; padding: 8px 6px; font-size: .875rem; }
+
+@media (max-width: 760px) {
+  .product-info { padding: 12px 12px 14px; }
+  .product-category { font-size: .75rem; }
+  .product-info h3 { font-size: .95rem; line-height: 1.35; }
+  .product-tag { font-size: .75rem; }
+  .stock,
+  .preorder-stock { font-size: .78rem; }
+  .product-info .price { margin: 8px 0 10px; font-size: 1.05rem; }
+  .product-info .price-original { font-size: .78em; }
+  .card-actions button,
+  .card-actions a { min-height: 44px; font-size: .875rem; }
+  /* 手機兩欄卡片只留「加入購物車」：兩顆按鈕上下疊會讓卡片高出約 50px，一屏只看得到兩張商品；
+     直接購買改在商品頁（可選數量，見 cart-quantity.js） */
+  .card-actions .buy-now-button:not(:disabled) { display: none; }
+  /* 售完時兩顆都停用：改留「已售完」那顆，讓手機也看得到售完狀態 */
+  .card-actions button[data-add]:disabled { display: none; }
+}
+
+/* ---------- 結帳步驟條：不再縮到 8px，改為允許換行 ---------- */
+.checkout-progress span { font-size: .75rem; letter-spacing: 0; }
+@media (max-width: 760px) {
+  .checkout-progress span {
+    padding: 7px 2px;
+    font-size: .75rem;
+    letter-spacing: 0;
+    line-height: 1.3;
+    white-space: normal;
+    text-wrap: balance;
+  }
+}
+
+/* ---------- 頁首 ---------- */
+@media (min-width: 1200px) {
+  .header-store-place strong span { font-size: .75rem; letter-spacing: .06em; }
+}
+@media (max-width: 760px) {
+  .site-header nav a { display: inline-flex; align-items: center; min-height: 44px; }
+}
+
+/* LINE 客服：保留業主指定的 LINE 標準綠底，文字改深墨色（白字對比只有 2.3:1，深墨色約 8:1） */
+.line-service-button,
+.trust-rail a.trust-rail-link.line-service-button { color: var(--home-ink); }
+
+/* ---------- 輪播小圓點：手機觸控高度 44px，圓點多時可縮窄 ---------- */
+@media (max-width: 760px) {
+  .hero-carousel-dot { flex: 0 1 28px; min-width: 16px; width: 28px; height: 44px; }
+}
+
+/* ---------- 購物車與購物須知的小連結 ---------- */
+@media (max-width: 760px) {
+  .cart-item .remove { min-height: 44px; padding: 0 4px; }
+}
+.policy-return { display: inline-flex; align-items: center; min-height: 44px; }
+
+/* 購物須知規則：原本用 ⭐️ 表情符號當項目符號，在黑底上比標題還搶眼；改為清單加低調黃色方點 */
+.policy-rule-list { margin: 0; list-style: none; }
+.policy-rule-list li {
+  position: relative;
+  max-width: 42em; /* 中文每行約 40 字，原本 900px 一行可達 66 字 */
+  margin: 9px 0;
+  padding-left: 18px;
+  color: #bdb7aa;
+  font-size: .85rem;
+  line-height: 1.8;
+}
+.policy-rule-list li::before {
+  content: "";
+  position: absolute;
+  top: .72em;
+  left: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--home-yellow);
+}
+
+/* ---------- 輪播 HOT／NEW 標籤與店取標籤：字級不低於 12px，字距收斂 ---------- */
+.hero-slide-flag { font-size: .75rem; letter-spacing: .08em; }
+@media (min-width: 1021px), (orientation: landscape) and (max-height: 540px) and (min-width: 640px) {
+  .hero-slide-flag { font-size: clamp(.75rem, .72vw, .95rem); }
+}
+.trust-rail-place span { letter-spacing: .06em; }
+
+/* 會員資料表單的「選填」：瀏覽器預設 small 會縮到約 10.8px */
+#profile-form label small { font-size: .75rem; }
+
+/* 商品卡陰影改中性墨色：原本的暖棕色陰影在白底上像一圈泛黃的光暈 */
+.product-card { box-shadow: 0 10px 30px rgba(21, 21, 21, .06); }
+.product-card:hover { box-shadow: 0 18px 36px rgba(21, 21, 21, .11); }
+
+/* 購物須知開頭說明：限制行長在約 40 字 */
+.policy-intro > p { max-width: 40em; }
+
+/* 購物須知流程列：原本撐滿整個區塊（1440 寬時 1223px，是上下文字欄的兩倍），
+   箭頭被推到每格最右邊、離文字約 230px；另有 12px 內距讓文字比標題內縮。
+   改為限寬、箭頭緊接文字、左邊緣與標題和規則同一條線。 */
+.policy-section .policy-timeline { max-width: 56rem; padding-inline: 0; }
+.policy-section .policy-timeline div { justify-content: flex-start; gap: 12px; }
+/* ==== hero-flag-shine.css ==== */
+/* 首頁輪播 HOT／NEW 標籤的動態炫光（業主 2026-09-29 選定 C 版：漸層流動＋白光掃過）。
+   外型沿用 product-showcase.css 的 .hero-slide-flag；字色不變（HOT 黑字、NEW 黃字），光線只在底色層流動，對比不受影響。
+   只有目前顯示的投影片（.hero-slide.is-active）會跑動畫；系統「減少動態效果」時維持靜態。 */
+.hero-slide-flag {
+  --flag-flow: linear-gradient(110deg, #f0441f 0%, #ff6b3d 25%, #ffb13d 50%, #ff6b3d 75%, #f0441f 100%);
+  --flag-sheen: rgba(255, 255, 255, .85);
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--flag-flow);
+  background-size: 200% 100%;
+}
+.hero-slide-flag--new {
+  --flag-flow: linear-gradient(110deg, #151515 0%, #2c2a24 25%, #4a4230 50%, #2c2a24 75%, #151515 100%);
+  --flag-sheen: rgba(246, 212, 88, .45);
+}
+.hero-slide-flag::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: -1;
+  background: linear-gradient(105deg, transparent 35%, var(--flag-sheen) 50%, transparent 65%);
+  background-position: 150% 0;
+  background-size: 250% 100%;
+  pointer-events: none;
+}
+.hero-slide.is-active .hero-slide-flag { animation: hero-flag-flow 3.8s linear infinite; }
+.hero-slide.is-active .hero-slide-flag::after { animation: hero-flag-sheen 2.4s ease-in-out infinite; }
+
+@keyframes hero-flag-flow {
+  from { background-position: 200% 0; }
+  to { background-position: 0% 0; }
+}
+@keyframes hero-flag-sheen {
+  0%, 35% { background-position: 150% 0; }
+  100% { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-slide.is-active .hero-slide-flag,
+  .hero-slide.is-active .hero-slide-flag::after { animation: none; }
+}
+/* ==== header-orders.css ==== */
+/* 手機版「我的訂單」移到主選單列（2026-09-30 業主選方案 A，只改手機，桌機維持原頁首按鈕）：
+   登入後頁首右側只剩會員與購物車兩顆，不再因三顆按鈕擠成兩行；以品牌黃實心膠囊標示，和「商品／購物須知」文字連結區分。
+   兩顆按鈕都有 data-orders-open，登入狀態由 member-profile.js／auth-expiry.js 一起切換 .hidden，這裡依寬度只顯示其一。 */
+.site-header nav .nav-orders-button { display: none; }
+
+@media (max-width: 760px) {
+  .site-header .header-actions .orders-button { display: none; }
+  .site-header nav { align-items: center; justify-content: flex-start; gap: 24px; }
+  .site-header nav .nav-orders-button:not(.hidden) {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    margin-left: auto;
+    padding: 6px 16px 6px 12px;
+    border: 1.5px solid var(--home-ink);
+    border-radius: 999px;
+    background: var(--home-yellow);
+    color: var(--home-ink);
+    font-size: .88rem;
+    font-weight: 900;
+    letter-spacing: .03em;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .2s ease, color .2s ease;
+  }
+  .site-header nav .nav-orders-button svg {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .site-header nav .nav-orders-button:hover { background: var(--home-ink); color: var(--home-yellow); }
+  .site-header nav .nav-orders-button:focus-visible { outline: 3px solid var(--home-ink); outline-offset: 3px; }
+}
+
+/* 極窄螢幕（<360px，例如 320px）：縮小 Logo、隱藏副標，讓會員與購物車仍能和品牌同一列 */
+@media (max-width: 359px) {
+  .site-header { column-gap: 8px; padding-inline: 12px; }
+  .site-header .brand img { width: 40px; height: 40px; }
+  .site-header .brand small { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-header nav .nav-orders-button { transition: none; }
+}
+/* ==== card-subgrid.css ==== */
+/* 商品卡以 subgrid 對齊（取代 h3 min-height 與 margin-top:auto 的補救）：
+   同一橫排所有卡片共用 5 條列軌道 ── 圖片／標題區／標籤與庫存區／價格／按鈕，
+   標題一行或兩行、有無預購標籤都不會讓價格與按鈕錯位。
+   卡片結構固定為 image + info(head, meta, price, actions)；改動 product-card.js 區塊數時，須同步調整下方 span。
+   不支援 subgrid 的瀏覽器維持 storefront-legibility.css 的 flex 貼底版型。 */
+@supports (grid-template-rows: subgrid) {
+  .product-card {
+    display: grid;
+    grid-row: span 5;
+    grid-template-rows: subgrid;
+    row-gap: 0; /* 卡片間距留給 .product-grid，卡片內部間距由各區塊 margin 決定 */
+  }
+  .product-card .product-info {
+    display: grid;
+    flex: none;
+    grid-row: span 4;
+    grid-template-rows: subgrid;
+    row-gap: 0;
+    min-width: 0;
+  }
+  .product-card .product-head,
+  .product-card .product-meta { min-width: 0; }
+  .product-card .card-actions { margin-top: 0; align-self: end; }
+}
+/* ==== filter-chips.css ==== */
+/* 前台系列篩選：桌面版加大、白底膠囊、滑過黃框浮起、附商品數量；手機版維持原樣（隱藏數量）。 */
+.filter-count{display:none}
+@media (min-width:761px){
+  .shelf-title{flex:0 0 auto;white-space:nowrap}
+  .filter-row{gap:10px;justify-content:flex-end}
+  .filter-row .filter{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 18px;border:1.5px solid #bfb39b;background:#fff;color:var(--home-ink);font-size:.95rem;font-weight:800;box-shadow:0 2px 6px rgba(58,48,30,.08);transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
+  .filter-row .filter:hover{border-color:var(--home-yellow);transform:translateY(-2px);box-shadow:0 8px 16px rgba(58,48,30,.14)}
+  .filter-row .filter:focus-visible{outline:3px solid var(--home-yellow);outline-offset:2px}
+  .filter-row .filter.active{background:var(--home-ink);border-color:var(--home-ink);color:#fff}
+  .filter-count{display:inline-block;min-width:24px;padding:2px 7px;border-radius:999px;background:var(--home-cream);color:var(--home-muted);font-size:.75rem;font-weight:900;line-height:1.4;text-align:center}
+  .filter.active .filter-count{background:var(--home-yellow);color:var(--home-ink)}
+}
+@media (min-width:761px) and (prefers-reduced-motion:reduce){
+  .filter-row .filter{transition:none}
+  .filter-row .filter:hover{transform:none}
+}
+/* ==== catalog-paging.css ==== */
+/* 首頁商品列表「載入更多」：黑底膠囊按鈕＋黃色件數標籤（與選中的系列按鈕同色系）；新出現的商品卡淡入。 */
+.catalog-more{display:grid;justify-items:center;gap:12px;margin-top:34px;text-align:center}
+.catalog-more:empty{display:none}
+.catalog-more-count,.catalog-more-done{margin:0;color:var(--home-muted);font-size:.85rem;font-variant-numeric:tabular-nums}
+.catalog-more-button{display:inline-flex;align-items:center;gap:10px;min-height:48px;padding:0 28px;border:0;border-radius:999px;background:var(--home-ink);color:#fff;font-size:1rem;font-weight:900;cursor:pointer;box-shadow:0 10px 24px rgba(21,21,21,.18);transition:transform .18s ease,box-shadow .18s ease}
+.catalog-more-button:hover{transform:translateY(-2px);box-shadow:0 14px 28px rgba(21,21,21,.24)}
+.catalog-more-button:focus-visible{outline:3px solid var(--home-yellow);outline-offset:3px}
+.catalog-more-next{padding:2px 9px;border-radius:999px;background:var(--home-yellow);color:var(--home-ink);font-size:.78rem}
+.product-card.is-revealed{animation:catalog-reveal .45s cubic-bezier(.2,.8,.2,1) both}
+@keyframes catalog-reveal{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@media (max-width:760px){.catalog-more{margin-top:26px}.catalog-more-button{width:100%;justify-content:center}}
+@media (prefers-reduced-motion:reduce){.catalog-more-button{transition:none}.catalog-more-button:hover{transform:none}.product-card.is-revealed{animation:none}}
