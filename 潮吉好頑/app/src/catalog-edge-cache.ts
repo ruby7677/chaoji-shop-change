@@ -65,11 +65,18 @@ export async function deleteEdgeCatalog(origin?: string): Promise<void> {
   if (!cache) return;
   const origins = new Set(knownOrigins);
   if (origin) origins.add(origin);
-  const now = String(Date.now());
+  const now = Date.now();
+  // 失效時間只往後推：Cache API 沒有原子的比較後寫入，並行失效時較早的寫入可能較晚完成而把時間倒退，
+  // 所以寫入前取較大值、刪除後再確認一次並補寫。殘餘時間窗極短，最壞情況仍受 TTL 上限保護。
+  const markInvalidated = async (each: string) => {
+    const marker = Math.max(now, await invalidatedAt(cache, each));
+    await cache.put(invalidatedKeyFor(each), new Response(String(marker), { headers: cacheHeaders }));
+  };
   const run = Promise.all([...origins].map(async (each) => {
     try {
-      await cache.put(invalidatedKeyFor(each), new Response(now, { headers: cacheHeaders }));
+      await markInvalidated(each);
       await cache.delete(keyFor(each));
+      if (await invalidatedAt(cache, each) < now) await markInvalidated(each);
     } catch { /* 清除失敗時最多延遲 TTL */ }
   })).then(() => undefined);
   pendingInvalidation = run;

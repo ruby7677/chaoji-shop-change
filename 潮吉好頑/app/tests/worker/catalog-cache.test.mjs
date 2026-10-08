@@ -123,6 +123,16 @@ test("another isolate's stale load that finishes after invalidation is never ser
   } finally { delete globalThis.caches; }
 });
 
+test("an older invalidation marker finishing late does not move the marker backwards", async () => {
+  const store = fakeEdgeCache();
+  const markerKey = `${ORIGIN}/__edge-cache/catalog/v1-invalidated-at`;
+  store.set(markerKey, { body: String(Date.now() + 60_000), headers: [] });
+  try {
+    await otherIsolate.deleteEdgeCatalog(ORIGIN);
+    assert.ok(Number(store.get(markerKey).body) > Date.now() + 30_000, "a newer marker is kept");
+  } finally { delete globalThis.caches; }
+});
+
 test("a read waits for an invalidation in progress instead of picking up the copy being removed", async () => {
   const store = fakeEdgeCache();
   store.set(EDGE_KEY, storedCatalog([{ id: "old" }], Date.now() - 50));
