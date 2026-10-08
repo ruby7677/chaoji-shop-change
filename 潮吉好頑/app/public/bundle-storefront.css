@@ -1,5 +1,5 @@
 @charset "UTF-8";
-/* 自動產生（scripts/build-css.mjs），請改原始檔：product-showcase.css、hero-desktop.css、hero-ratio.css、store-info.css、product-page.css、storefront-legibility.css、hero-flag-shine.css、header-orders.css、card-subgrid.css、filter-chips.css、catalog-paging.css */
+/* 自動產生（scripts/build-css.mjs），請改原始檔：product-showcase.css、hero-desktop.css、hero-ratio.css、store-info.css、product-page.css、storefront-legibility.css、hero-flag-shine.css、header-orders.css、card-subgrid.css、filter-chips.css、catalog-paging.css、member-profile.css */
 /* ==== product-showcase.css ==== */
 /* 商品展示升級樣式：Hero 預購輪播、商品頁多圖、詳細介紹、推薦商品。
    規劃見 app/PRODUCT_SHOWCASE_PLAN.md；載入順序在 styles.css 之後。 */
@@ -1237,3 +1237,12 @@ body.is-product-view .product-page {
 @keyframes catalog-reveal{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 @media (max-width:760px){.catalog-more{margin-top:26px}.catalog-more-button{width:100%;justify-content:center}}
 @media (prefers-reduced-motion:reduce){.catalog-more-button{transition:none}.catalog-more-button:hover{transform:none}.product-card.is-revealed{animation:none}}
+/* ==== member-profile.css ==== */
+/* 會員資料視窗：點數區的展開列（＋／－固定靠右、與文字垂直置中，不再依文字長度浮動），
+   以及 iPhone 日期欄位（iOS 預設樣式有最小寬度，會撐出視窗、日期置中）。 */
+.member-points-summary details{padding:4px 0 0}
+.member-points-summary summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:40px}
+.member-points-summary summary::-webkit-details-marker{display:none}
+.member-points-summary summary:after{float:none;flex:0 0 auto;line-height:1}
+.profile-fields input[type="date"]{min-width:0;max-width:100%;height:calc(1.45em + 22px);-webkit-appearance:none;appearance:none;text-align:left}
+.profile-fields input[type="date"]::-webkit-date-and-time-value{text-align:left}

@@ -1,0 +1,8 @@
+/* 會員資料視窗：點數區的展開列（＋／－固定靠右、與文字垂直置中，不再依文字長度浮動），
+   以及 iPhone 日期欄位（iOS 預設樣式有最小寬度，會撐出視窗、日期置中）。 */
+.member-points-summary details{padding:4px 0 0}
+.member-points-summary summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:40px}
+.member-points-summary summary::-webkit-details-marker{display:none}
+.member-points-summary summary:after{float:none;flex:0 0 auto;line-height:1}
+.profile-fields input[type="date"]{min-width:0;max-width:100%;height:calc(1.45em + 22px);-webkit-appearance:none;appearance:none;text-align:left}
+.profile-fields input[type="date"]::-webkit-date-and-time-value{text-align:left}
