@@ -17,11 +17,14 @@ export const CSS_BUNDLES = {
   ]
 };
 
+export const normalizeNewlines = (text) => text.replace(/\r\n/g, "\n");
+
 const CHARSET = /^﻿?@charset\s+"UTF-8";\s*/i;
 
 export async function bundleContent(name) {
   const parts = await Promise.all(CSS_BUNDLES[name].map(async (file) => {
-    const css = (await readFile(join(PUBLIC_DIR, file), "utf8")).replace(CHARSET, "").trimEnd();
+    // 統一成 LF：Windows 的 Git（core.autocrlf）checkout 會轉成 CRLF，否則同內容會被判成不同
+    const css = normalizeNewlines(await readFile(join(PUBLIC_DIR, file), "utf8")).replace(CHARSET, "").trimEnd();
     return `/* ==== ${file} ==== */\n${css}\n`;
   }));
   return `@charset "UTF-8";\n/* 自動產生（scripts/build-css.mjs），請改原始檔：${CSS_BUNDLES[name].join("、")} */\n${parts.join("")}`;

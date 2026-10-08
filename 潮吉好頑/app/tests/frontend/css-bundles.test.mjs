@@ -4,14 +4,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, access } from "node:fs/promises";
 import { join } from "node:path";
-import { CSS_BUNDLES, PUBLIC_DIR, bundleContent } from "../../scripts/build-css.mjs";
+import { CSS_BUNDLES, PUBLIC_DIR, bundleContent, normalizeNewlines } from "../../scripts/build-css.mjs";
 
 const html = (name) => readFile(join(PUBLIC_DIR, name), "utf8");
 const stylesheets = (source) => [...source.matchAll(/<link rel="stylesheet" (href|data-admin-href)="\/([^"]+)"/g)].map(([, kind, file]) => ({ kind, file }));
 
 test("each bundle matches its source files (run node scripts/build-css.mjs after editing them)", async () => {
   for (const name of Object.keys(CSS_BUNDLES)) {
-    assert.equal(await html(name), await bundleContent(name), `${name} is out of date`);
+    assert.equal(normalizeNewlines(await html(name)), await bundleContent(name), `${name} is out of date`);
   }
 });
 
@@ -26,6 +26,11 @@ test("the pages load each style once, through the bundle when it is bundled", as
       if (kind === "href") await access(join(PUBLIC_DIR, file));
     }
   }
+});
+
+test("a Windows CRLF checkout of the same files still counts as up to date", async () => {
+  const name = "bundle-base.css";
+  assert.equal(normalizeNewlines((await html(name)).replace(/\n/g, "\r\n")), await bundleContent(name));
 });
 
 test("admin styles stay out of the bundles so their override order is unchanged", async () => {
