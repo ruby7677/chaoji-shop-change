@@ -30,7 +30,9 @@ test("the pages load each style once, through the bundle when it is bundled", as
 
 test("a Windows CRLF checkout of the same files still counts as up to date", async () => {
   const name = "bundle-base.css";
-  assert.equal(normalizeNewlines((await html(name)).replace(/\n/g, "\r\n")), await bundleContent(name));
+  // 先統一成 LF 再轉 CRLF：工作區本身可能已是 CRLF checkout
+  const crlf = normalizeNewlines(await html(name)).replace(/\n/g, "\r\n");
+  assert.equal(normalizeNewlines(crlf), await bundleContent(name));
 });
 
 test("admin styles stay out of the bundles so their override order is unchanged", async () => {
