@@ -132,6 +132,8 @@ async function uploadFiles(section, input) {
       formData.append("image", prepared.file, prepared.file.name);
       if (prepared.width) formData.append("width", String(prepared.width));
       if (prepared.height) formData.append("height", String(prepared.height));
+      // 與單張主圖上傳相同：長邊超過 640px 才有縮圖；這張被排成主圖時，商品卡會用縮圖而不是整張原圖
+      if (prepared.thumbnailFile instanceof File) formData.append("thumbnail", prepared.thumbnailFile, prepared.thumbnailFile.name);
       const result = await deps.adminFetch(`/api/admin/products/${product.id}/images`, { method: "POST", body: formData });
       const preview = await readAsDataUrl(prepared.file);
       if (preview) localPreviews.set(result.image.id, preview);

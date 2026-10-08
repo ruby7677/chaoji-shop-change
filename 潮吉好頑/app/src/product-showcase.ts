@@ -13,7 +13,8 @@ import {
   productImageEdgeCache,
   purgeProductImageCache,
   requestedImageVersion,
-  storageObjectUrl
+  storageObjectUrl,
+  thumbnailPathFor
 } from "./product-image-storage";
 import { UPLOAD_TIMEOUT_MS, fetchWithTimeout } from "./http";
 import { databaseErrors } from "./database-errors";
@@ -112,8 +113,9 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
     return response;
   }
 
+  // 連同同名縮圖一起刪除（不存在的物件不會回錯）
   async function deleteStorageObject(env: E, path: string) {
-    await fetchWithTimeout(`${env.SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}`, { method: "DELETE", headers: serviceHeaders(env), body: JSON.stringify({ prefixes: [path] }) });
+    await fetchWithTimeout(`${env.SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}`, { method: "DELETE", headers: serviceHeaders(env), body: JSON.stringify({ prefixes: [path, thumbnailPathFor(path)] }) });
   }
 
   async function addProductImage(request: Request, env: E, productId: string): Promise<Response> {
@@ -135,6 +137,15 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
     if (!extension) return json({ error: "照片僅支援 JPG、PNG 或 WebP" }, { status: 400 });
     if (!image.size || image.size > PRODUCT_IMAGE_MAX_BYTES) return json({ error: "商品照片必須小於 5MB" }, { status: 400 });
     if (!(await hasImageSignature(image, image.type))) return json({ error: "照片格式與檔案內容不一致" }, { status: 400 });
+    // 縮圖選填（長邊超過 640px 才會附上），驗證規則與單張主圖上傳相同；驗證失敗時整個請求在寫入前就拒絕
+    const thumbnailField = formData.get("thumbnail");
+    let thumbnail: File | null = null;
+    if (thumbnailField instanceof File && thumbnailField.size > 0) {
+      if (thumbnailField.type !== "image/webp") return json({ error: "縮圖僅支援 WebP" }, { status: 400 });
+      if (thumbnailField.size > PRODUCT_IMAGE_MAX_BYTES) return json({ error: "縮圖檔案必須小於 5MB" }, { status: 400 });
+      if (!(await hasImageSignature(thumbnailField, "image/webp"))) return json({ error: "縮圖格式與檔案內容不一致" }, { status: 400 });
+      thumbnail = thumbnailField;
+    }
 
     const imageId = crypto.randomUUID();
     const storagePath = `${productId}/${imageId}.${extension}`;
@@ -144,6 +155,20 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
       body: image
     }, UPLOAD_TIMEOUT_MS);
     if (!upload.ok) return json({ error: "照片上傳失敗，請稍後重試" }, { status: 502 });
+    // 縮圖在建立資料列前上傳：照片一出現在型錄就已有縮圖，避免前台先把原圖快取在縮圖網址下。
+    // 採最佳努力，失敗只記錄（前台讀不到縮圖時改用原圖）；建立資料列失敗時 deleteStorageObject 會一併刪除
+    if (thumbnail) {
+      try {
+        const thumbnailUpload = await fetchWithTimeout(storageObjectUrl(env, thumbnailPathFor(storagePath)), {
+          method: "POST",
+          headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": "image/webp", "x-upsert": "true" },
+          body: thumbnail
+        }, UPLOAD_TIMEOUT_MS);
+        if (!thumbnailUpload.ok) console.error(`商品多圖縮圖上傳失敗 productId=${productId} status=${thumbnailUpload.status}`);
+      } catch (error) {
+        console.error(`商品多圖縮圖上傳發生例外 productId=${productId}`, error);
+      }
+    }
     const altText = String(formData.get("alt") || "").slice(0, 120);
     const rpc = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_add_product_image`, {
       method: "POST",
