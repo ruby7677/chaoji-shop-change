@@ -1,0 +1,12 @@
+/* 獨立訂單頁（orders.html）：LINE 小視窗內的單欄版面；訂單卡與付款對話框沿用首頁樣式。 */
+.orders-page{min-height:100svh;background:var(--cream)}
+.orders-page-shell{box-sizing:border-box;width:min(640px,100%);margin:0 auto;padding:20px 16px max(28px,env(safe-area-inset-bottom))}
+.orders-page-head{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.orders-page-head img{flex:0 0 44px;border-radius:50%}
+.orders-page-head>div{flex:1;min-width:0}
+.orders-page-head .eyebrow{margin:0}
+.orders-page-head h1{margin:0;font-size:1.5rem;line-height:1.15;letter-spacing:-.03em;font-weight:850}
+.orders-page-refresh{min-height:40px;padding:0 14px;border:1px solid var(--home-line);border-radius:999px;background:var(--home-paper);color:var(--home-ink);font-size:.85rem;font-weight:800;cursor:pointer}
+.orders-page-refresh:focus-visible,.orders-page-shop:focus-visible{outline:3px solid var(--home-yellow);outline-offset:2px}
+.orders-page #orders-list{max-height:none;overflow:visible}
+.orders-page-shop{display:block;margin-top:20px;padding:12px;color:var(--home-ink);font-weight:800;text-align:center;text-decoration:none}

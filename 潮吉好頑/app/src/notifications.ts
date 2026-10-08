@@ -106,7 +106,8 @@ export async function notifyOrderEvent(env: Env, orderId: string, eventType: Ord
   };
   const message = buildOrderNotificationMessage(orderMessageData);
   if (!message) return true;
-  const lineMessage = buildLineOrderFlexMessage(orderMessageData, message);
+  const ordersLiffId = env.ORDERS_LIFF_ID?.trim();
+  const lineMessage = buildLineOrderFlexMessage(orderMessageData, message, ordersLiffId ? `https://liff.line.me/${ordersLiffId}` : null);
   const telegramMessage = buildTelegramOrderNotificationMessage(message, order.profiles?.full_name);
   const suppressAdminMemberLine = eventType === "status_changed"
     && order.status === "confirmed"

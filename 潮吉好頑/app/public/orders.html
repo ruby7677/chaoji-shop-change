@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#fffdf7" />
+  <meta name="robots" content="noindex" />
+  <title>我的訂單｜潮吉好頑</title>
+  <link rel="preconnect" href="https://static.line-scdn.net" crossorigin />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/storefront-refinements.css" />
+  <link rel="stylesheet" href="/storefront-details.css" />
+  <link rel="stylesheet" href="/storefront-legibility.css" />
+  <link rel="stylesheet" href="/orders-page.css" />
+  <script type="module" src="/orders-page.js"></script>
+</head>
+<body class="orders-page">
+  <main class="orders-shell orders-page-shell">
+    <header class="orders-page-head">
+      <img src="/Logo.webp" width="44" height="44" alt="" aria-hidden="true" />
+      <div>
+        <p class="eyebrow">MY ORDERS</p>
+        <h1>我的訂單</h1>
+      </div>
+      <button class="orders-page-refresh" type="button" data-orders-refresh aria-label="重新整理訂單">重新整理</button>
+    </header>
+    <p class="dialog-copy">可查看訂單狀態，匯款訂單可補填匯款帳號末五碼；賣貨便訂單會先顯示為待確認，待管理員人工核對。</p>
+    <div id="orders-list" aria-live="polite"><div class="skeleton-stack" role="status" aria-label="載入訂單中"><div class="skeleton-card"><span></span><i></i><i></i></div><div class="skeleton-card"><span></span><i></i><i></i></div></div></div>
+    <a class="orders-page-shop" data-shop-link href="/">前往商店逛逛 →</a>
+  </main>
+  <div class="toast" id="toast" role="status" aria-hidden="true"></div>
+  <dialog id="payment-dialog" aria-labelledby="payment-dialog-title"><form id="payment-form"><button class="dialog-close" type="button" data-payment-close aria-label="關閉">×</button><p class="eyebrow">PAYMENT</p><h2 id="payment-dialog-title">回報匯款</h2><div id="payment-order-detail"></div><label id="payment-last-five-label">匯款帳號末五碼 <input id="payment-last-five" required maxlength="5" pattern="[0-9]{5}" inputmode="numeric" autocomplete="off" placeholder="請輸入 5 位數字" /></label><p class="form-error hidden" id="payment-error" role="alert"></p><button class="primary-button payment-submit" type="submit">送出末五碼，等待確認</button><button class="text-button" type="button" data-payment-later>稍後再回報</button><p id="payment-store-note" class="dialog-copy hidden">此訂單不需要回報匯款末五碼。</p></form></dialog>
+</body>
+</html>

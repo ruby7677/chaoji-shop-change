@@ -287,7 +287,15 @@ function orderFlexSummary(data: OrderMessageData) {
  * message as altText. Telegram and other internal channels continue to use
  * buildOrderNotificationMessage() unchanged.
  */
-export function buildLineOrderFlexMessage(data: OrderMessageData, altText: string): LinePushMessage {
+// 有訂單頁網址時，頁尾改成「查看訂單」按鈕（開啟獨立訂單頁）；沒有設定時維持提示文字
+function orderFlexFooter(ordersUrl?: string | null) {
+  if (ordersUrl) {
+    return [{ type: "button", style: "primary", color: "#06C755", height: "sm", action: { type: "uri", label: "查看訂單", uri: ordersUrl } }];
+  }
+  return [{ type: "text", text: "請回到官方帳號查看完整訂單資訊。", color: "#8A8A8A", size: "sm", align: "center", wrap: true }];
+}
+
+export function buildLineOrderFlexMessage(data: OrderMessageData, altText: string, ordersUrl?: string | null): LinePushMessage {
   const isSeller = data.deliveryLine === "賣貨便";
   const isHome = data.deliveryLine === "宅配";
   const itemSummary = data.items.slice(0, 500);
@@ -363,9 +371,7 @@ export function buildLineOrderFlexMessage(data: OrderMessageData, altText: strin
         type: "box",
         layout: "vertical",
         paddingAll: "12px",
-        contents: [
-          { type: "text", text: "請回到官方帳號查看完整訂單資訊。", color: "#8A8A8A", size: "sm", align: "center", wrap: true }
-        ]
+        contents: orderFlexFooter(ordersUrl)
       }
     }
   };

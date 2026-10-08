@@ -9,6 +9,8 @@ export interface Env {
   SUPABASE_CUSTOM_PROVIDER?: string;
   LINE_AUTH_ENABLED?: string;
   LIFF_ID?: string;
+  // 獨立訂單頁（/orders）的 LIFF app，與商店 LIFF 同一個 LINE Login channel
+  ORDERS_LIFF_ID?: string;
   LINE_LOGIN_CHANNEL_ID?: string;
   AUTH_SESSION_SECRET?: string;
   LINE_MESSAGING_CHANNEL_ACCESS_TOKEN?: string;

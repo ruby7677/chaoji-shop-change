@@ -15,24 +15,13 @@ import { restoreAuthReturnState } from "./auth-return-state.js";
 import { activeCheckoutScope, openCheckout, showCheckoutError, submitOrder } from "./checkout-flow.js";
 import { LIFF_AUTO_CALLBACK_PARAM, captureAuthSession, clearLiffLaunchContext, clearStoredAuthSession, ensureWebSession, hasLiffLaunchIntent, hasLiffPrimaryRedirectParams, initializeLiffBridge, initializeLiffStage, liffPrimaryRedirectPending, loadRuntimeConfig, readLiffLaunchContext, restorePersistentLiffSession, restoreWebSession } from "./liff-session.js";
 import { beginLineLogin, loadMember, showProfileDialog, submitProfile } from "./member-profile.js";
+import { handleCopyBankAccount } from "./copy-bank-account.js";
 
 let authBootstrapInFlight = null;
 let initialPageRendered = false;
 
 document.addEventListener("click", (event) => {
-  const copyAccount = event.target.closest("[data-copy-bank-account]");
-  if (copyAccount) {
-    const value = copyAccount.dataset.copyBankAccount || "";
-    const copyPromise = navigator.clipboard?.writeText(value);
-    if (!copyPromise) return showToast("目前瀏覽器不支援複製帳號", "warning");
-    copyPromise.then(() => {
-      const original = copyAccount.textContent;
-      copyAccount.textContent = "已複製";
-      showToast("匯款帳號已複製", "success");
-      window.setTimeout(() => { copyAccount.textContent = original; }, 1800);
-    }).catch(() => showToast("複製帳號失敗，請手動選取", "warning"));
-    return;
-  }
+  if (handleCopyBankAccount(event)) return;
   const add = event.target.closest("[data-add]"); if (add) addToCartWithFeedback(add.dataset.add, add);
   const heroAdd = event.target.closest("[data-hero-add]"); if (heroAdd) addToCartWithFeedback(heroAdd.dataset.heroAdd, heroAdd);
   const change = event.target.closest("[data-quantity]"); if (change) { const item = cart.find((entry) => entry.id === change.dataset.quantity); const delta = Number(change.dataset.delta); const max = products.find((product) => product.id === item.id).stock; item.quantity = Math.min(max, item.quantity + delta); if (item.quantity <= 0) cart.splice(cart.indexOf(item), 1); saveCart(); renderCart(); }

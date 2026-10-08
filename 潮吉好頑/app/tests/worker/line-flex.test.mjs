@@ -15,7 +15,9 @@ const ALLOWED = {
   gravity: ["top", "bottom", "center"],
   weight: ["regular", "bold"],
   spacing: SPACING,
-  margin: SPACING
+  margin: SPACING,
+  style: ["primary", "secondary", "link"],
+  height: ["sm", "md"]
 };
 const PIXELS = /^\d+(\.\d+)?px$/;
 
@@ -57,4 +59,15 @@ test("rows align label and value at the top", () => {
   const rows = JSON.stringify(message.contents).match(/"alignItems":"[^"]+"/g) || [];
   assert.ok(rows.length > 0);
   assert.ok(rows.every((row) => row === '"alignItems":"flex-start"'));
+});
+
+test("order Flex footer opens the orders page when it is configured, and keeps the hint text otherwise", () => {
+  const url = "https://liff.line.me/2007619149-ORDERS";
+  const withLink = messages.buildLineOrderFlexMessage(orderData, "alt", url);
+  assert.deepEqual(violations(withLink.contents), []);
+  const [button] = withLink.contents.footer.contents;
+  assert.equal(button.type, "button");
+  assert.deepEqual(button.action, { type: "uri", label: "查看訂單", uri: url });
+  const [hint] = messages.buildLineOrderFlexMessage(orderData, "alt").contents.footer.contents;
+  assert.equal(hint.text, "請回到官方帳號查看完整訂單資訊。");
 });

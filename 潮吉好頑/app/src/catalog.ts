@@ -253,6 +253,7 @@ export async function runtimeConfig(env: Env) {
     authEnabled: lineEnabled,
     liffId: env.LIFF_ID ?? null,
     liffEnabled: Boolean(env.LIFF_ID && env.LINE_LOGIN_CHANNEL_ID),
+    ordersLiffId: env.ORDERS_LIFF_ID || null,
     adminIdentityMode: "line_user_id+is_admin"
   };
 }
