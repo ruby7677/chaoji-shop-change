@@ -35,8 +35,9 @@ function showMessage(title, message, { action = "shop", label = "前往商店" }
   list.innerHTML = `<div class="orders-empty"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(message)}</p>${button}</div>`;
 }
 
+// 不用瀏覽器快取的舊設定（Worker 回應可快取 5 分鐘），避免新設定的訂單頁 LIFF ID 還沒生效
 async function loadConfig() {
-  const response = await fetch("/api/config");
+  const response = await fetch("/api/config", { cache: "no-cache" });
   if (!response.ok) throw new Error("設定載入失敗");
   config = await response.json();
 }
@@ -48,13 +49,15 @@ async function obtainAccessToken({ useCache = true } = {}) {
     if (cached) return cached;
   }
   let state = null;
+  let liffError = null;
   if (config.ordersLiffId) {
     try { state = await initializeLiffClient(config.ordersLiffId); }
-    catch (error) { console.warn("Orders LIFF unavailable; trying the web session.", error); }
+    catch (error) { liffError = error; console.warn("Orders LIFF unavailable; trying the web session.", error); }
   }
+  // 只有 LIFF 真的初始化成功且在 LINE App 內，才走 LIFF 恢復登入；UA 判斷只用來決定商店連結
   if (state?.initialized) inLineClient = Boolean(state.isInClient);
   syncShopLinks();
-  if (inLineClient) {
+  if (state?.initialized && state.isInClient) {
     if (!state.loggedIn) {
       globalThis.liff.login({ redirectUri: location.href });
       return "redirect";
@@ -66,9 +69,13 @@ async function obtainAccessToken({ useCache = true } = {}) {
     return restored.accessToken;
   }
   const refreshed = await refreshWebSession();
-  if (!refreshed) return null;
-  rememberAccessToken(refreshed.access_token);
-  return refreshed.access_token;
+  if (refreshed) {
+    rememberAccessToken(refreshed.access_token);
+    return refreshed.access_token;
+  }
+  // 在 LINE 內卻無法啟動 LIFF：顯示原因並讓客人重新載入，而不是誤導成「請先登入」
+  if (inLineClient && (liffError || !config.ordersLiffId)) throw new Error("LINE 登入元件啟動失敗，請關閉視窗後重新開啟");
+  return null;
 }
 
 async function fetchOrders(token) {
@@ -88,7 +95,7 @@ async function loadOrders({ useCache = true } = {}) {
   list.setAttribute("aria-busy", "true");
   list.innerHTML = SKELETON;
   try {
-    if (!config) await loadConfig();
+    if (!config?.ordersLiffId) await loadConfig();
     syncShopLinks();
     accessToken = await obtainAccessToken({ useCache });
     if (accessToken === "redirect") return;
