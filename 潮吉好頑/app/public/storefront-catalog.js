@@ -112,7 +112,12 @@ export function renderProducts({ revealFrom = 0 } = {}) {
   const shown = matches.slice(0, visibleLimit(`${activeCategory}|${keyword}`));
   grid.innerHTML = shown.length ? shown.map(productCardMarkup).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
   // 剛載入的那批卡片淡入
-  if (revealFrom > 0) [...grid.children].slice(revealFrom).forEach((card) => card.classList.add("is-revealed"));
+  if (revealFrom > 0) {
+    const revealed = [...grid.children].slice(revealFrom);
+    revealed.forEach((card) => card.classList.add("is-revealed"));
+    // 按鈕會被重畫掉：焦點移到第一張新商品卡，鍵盤使用者可以接著往下瀏覽（不捲動畫面）
+    revealed[0]?.querySelector("a, button")?.focus({ preventScroll: true });
+  }
   const slot = loadMoreSlot();
   if (slot) slot.innerHTML = loadMoreMarkup(shown.length, matches.length);
 }
