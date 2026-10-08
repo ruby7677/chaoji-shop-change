@@ -196,7 +196,7 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
   });
   if (!updateResponse.ok) return databaseError(updateResponse);
   // 寬高寫入失敗只影響前台保留空間，不讓上傳失敗；讀不到時寫 null，避免沿用舊照片的比例
-  await saveProductImageDimensions(env, productId, dimensions).catch((error) => console.error(`商品主圖寬高寫入發生例外 productId=${productId}`, error));
+  await saveProductImageDimensions(env, productId, dimensions, { imagePath, imageUpdatedAt: updatedAt }).catch((error) => console.error(`商品主圖寬高寫入發生例外 productId=${productId}`, error));
   await invalidateCatalogCache(request);
   await purgeProductImageCache(request, productId, undefined, previousVersion);
   await purgeProductImageCache(request, productId, undefined, previousVersion, "thumb");

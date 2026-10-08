@@ -82,7 +82,9 @@ test("uploading a main image stores its width and height on the product", async 
   const patches = fakeUploadSupabase();
   const response = await upload(new File([webpExtended(750, 1000)], "main.webp", { type: "image/webp" }));
   assert.equal(response.status, 200);
-  assert.deepEqual(patches, [{ query: `?id=eq.${PRODUCT_ID}`, body: { image_width: 750, image_height: 1000 } }]);
+  assert.equal(patches.length, 1);
+  assert.match(decodeURIComponent(patches[0].query), new RegExp(`^\\?id=eq\\.${PRODUCT_ID}&image_path=eq\\.${PRODUCT_ID}/primary\\.webp&image_updated_at=eq\\.\\d{4}-`));
+  assert.deepEqual(patches[0].body, { image_width: 750, image_height: 1000 });
 });
 
 test("an image whose size cannot be read clears the old dimensions so the old ratio is not reused", async () => {
@@ -96,10 +98,11 @@ test("the hourly schedule fills in dimensions for existing photos from the file 
   const patches = [];
   const ranges = [];
   restoreFetch = stubFetch(async (url, init, body) => {
-    if (url.pathname === "/rest/v1/products" && init.method === "PATCH") { patches.push({ query: url.search, body }); return new Response(null, { status: 204 }); }
+    if (url.pathname === "/rest/v1/products" && init.method === "PATCH") { patches.push({ query: decodeURIComponent(url.search), body }); return new Response(null, { status: 204 }); }
     if (url.pathname === "/rest/v1/products") {
       assert.match(url.search, /image_width=is\.null/);
-      return jsonResponse([{ id: "p1", image_path: "p1/primary.webp" }, { id: "p2", image_path: "p2/primary.png" }]);
+      // 第一段（id >= 隨機起點）回兩張，第二段（id < 起點）沒有
+      return jsonResponse(url.search.includes("id=gte.") ? [{ id: "p1", image_path: "p1/primary.webp", image_updated_at: "2026-10-01T00:00:00+00:00" }, { id: "p2", image_path: "p2/primary.png", image_updated_at: null }] : []);
     }
     if (url.pathname.startsWith("/storage/v1/object/product-images/")) {
       ranges.push(new Headers(init.headers).get("Range"));
@@ -111,12 +114,32 @@ test("the hourly schedule fills in dimensions for existing photos from the file 
   await worker.scheduled({ cron: "0 * * * *", scheduledTime: Date.UTC(2026, 9, 8, 5) }, baseEnv, execution);
   await execution.settle();
   assert.deepEqual(ranges, ["bytes=0-65535", "bytes=0-65535"]);
+  // 只在主圖仍是讀取的那一張（路徑與版本相同）時寫入
   assert.deepEqual(patches, [
-    { query: "?id=eq.p1", body: { image_width: 800, image_height: 800 } },
-    { query: "?id=eq.p2", body: { image_width: 300, image_height: 600 } }
+    { query: "?id=eq.p1&image_path=eq.p1/primary.webp&image_updated_at=eq.2026-10-01T00:00:00+00:00", body: { image_width: 800, image_height: 800 } },
+    { query: "?id=eq.p2&image_path=eq.p2/primary.png&image_updated_at=is.null", body: { image_width: 300, image_height: 600 } }
   ]);
 });
 
+test("each run starts at a different place so unreadable photos cannot block the rest forever", async () => {
+  const { backfillProductImageDimensions } = await loadSourceModule("product-image-dimensions.ts");
+  const queries = [];
+  restoreFetch = stubFetch(async (url) => {
+    if (url.pathname === "/rest/v1/products") { queries.push(decodeURIComponent(url.search)); return jsonResponse([]); }
+    return jsonResponse([]);
+  });
+  await backfillProductImageDimensions(baseEnv, "80000000-0000-4000-8000-000000000000");
+  assert.equal(queries.length, 2);
+  assert.match(queries[0], /id=gte\.80000000-0000-4000-8000-000000000000&order=id&limit=30/);
+  assert.match(queries[1], /id=lt\.80000000-0000-4000-8000-000000000000&order=id&limit=30/);
+});
+
+test("a JPEG rotated by EXIF reports the size it is displayed at", () => {
+  // APP1 Exif（little-endian），IFD0 只有 Orientation=6（順時針 90 度）
+  const exif = [...text("Exif"), 0, 0, ...text("II"), 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0];
+  const rotated = new Uint8Array([0xff, 0xd8, 0xff, 0xe1, ...be16(exif.length + 2), ...exif, 0xff, 0xc0, ...be16(17), 8, ...be16(800), ...be16(1200), 3, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(readImageDimensions(rotated), { width: 800, height: 1200 });
+});
 const variant = (overrides) => ({ id: "v", product_id: "p", stock: 1, type: "現貨", image_url: "/img/p", hero_rank: null, display_order: 0, ...overrides });
 const catalogs = {
   ranked: [

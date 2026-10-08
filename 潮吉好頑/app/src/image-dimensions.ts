@@ -33,9 +33,27 @@ function readWebp(bytes: Uint8Array, view: DataView) {
   return null;
 }
 
-// SOF0–SOF15（排除 DHT C4、JPG C8、DAC CC）記錄影像高與寬
+// APP1 Exif 的 Orientation（0x0112）；讀不到或格式不對時回 1（不旋轉）
+function exifOrientation(bytes: Uint8Array, view: DataView, start: number, end: number) {
+  if (end - start < 14 || ascii(bytes, start, 6) !== "Exif\0\0") return 1;
+  const tiff = start + 6;
+  const little = ascii(bytes, tiff, 2) === "II";
+  if (!little && ascii(bytes, tiff, 2) !== "MM") return 1;
+  const ifd = tiff + view.getUint32(tiff + 4, little);
+  if (ifd + 2 > end) return 1;
+  const count = view.getUint16(ifd, little);
+  for (let index = 0; index < count; index += 1) {
+    const entry = ifd + 2 + index * 12;
+    if (entry + 12 > end) return 1;
+    if (view.getUint16(entry, little) === 0x0112) return view.getUint16(entry + 8, little);
+  }
+  return 1;
+}
+
+// SOF0–SOF15（排除 DHT C4、JPG C8、DAC CC）記錄編碼的高與寬；EXIF 方向 5–8 會轉 90 度顯示，寬高互換
 function readJpeg(bytes: Uint8Array, view: DataView) {
   let offset = 2;
+  let orientation = 1;
   while (offset + 9 < bytes.length) {
     if (bytes[offset] !== 0xff) return null;
     const marker = bytes[offset + 1];
@@ -43,8 +61,11 @@ function readJpeg(bytes: Uint8Array, view: DataView) {
     if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { offset += 2; continue; }
     const length = view.getUint16(offset + 2);
     if (length < 2) return null;
+    if (marker === 0xe1) orientation = exifOrientation(bytes, view, offset + 4, Math.min(offset + 2 + length, bytes.length));
     if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-      return valid(view.getUint16(offset + 7), view.getUint16(offset + 5));
+      const width = view.getUint16(offset + 7);
+      const height = view.getUint16(offset + 5);
+      return orientation >= 5 && orientation <= 8 ? valid(height, width) : valid(width, height);
     }
     if (marker === 0xda || marker === 0xd9) return null;
     offset += 2 + length;
