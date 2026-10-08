@@ -67,9 +67,10 @@ export async function publicCatalog(env: Env, origin?: string): Promise<Product[
   const load = async () => {
     const edge = origin ? await readEdgeCatalog(origin) : null;
     if (edge) return edge;
+    const loadedAt = Date.now();
     const data = await loadPublicCatalog(env);
-    // 讀取期間若已失效，不把可能過期的資料寫進邊緣快取
-    if (origin && generation === catalogGeneration) await writeEdgeCatalog(origin, data);
+    // 讀取期間若已失效，不把可能過期的資料寫進邊緣快取（跨 isolate 的失效由 loadedAt 與失效時間比對）
+    if (origin && generation === catalogGeneration) await writeEdgeCatalog(origin, data, loadedAt);
     return data;
   };
   const inflight = load().then((data) => {

@@ -63,22 +63,24 @@ test("a read started before invalidation does not write stale data back into the
   assert.equal(calls, 2);
 });
 
-// 邊緣快取（Cache API）替身：同機房其他 isolate 已存好的型錄，這個 isolate 直接取用、不打 Supabase
+// 邊緣快取（Cache API）替身：同機房所有 isolate 共用；另外打包一份 catalog-edge-cache 模組代表「另一個 isolate」
 function fakeEdgeCache() {
   const store = new Map();
   globalThis.caches = { default: {
-    match: async (key) => (store.has(key) ? new Response(store.get(key)) : undefined),
-    put: async (key, response) => { store.set(key, await response.text()); },
+    match: async (key) => (store.has(key) ? new Response(store.get(key).body, { headers: store.get(key).headers }) : undefined),
+    put: async (key, response) => { store.set(key, { body: await response.text(), headers: [...response.headers] }); },
     delete: async (key) => store.delete(key)
   } };
   return store;
 }
 const ORIGIN = "https://shop.test";
 const EDGE_KEY = `${ORIGIN}/__edge-cache/catalog/v1`;
+const otherIsolate = await loadSourceModule("catalog-edge-cache.ts");
+const storedCatalog = (products, loadedAt) => ({ body: JSON.stringify(products), headers: [["x-catalog-loaded-at", String(loadedAt)]] });
 
 test("a catalog another isolate stored in the edge cache is served without calling Supabase", async () => {
   const store = fakeEdgeCache();
-  store.set(EDGE_KEY, JSON.stringify([{ id: "edge", category: "A", name: "邊緣", price: 1, stock: 1, type: "現貨" }]));
+  store.set(EDGE_KEY, storedCatalog([{ id: "edge", category: "A", name: "邊緣", price: 1, stock: 1, type: "現貨" }], Date.now()));
   let calls = 0;
   restoreFetch = stubFetch(() => { calls += 1; return jsonResponse([]); });
   try {
@@ -88,40 +90,53 @@ test("a catalog another isolate stored in the edge cache is served without calli
   } finally { delete globalThis.caches; }
 });
 
-test("a fresh load is written to the edge cache and invalidation removes it", async () => {
+test("a fresh load is written to the edge cache and invalidation makes every isolate ignore it", async () => {
   const store = fakeEdgeCache();
   fakeSupabase([{ id: "v1", category: "A", name: "商品", price: 100, stock: 5, type: "現貨" }]);
   try {
     await publicCatalog(env, ORIGIN);
-    assert.equal(JSON.parse(store.get(EDGE_KEY))[0].id, "v1");
-    await invalidateCatalogCache();
-    assert.equal(store.has(EDGE_KEY), false);
+    assert.equal(JSON.parse(store.get(EDGE_KEY).body)[0].id, "v1");
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await invalidateCatalogCache(new Request(`${ORIGIN}/api/admin/products/x`, { method: "PATCH" }));
+    assert.equal(await otherIsolate.readEdgeCatalog(ORIGIN), null);
   } finally { delete globalThis.caches; }
 });
 
 test("invalidation clears the edge copy for the writing request's origin even if this isolate never read it", async () => {
   const store = fakeEdgeCache();
   const otherOrigin = "https://admin.example";
-  store.set(`${otherOrigin}/__edge-cache/catalog/v1`, "[]");
+  store.set(`${otherOrigin}/__edge-cache/catalog/v1`, storedCatalog([], 1));
   try {
     await invalidateCatalogCache(new Request(`${otherOrigin}/api/admin/products/x`, { method: "PATCH" }));
-    assert.equal(store.has(`${otherOrigin}/__edge-cache/catalog/v1`), false);
+    assert.equal(await otherIsolate.readEdgeCatalog(otherOrigin), null);
   } finally { delete globalThis.caches; }
 });
 
-test("an edge write still in flight cannot restore stale data after invalidation", async () => {
-  const store = fakeEdgeCache();
-  let releasePut;
-  const put = globalThis.caches.default.put;
-  globalThis.caches.default.put = (key, response) => new Promise((resolve) => { releasePut = () => resolve(put(key, response)); });
-  fakeSupabase([{ id: "old", category: "A", name: "舊", price: 1, stock: 1, type: "現貨" }]);
+test("another isolate's stale load that finishes after invalidation is never served", async () => {
+  fakeEdgeCache();
   try {
-    const reading = publicCatalog(env, ORIGIN);
-    while (!releasePut) await new Promise((resolve) => setTimeout(resolve, 0));
-    const invalidating = invalidateCatalogCache();
-    releasePut();
-    await Promise.all([reading, invalidating]);
-    assert.equal(store.has(EDGE_KEY), false, "the delete waits for the earlier put and removes it");
+    const startedBefore = Date.now() - 50;
+    // 本 isolate 失效後，另一個 isolate 才把「失效前就開始讀取」的舊型錄寫回共享快取
+    await invalidateCatalogCache(new Request(`${ORIGIN}/api/orders`, { method: "POST" }));
+    await otherIsolate.writeEdgeCatalog(ORIGIN, [{ id: "stale" }], startedBefore);
+    assert.equal(await otherIsolate.readEdgeCatalog(ORIGIN), null);
+  } finally { delete globalThis.caches; }
+});
+
+test("a read waits for an invalidation in progress instead of picking up the copy being removed", async () => {
+  const store = fakeEdgeCache();
+  store.set(EDGE_KEY, storedCatalog([{ id: "old" }], Date.now() - 50));
+  const pendingDeletes = [];
+  const remove = globalThis.caches.default.delete;
+  globalThis.caches.default.delete = (key) => new Promise((resolve) => { pendingDeletes.push(() => resolve(remove(key))); });
+  try {
+    const invalidating = otherIsolate.deleteEdgeCatalog(ORIGIN);
+    while (!pendingDeletes.length) await new Promise((resolve) => setTimeout(resolve, 0));
+    const reading = otherIsolate.readEdgeCatalog(ORIGIN);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    pendingDeletes.forEach((release) => release());
+    await invalidating;
+    assert.equal(await reading, null);
   } finally { delete globalThis.caches; }
 });
 
