@@ -1,7 +1,7 @@
 # 靜態檔安全標頭：與 src/http.ts 的 SECURITY_HEADERS 相同（由 tests/worker/static-assets.test.mjs 檢查一致）。
 # 只套用在不經過 Worker 的靜態回應；/、/products/*、/api/* 由 Worker 自行加上。
 /*
-  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' https://static.line-scdn.net https://static.cloudflareinsights.com; style-src 'self' 'sha256-L0NsGOdCgMq8WQ+53SoJ4y/OJrxNakwWYcLt+wUiWoE='; img-src 'self' data:; font-src 'self'; connect-src 'self' https://cloudflareinsights.com https://*.supabase.co https://api.line.me https://access.line.me https://liff.line.me https://liffsdk.line-scdn.net; form-action 'self'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self' https://static.line-scdn.net https://static.cloudflareinsights.com; style-src 'self' 'sha256-L0NsGOdCgMq8WQ+53SoJ4y/OJrxNakwWYcLt+wUiWoE='; img-src 'self' data: https://img.767780.xyz; font-src 'self'; connect-src 'self' https://cloudflareinsights.com https://*.supabase.co https://api.line.me https://access.line.me https://liff.line.me https://liffsdk.line-scdn.net; form-action 'self'; upgrade-insecure-requests
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin

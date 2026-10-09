@@ -8,7 +8,9 @@ import { adminAuditLogs, adminDashboard, adminNotificationDeliveries, requeueAdm
 import { transitionAdminOrder, updateAdminOrderFulfillment } from "./admin-orders";
 import { adjustMemberPoints, createBankAccount, issueBirthdayCoupons, saveCoupon, updateBankAccount, updateBirthdaySettings, updatePointSettings } from "./admin-settings";
 import { forgetLiffSession, hasLineIdentity, refreshedAuthUser, rememberLiffSession, requireAdmin, restoreLiffSession, syncMemberIdentity, verifyLiffIdentity } from "./auth";
-import { publicCatalog, runtimeConfig, serveProductImage, uploadProductImage } from "./catalog";
+import { publicCatalog, runtimeConfig } from "./catalog";
+import { serveProductImage, uploadProductImage } from "./product-image-primary";
+import { migrateProductImagesToR2 } from "./product-image-migration";
 import { databaseError, databaseErrors } from "./database-errors";
 import { canonicalRedirect } from "./canonical-host";
 import { type Env } from "./env";
@@ -40,6 +42,8 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
     return json({ error: databaseErrors.REQUEST_BODY_TOO_LARGE }, { status: 413 });
   }
   if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, store: env.STORE_NAME, database: Boolean(env.SUPABASE_URL) });
+  // 一次性：商品照片搬到 R2（搬完移除，見 product-image-migration.ts）
+  if (request.method === "POST" && url.pathname === "/api/internal/r2-migrate") return migrateProductImagesToR2(request, env, url);
   if (request.method === "POST" && url.pathname === "/api/auth/liff/verify") return verifyLiffIdentity(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/session/remember") return rememberLiffSession(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/session/restore") return restoreLiffSession(request, env);

@@ -18,3 +18,14 @@ test("示範資料沒有商品 ID 時，名稱維持純文字", () => {
   assert.match(html, /<h3>UX11-衝擊龍神<\/h3>/);
   assert.doesNotMatch(html, /product-card-link/);
 });
+
+test("商品卡以 thumb_url 當預設圖、原圖當高解析度分支", () => {
+  const html = productCardMarkup({ ...variant, image_url: "https://img.test/p-1/a.jpg?v=1", thumb_url: "https://img.test/p-1/a.thumb.webp?v=1" });
+  assert.match(html, /src="https:\/\/img\.test\/p-1\/a\.thumb\.webp\?v=1"/);
+  assert.match(html, /srcset="https:\/\/img\.test\/p-1\/a\.thumb\.webp\?v=1 640w, https:\/\/img\.test\/p-1\/a\.jpg\?v=1 1600w"/);
+});
+
+test("沒有 thumb_url 時（舊快取資料）退回原圖", () => {
+  const html = productCardMarkup({ ...variant, image_url: "/api/product-images/p-1?v=1" });
+  assert.match(html, /src="\/api\/product-images\/p-1\?v=1"/);
+});

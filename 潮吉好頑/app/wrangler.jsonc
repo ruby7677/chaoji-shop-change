@@ -18,8 +18,12 @@
     "LEGACY_HOST": "chaoji-haowan-shop.ruby7677.workers.dev",
     "LINE_LOGIN_CHANNEL_ID": "2007619149",
     "LINE_NOTIFY_ENABLED": "true",
-    "TELEGRAM_NOTIFY_ENABLED": "true"
+    "TELEGRAM_NOTIFY_ENABLED": "true",
+    // 商品圖片 R2 的公開網域；空字串時圖片仍走 Worker 路由（見 src/product-image-urls.ts）
+    "IMAGE_BASE_URL": ""
   },
+  // 商品圖片（公開網域 img.767780.xyz 在 Cloudflare 後台綁定）
+  "r2_buckets": [{ "binding": "PRODUCT_IMAGES", "bucket_name": "chaoji-product-images" }],
   "ratelimits": [
     {
       "name": "API_ORDER_RATE_LIMITER",

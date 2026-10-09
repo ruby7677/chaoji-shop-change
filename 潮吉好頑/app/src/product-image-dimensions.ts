@@ -2,12 +2,12 @@
 // 寬高只用來讓前台先保留照片空間，寫入失敗不影響上傳或型錄。
 // 主圖更換時資料庫 trigger（202610080003）會清掉舊寬高，排程再重新讀取。
 import { type ImageDimensions, readImageDimensions } from "./image-dimensions";
-import { storageObjectUrl } from "./product-image-storage";
+import { readImageObject } from "./product-image-storage";
 import { type Env } from "./env";
 import { fetchWithTimeout, serviceHeaders } from "./http";
 
 const BACKFILL_BATCH = 30;
-const HEADER_BYTES = 65535;
+const HEADER_BYTES = 65536;
 
 type ImageVersion = { imagePath: string; imageUpdatedAt: string | null };
 
@@ -28,11 +28,9 @@ export async function saveProductImageDimensions(env: Env, productId: string, di
 }
 
 async function readStoredImageDimensions(env: Env, imagePath: string) {
-  const response = await fetchWithTimeout(storageObjectUrl(env, imagePath), {
-    headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY as string, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`, Range: `bytes=0-${HEADER_BYTES}` }
-  });
-  if (!response.ok) return null;
-  return readImageDimensions(await response.arrayBuffer());
+  const image = await readImageObject(env, imagePath, HEADER_BYTES);
+  if (!image) return null;
+  return readImageDimensions(await new Response(image.body).arrayBuffer());
 }
 
 type PendingRow = { id: string; image_path: string; image_updated_at: string | null };

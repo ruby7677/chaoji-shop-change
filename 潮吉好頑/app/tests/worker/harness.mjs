@@ -100,3 +100,40 @@ export async function formDataRequestInit(formData) {
   const body = await new Response(formData).blob();
   return { body, headers: { "Content-Type": body.type, "Content-Length": String(body.size) } };
 }
+
+/**
+ * 記憶體版 R2 bucket（PRODUCT_IMAGES binding）：put／get（含 range）／head／delete。
+ * events 會依序記錄 ["put", key, contentType] 與 ["r2-delete", keys]，方便驗證寫入順序。
+ * failPut(key) 回傳 true 時該次 put 丟出例外，模擬寫入失敗。
+ */
+export function fakeR2({ events = [], failPut = () => false } = {}) {
+  const objects = new Map();
+  const toBytes = async (body) => new Uint8Array(body instanceof Blob ? await body.arrayBuffer() : body instanceof ArrayBuffer ? body : await new Response(body).arrayBuffer());
+  const objectFor = (key, stored, range) => {
+    const bytes = range ? stored.bytes.slice(range.offset, range.offset + range.length) : stored.bytes;
+    return { key, size: stored.bytes.length, httpMetadata: stored.httpMetadata, body: new Response(bytes).body, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+  };
+  return {
+    objects,
+    events,
+    async put(key, body, options = {}) {
+      if (failPut(key)) throw new Error(`R2 put failed: ${key}`);
+      objects.set(key, { bytes: await toBytes(body), httpMetadata: options.httpMetadata || {} });
+      events.push(["put", key, options.httpMetadata?.contentType]);
+      return { key };
+    },
+    async get(key, options = {}) {
+      const stored = objects.get(key);
+      return stored ? objectFor(key, stored, options.range) : null;
+    },
+    async head(key) {
+      const stored = objects.get(key);
+      return stored ? { key, size: stored.bytes.length, httpMetadata: stored.httpMetadata } : null;
+    },
+    async delete(keys) {
+      const list = Array.isArray(keys) ? keys : [keys];
+      events.push(["r2-delete", list]);
+      for (const key of list) objects.delete(key);
+    }
+  };
+}

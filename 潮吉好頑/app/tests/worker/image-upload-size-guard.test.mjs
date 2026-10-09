@@ -1,10 +1,10 @@
-// 商品主圖（src/catalog.ts uploadProductImage）與商品多圖（src/product-showcase.ts
+// 商品主圖（src/product-image-primary.ts uploadProductImage）與商品多圖（src/product-showcase.ts
 // addProductImage）在 formData() 解析前先看 Content-Length：缺少或非整數擋 411，
 // 超過 2×PRODUCT_IMAGE_MAX_BYTES+256KB 擋 413，兩者都不呼叫 formData() 或任何 storage／
 // products 端點；正常大小的請求不受影響，繼續往下處理。
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { baseEnv, ctx, formDataRequestInit, jsonResponse, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
+import { baseEnv, ctx, fakeR2, formDataRequestInit, jsonResponse, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
 
 const worker = await loadWorker();
 const storage = await loadSourceModule("product-image-storage");
@@ -13,6 +13,7 @@ const OVER_LIMIT = storage.PRODUCT_IMAGE_UPLOAD_MAX_REQUEST_BYTES + 1;
 const PRODUCT_ID = "aaaaaaaa-0000-4000-8000-000000000002";
 const ADMIN_ID = "00000000-0000-4000-8000-000000000002";
 const LINE_ID = "U" + "c".repeat(32);
+const env = { ...baseEnv, PRODUCT_IMAGES: fakeR2() };
 
 let restoreFetch = () => {};
 afterEach(() => restoreFetch());
@@ -39,7 +40,7 @@ function primaryImageRequest(headers, body) {
     method: "POST",
     headers: { Authorization: "Bearer admin-access-token", ...headers },
     body
-  }), baseEnv, ctx());
+  }), env, ctx());
 }
 
 function galleryImageRequest(headers, body) {
@@ -47,11 +48,11 @@ function galleryImageRequest(headers, body) {
     method: "POST",
     headers: { Authorization: "Bearer admin-access-token", ...headers },
     body
-  }), baseEnv, ctx());
+  }), env, ctx());
 }
 
 const routes = [
-  { name: "primary image (catalog.ts)", request: primaryImageRequest },
+  { name: "primary image (product-image-primary.ts)", request: primaryImageRequest },
   { name: "gallery image (product-showcase.ts)", request: galleryImageRequest }
 ];
 

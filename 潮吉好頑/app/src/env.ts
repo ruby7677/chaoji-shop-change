@@ -14,6 +14,9 @@ export interface Env {
   // 正式網域與要轉址的舊網域（workers.dev）；兩者都設定時，舊網域的網頁 GET 會 301 轉到正式網域
   CANONICAL_HOST?: string;
   LEGACY_HOST?: string;
+  // 商品圖片 R2 bucket；IMAGE_BASE_URL 為其公開網域（未設定時圖片仍走 Worker 路由，見 product-image-urls.ts）
+  PRODUCT_IMAGES?: R2Bucket;
+  IMAGE_BASE_URL?: string;
   LINE_LOGIN_CHANNEL_ID?: string;
   AUTH_SESSION_SECRET?: string;
   LINE_MESSAGING_CHANNEL_ACCESS_TOKEN?: string;
@@ -46,6 +49,8 @@ export type Product = {
   preorder_arrival?: string;
   seller_link?: string;
   image_url?: string;
+  /** 商品卡用縮圖（一定存在；小圖的縮圖就是原圖）。 */
+  thumb_url?: string;
   /** 主圖原始寬高（未補齊時沒有），前台用來先保留照片空間 */
   image_width?: number;
   image_height?: number;

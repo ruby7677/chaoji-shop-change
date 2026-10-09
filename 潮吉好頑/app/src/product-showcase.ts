@@ -3,20 +3,22 @@
 import {
   IMAGE_CACHE_CONTROL,
   IMAGE_STALE_VERSION_CACHE_CONTROL,
-  PRODUCT_IMAGE_BUCKET,
   PRODUCT_IMAGE_MAX_BYTES,
   PRODUCT_IMAGE_TYPES,
   PRODUCT_IMAGE_UPLOAD_MAX_REQUEST_BYTES,
+  deleteImageObjects,
   hasImageSignature,
   imageContentType,
   productImageCacheKey,
   productImageEdgeCache,
   purgeProductImageCache,
+  putImageWithThumbnail,
+  readImageObject,
   requestedImageVersion,
-  storageObjectUrl,
   thumbnailPathFor
 } from "./product-image-storage";
-import { UPLOAD_TIMEOUT_MS, fetchWithTimeout } from "./http";
+import { galleryImageUrl, primaryImageUrls } from "./product-image-urls";
+import { fetchWithTimeout } from "./http";
 import { databaseErrors } from "./database-errors";
 import { invalidateCatalogCache } from "./catalog";
 
@@ -24,6 +26,8 @@ export interface ShowcaseEnv {
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  PRODUCT_IMAGES?: R2Bucket;
+  IMAGE_BASE_URL?: string;
 }
 
 export interface ShowcaseDeps<E extends ShowcaseEnv> {
@@ -44,14 +48,10 @@ const ADMIN_IMAGE_ORDER_ROUTE = new RegExp(`^/api/admin/products/(${UUID})/image
 const ADMIN_IMAGE_ROUTE = new RegExp(`^/api/admin/products/(${UUID})/images/(${UUID})$`, "i");
 const ADMIN_SHOWCASE_ROUTE = new RegExp(`^/api/admin/products/(${UUID})/showcase$`, "i");
 // 與首頁 /api/catalog 相同欄位，前台規格選擇、限購與價格邏輯可直接共用。
-const STOREFRONT_VARIANT_SELECT = "id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible";
+const STOREFRONT_VARIANT_SELECT = "id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_path,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible";
 
-type GalleryImageRow = { id: string; width: number | null; height: number | null; alt_text: string | null; updated_at: string };
-type StorefrontVariantRow = Record<string, unknown> & { product_id?: string; has_image?: boolean; image_updated_at?: string };
-
-function galleryImageUrl(productId: string, image: { id: string; updated_at: string }) {
-  return `/api/product-images/${productId}/${image.id}?v=${encodeURIComponent(image.updated_at)}`;
-}
+type GalleryImageRow = { id: string; storage_path: string; width: number | null; height: number | null; alt_text: string | null; updated_at: string };
+type StorefrontVariantRow = Record<string, unknown> & { product_id?: string; has_image?: boolean; image_path?: string | null; image_updated_at?: string };
 
 function optionalDimension(value: FormDataEntryValue | null) {
   const number = Number(value);
@@ -70,7 +70,7 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
       fetchWithTimeout(`${base}/rest/v1/storefront_variants?select=${STOREFRONT_VARIANT_SELECT}&product_id=eq.${productId}&is_published=eq.true&order=display_order.desc,id.desc`, {
         headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
       }),
-      fetchWithTimeout(`${base}/rest/v1/product_images?select=id,width,height,alt_text,updated_at&product_id=eq.${productId}&order=sort_order.asc&limit=${MAX_IMAGES_PER_PRODUCT}`, { headers: serviceHeaders(env) })
+      fetchWithTimeout(`${base}/rest/v1/product_images?select=id,storage_path,width,height,alt_text,updated_at&product_id=eq.${productId}&order=sort_order.asc&limit=${MAX_IMAGES_PER_PRODUCT}`, { headers: serviceHeaders(env) })
     ]);
     if (!productResponse.ok || !variantResponse.ok || !imageResponse.ok) return json({ error: "商品暫時無法載入" }, { status: 503 });
     const products = await productResponse.json() as Array<{ id: string; name: string; description?: string | null; details?: string | null }>;
@@ -80,11 +80,11 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
     const product = products[0];
     return json({
       product: { id: product.id, name: product.name, description: product.description || "", details: product.details || "" },
-      variants: variants.map(({ has_image, image_updated_at, ...variant }) => ({
-        ...variant,
-        image_url: has_image ? `/api/product-images/${productId}?v=${encodeURIComponent(image_updated_at || "1")}` : undefined
-      })),
-      images: images.map((image) => ({ id: image.id, url: galleryImageUrl(productId, image), width: image.width, height: image.height, alt: image.alt_text || product.name }))
+      variants: variants.map(({ has_image, image_path, image_updated_at, ...variant }) => {
+        const urls = has_image ? primaryImageUrls(env, productId, image_path, image_updated_at) : null;
+        return { ...variant, image_url: urls?.image_url, thumb_url: urls?.thumb_url };
+      }),
+      images: images.map((image) => ({ id: image.id, url: galleryImageUrl(env, productId, image), width: image.width, height: image.height, alt: image.alt_text || product.name }))
     }, { headers: { "Cache-Control": "public, max-age=60, s-maxage=60" } });
   }
 
@@ -103,25 +103,25 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
     const storagePath = rows[0]?.storage_path;
     if (!storagePath) return json({ error: "找不到商品照片" }, { status: 404 });
     const isCurrentVersion = version === rows[0].updated_at;
-    const imageResponse = await fetchWithTimeout(storageObjectUrl(env, storagePath), { headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` } }, UPLOAD_TIMEOUT_MS);
-    if (!imageResponse.ok || !imageResponse.body) return json({ error: "圖片暫時無法載入" }, { status: imageResponse.status === 404 ? 404 : 503 });
+    const image = await readImageObject(env, storagePath);
+    if (!image) return json({ error: "圖片暫時無法載入" }, { status: 404 });
     const headers = new Headers(deps.securityHeaders);
-    headers.set("Content-Type", imageContentType(storagePath, imageResponse.headers.get("Content-Type")));
+    headers.set("Content-Type", image.contentType || imageContentType(storagePath, null));
     headers.set("Cache-Control", isCurrentVersion ? IMAGE_CACHE_CONTROL : IMAGE_STALE_VERSION_CACHE_CONTROL);
-    const response = new Response(imageResponse.body, { headers });
+    const response = new Response(image.body, { headers });
     if (isCurrentVersion) ctx.waitUntil(edgeCache.put(cacheKey, response.clone()));
     return response;
   }
 
-  // 連同同名縮圖一起刪除（不存在的物件不會回錯）
+  // 連同同名縮圖一起刪除（R2 與搬移前的 Supabase 舊檔；不存在的物件不會回錯）
   async function deleteStorageObject(env: E, path: string) {
-    await fetchWithTimeout(`${env.SUPABASE_URL}/storage/v1/object/${PRODUCT_IMAGE_BUCKET}`, { method: "DELETE", headers: serviceHeaders(env), body: JSON.stringify({ prefixes: [path, thumbnailPathFor(path)] }) });
+    await deleteImageObjects(env, [path, thumbnailPathFor(path)]);
   }
 
   async function addProductImage(request: Request, env: E, productId: string): Promise<Response> {
     const admin = await requireAdmin(request, env);
     if (admin instanceof Response) return admin;
-    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "圖片服務尚未設定" }, { status: 503 });
+    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !env.PRODUCT_IMAGES) return json({ error: "圖片服務尚未設定" }, { status: 503 });
     // formData() 會依 Content-Length 緩衝整個請求；在解析前先用這個標頭擋下缺少大小
     // 或明顯過大的請求，避免完全依賴用戶端提供的數字。
     const contentLengthHeader = request.headers.get("Content-Length");
@@ -149,25 +149,12 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
 
     const imageId = crypto.randomUUID();
     const storagePath = `${productId}/${imageId}.${extension}`;
-    const upload = await fetchWithTimeout(storageObjectUrl(env, storagePath), {
-      method: "POST",
-      headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": image.type },
-      body: image
-    }, UPLOAD_TIMEOUT_MS);
-    if (!upload.ok) return json({ error: "照片上傳失敗，請稍後重試" }, { status: 502 });
-    // 縮圖在建立資料列前上傳：照片一出現在型錄就已有縮圖，避免前台先把原圖快取在縮圖網址下。
-    // 採最佳努力，失敗只記錄（前台讀不到縮圖時改用原圖）；建立資料列失敗時 deleteStorageObject 會一併刪除
-    if (thumbnail) {
-      try {
-        const thumbnailUpload = await fetchWithTimeout(storageObjectUrl(env, thumbnailPathFor(storagePath)), {
-          method: "POST",
-          headers: { apikey: env.SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`, "Content-Type": "image/webp", "x-upsert": "true" },
-          body: thumbnail
-        }, UPLOAD_TIMEOUT_MS);
-        if (!thumbnailUpload.ok) console.error(`商品多圖縮圖上傳失敗 productId=${productId} status=${thumbnailUpload.status}`);
-      } catch (error) {
-        console.error(`商品多圖縮圖上傳發生例外 productId=${productId}`, error);
-      }
+    // 縮圖在建立資料列前寫入：照片一出現在型錄就已有縮圖（沒附縮圖時以原圖代替，見 putImageWithThumbnail）
+    try { await putImageWithThumbnail(env, storagePath, image, thumbnail, `productId=${productId}`); }
+    catch (error) {
+      console.error(`商品多圖上傳失敗 productId=${productId}`, error);
+      await deleteStorageObject(env, storagePath);
+      return json({ error: "照片上傳失敗，請稍後重試" }, { status: 502 });
     }
     const altText = String(formData.get("alt") || "").slice(0, 120);
     const rpc = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_add_product_image`, {
@@ -183,7 +170,7 @@ export function createProductShowcase<E extends ShowcaseEnv>(deps: ShowcaseDeps<
     const row = await rpc.json() as GalleryImageRow;
     await invalidateCatalogCache(request);
     // 主圖若改變，image_updated_at 會更新，前台改用新版本網址，不需 purge。
-    return json({ image: { id: row.id, url: galleryImageUrl(productId, row), width: row.width, height: row.height, alt: row.alt_text } }, { status: 201 });
+    return json({ image: { id: row.id, url: galleryImageUrl(env, productId, { ...row, storage_path: storagePath }), width: row.width, height: row.height, alt: row.alt_text } }, { status: 201 });
   }
 
   async function reorderProductImages(request: Request, env: E, productId: string): Promise<Response> {

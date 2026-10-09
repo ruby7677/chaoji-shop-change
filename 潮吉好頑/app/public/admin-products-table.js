@@ -2,6 +2,7 @@
 // 資料沿用 app.js 的 adminData.products；搜尋仍以 #admin-product-search 走伺服器查詢，分類／類型／狀態在本頁篩選。
 // 儲存：表單由 submitDynamicAdminForm 處理；上架開關以同一個 PATCH /api/admin/variants/:id 送出完整欄位，成功後只更新該列。
 import { escapeHtml } from "./product-format.js";
+import { adminPrimaryImageSrc } from "./product-image-src.js";
 import { adminIcon } from "./admin-icons.js";
 import { createAdminSheet, openAdminSheetFor } from "./admin-sheets.js";
 import { adminConfirm, adminConfirmChoice } from "./admin-confirm.js";
@@ -65,7 +66,7 @@ function syncCategoryFilter(products) {
 }
 
 function thumbMarkup(product) {
-  const src = product.image_path ? `/api/product-images/${product.id}?v=${encodeURIComponent(product.image_updated_at || "1")}` : "";
+  const src = adminPrimaryImageSrc(product, { thumb: true });
   return `<span class="admin-product-thumbnail admin-row-thumb">${src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" />` : deps.fallbackMarkup()}</span>`;
 }
 

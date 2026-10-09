@@ -5,11 +5,13 @@ import { fetchWithTimeout } from "./http";
 import { publicCatalog } from "./catalog";
 import { type Env } from "./env";
 import { firstHeroImageUrl } from "./hero-preload";
+import { imageOrigin, primaryImageUrls } from "./product-image-urls";
 
 export interface ShareMetaEnv {
   ASSETS: Fetcher;
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
+  IMAGE_BASE_URL?: string;
 }
 
 type ShareMeta = { title: string; description: string; image: string; type: "website" | "product" };
@@ -36,17 +38,17 @@ function summarize(text: string | null | undefined) {
 
 async function productMeta(env: ShareMetaEnv, productId: string): Promise<ShareMeta | null> {
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return null;
-  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=product_name,description,has_image,image_updated_at&product_id=eq.${productId}&is_published=eq.true&order=display_order.desc,id.desc&limit=1`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=product_name,description,has_image,image_path,image_updated_at&product_id=eq.${productId}&is_published=eq.true&order=display_order.desc,id.desc&limit=1`, {
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
   });
   if (!response.ok) return null;
-  const rows = await response.json() as Array<{ product_name?: string; description?: string | null; has_image?: boolean; image_updated_at?: string | null }>;
+  const rows = await response.json() as Array<{ product_name?: string; description?: string | null; has_image?: boolean; image_path?: string | null; image_updated_at?: string | null }>;
   const row = rows[0];
   if (!row?.product_name) return null;
   return {
     title: `${row.product_name}｜${SITE_NAME}`,
     description: summarize(row.description) || DEFAULT_META.description,
-    image: row.has_image ? `/api/product-images/${productId}?v=${encodeURIComponent(row.image_updated_at || "1")}` : DEFAULT_META.image,
+    image: (row.has_image && primaryImageUrls(env, productId, row.image_path, row.image_updated_at)?.image_url) || DEFAULT_META.image,
     type: "product"
   };
 }
@@ -68,7 +70,10 @@ export async function homePreloadMarkup(env: Env, url: URL, ctx?: ExecutionConte
   const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), HOME_CATALOG_WAIT_MS));
   const products = await Promise.race([catalog, timeout]);
   const image = products ? firstHeroImageUrl(products) : null;
+  // 圖片在 R2 公開網域時先建立連線，第一張輪播圖與商品縮圖不必再等 DNS／TLS
+  const origin = imageOrigin(env);
   return '<link rel="preload" href="/api/catalog" as="fetch" crossorigin="anonymous" />'
+    + (origin ? `<link rel="preconnect" href="${escapeAttribute(origin)}" />` : "")
     + (image ? `<link rel="preload" href="${escapeAttribute(image)}" as="image" fetchpriority="high" />` : "");
 }
 

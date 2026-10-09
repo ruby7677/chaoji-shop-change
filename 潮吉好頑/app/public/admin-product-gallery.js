@@ -1,6 +1,7 @@
 // 後台商品多圖管理（批量上傳、排序、刪除）與商品頁／首頁輪播展示設定。
 // 依賴由 app.js 以 initAdminProductGallery() 注入；事件掛在 document，重新渲染後不需重綁。
 import { escapeHtml } from "./product-format.js";
+import { adminGalleryImageSrc } from "./product-image-src.js";
 
 const MAX_IMAGES = 10;
 const DETAILS_MAX = 8000;
@@ -21,7 +22,7 @@ function sortedImages(product) {
 }
 
 function imageUrl(productId, image) {
-  return localPreviews.get(image.id) || `/api/product-images/${productId}/${image.id}?v=${encodeURIComponent(image.updated_at || "1")}`;
+  return localPreviews.get(image.id) || adminGalleryImageSrc(productId, image);
 }
 
 function galleryItemMarkup(product, image, index, total) {

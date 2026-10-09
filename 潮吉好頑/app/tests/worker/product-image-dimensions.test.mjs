@@ -2,7 +2,7 @@
 // 首頁 HTML 預先載入型錄與第一張輪播圖（選圖規則與前台 selectHeroSlides 相同）。
 import { test, afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { baseEnv, ctx, formDataRequestInit, jsonResponse, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
+import { baseEnv, ctx, fakeR2, formDataRequestInit, jsonResponse, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
 import { selectHeroSlides } from "../../public/hero-slides.js";
 
 const { readImageDimensions } = await loadSourceModule("image-dimensions.ts");
@@ -75,7 +75,7 @@ async function upload(file) {
   const { body, headers } = await formDataRequestInit(formData);
   return worker.fetch(new Request(`https://shop.test/api/admin/products/${PRODUCT_ID}/image`, {
     method: "POST", headers: { Authorization: "Bearer admin-access-token", ...headers }, body
-  }), baseEnv, ctx());
+  }), { ...baseEnv, PRODUCT_IMAGES: fakeR2() }, ctx());
 }
 
 test("uploading a main image stores its width and height on the product", async () => {
@@ -83,7 +83,7 @@ test("uploading a main image stores its width and height on the product", async 
   const response = await upload(new File([webpExtended(750, 1000)], "main.webp", { type: "image/webp" }));
   assert.equal(response.status, 200);
   assert.equal(patches.length, 1);
-  assert.match(decodeURIComponent(patches[0].query), new RegExp(`^\\?id=eq\\.${PRODUCT_ID}&image_path=eq\\.${PRODUCT_ID}/primary\\.webp&image_updated_at=eq\\.\\d{4}-`));
+  assert.match(decodeURIComponent(patches[0].query), new RegExp(`^\\?id=eq\\.${PRODUCT_ID}&image_path=eq\\.${PRODUCT_ID}/[0-9a-f-]{36}\\.webp&image_updated_at=eq\\.\\d{4}-`));
   assert.deepEqual(patches[0].body, { image_width: 750, image_height: 1000 });
 });
 
@@ -119,6 +119,24 @@ test("the hourly schedule fills in dimensions for existing photos from the file 
     { query: "?id=eq.p1&image_path=eq.p1/primary.webp&image_updated_at=eq.2026-10-01T00:00:00+00:00", body: { image_width: 800, image_height: 800 } },
     { query: "?id=eq.p2&image_path=eq.p2/primary.png&image_updated_at=is.null", body: { image_width: 300, image_height: 600 } }
   ]);
+});
+
+test("photos already in R2 are measured from a ranged R2 read", async () => {
+  const { backfillProductImageDimensions } = await loadSourceModule("product-image-dimensions.ts");
+  const patches = [];
+  restoreFetch = stubFetch(async (url, init, body) => {
+    if (url.pathname === "/rest/v1/products" && init.method === "PATCH") { patches.push(body); return new Response(null, { status: 204 }); }
+    if (url.pathname === "/rest/v1/products") return jsonResponse(url.search.includes("id=gte.") ? [{ id: "p1", image_path: "p1/a.webp", image_updated_at: null }] : []);
+    throw new Error(`unexpected request ${url}`);
+  });
+  const bucket = fakeR2();
+  await bucket.put("p1/a.webp", webpLossless(640, 480));
+  const get = bucket.get.bind(bucket);
+  const ranges = [];
+  bucket.get = (key, options) => { ranges.push(options?.range); return get(key, options); };
+  assert.equal(await backfillProductImageDimensions({ ...baseEnv, PRODUCT_IMAGES: bucket }, "00000000-0000-4000-8000-000000000000"), 1);
+  assert.deepEqual(ranges, [{ offset: 0, length: 65536 }]);
+  assert.deepEqual(patches, [{ image_width: 640, image_height: 480 }]);
 });
 
 test("each run starts at a different place so unreadable photos cannot block the rest forever", async () => {
@@ -182,10 +200,21 @@ test("a slow catalog only skips the hero image preload instead of holding the pa
 // Node 沒有 HTMLRewriter：這裡驗證要插入首頁的標記；插入位置（charset 之後）由 share-meta.ts 的 HTMLRewriter 規則負責
 test("the home page preloads the catalog and the first hero image", async () => {
   restoreFetch = stubFetch(async (url) => {
-    if (url.pathname === "/rest/v1/storefront_variants") return jsonResponse([{ ...variant({ id: "h", product_id: PRODUCT_ID, hero_rank: 1 }), has_image: true, image_updated_at: "2026-10-08" }]);
+    if (url.pathname === "/rest/v1/storefront_variants") return jsonResponse([{ ...variant({ id: "h", product_id: PRODUCT_ID, hero_rank: 1 }), has_image: true, image_path: `${PRODUCT_ID}/a.webp`, image_updated_at: "2026-10-08" }]);
     return jsonResponse([]);
   });
   const markup = await homePreloadMarkup(baseEnv, new URL("https://preload.test/"));
   assert.match(markup, /<link rel="preload" href="\/api\/catalog" as="fetch" crossorigin="anonymous" \/>/);
   assert.match(markup, new RegExp(`<link rel="preload" href="/api/product-images/${PRODUCT_ID}\\?v=2026-10-08" as="image" fetchpriority="high" />`));
+  assert.doesNotMatch(markup, /preconnect/, "no extra connection while images are served by the Worker");
+});
+
+// 型錄在同一模組內快取 30 秒，這裡只驗證預先連線；R2 網址組法由 product-image-urls 測試負責
+test("with the R2 image domain the home page connects to it early", async () => {
+  restoreFetch = stubFetch(async (url) => {
+    if (url.pathname === "/rest/v1/storefront_variants") return jsonResponse([{ ...variant({ id: "h", product_id: PRODUCT_ID, hero_rank: 1 }), has_image: true, image_path: `${PRODUCT_ID}/a.webp`, image_updated_at: "2026-10-08" }]);
+    return jsonResponse([]);
+  });
+  const markup = await homePreloadMarkup({ ...baseEnv, IMAGE_BASE_URL: "https://img.test" }, new URL("https://preload-r2.test/"));
+  assert.ok(markup.includes('<link rel="preconnect" href="https://img.test" />'));
 });
