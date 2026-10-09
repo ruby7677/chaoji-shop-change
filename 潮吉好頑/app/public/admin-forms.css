@@ -25,9 +25,14 @@
 #admin-dialog.admin-app .admin-sheet-body [role="tabpanel"] > form { margin: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
 #admin-dialog.admin-app .admin-sheet-body .form-grid { grid-template-columns: 1fr 1fr; }
 #admin-dialog.admin-app .admin-sheet-body .form-grid .wide { grid-column: 1 / -1; }
-/* form 是 .admin-sheet-body 的子孫即可（不限直接子層），編輯面板分頁把表單包進 [role="tabpanel"] 後仍會命中 */
+/* form 是 .admin-sheet-body 的子孫即可（不限直接子層），編輯面板分頁把表單包進 [role="tabpanel"] 後仍會命中。
+   白色陰影只往上延伸 18px（12px 位移＋12px 模糊－6px 內縮），小於上方 20px 間距：捲到底時不會蓋到最後一個欄位，
+   捲動中內容從按鈕下方經過時仍有淡出效果 */
 #admin-dialog.admin-app .admin-sheet-body form > button[type="submit"],
-#admin-dialog.admin-app .admin-sheet-body form > .form-actions { position: sticky; bottom: -32px; z-index: 2; width: 100%; margin-top: 20px; box-shadow: 0 -16px 20px 8px #fff; }
+#admin-dialog.admin-app .admin-sheet-body form > .form-actions { position: sticky; bottom: -32px; z-index: 2; width: 100%; margin-top: 20px; box-shadow: 0 -12px 12px -6px #fff; }
+/* 勾選框帶說明文字：勾選框與標題同一列，說明換到下一列並對齊標題（避免標題被說明擠成直排） */
+#admin-dialog.admin-app .check-field:has(> small) { display: grid !important; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 8px; row-gap: 3px; }
+#admin-dialog.admin-app .check-field:has(> small) > small { grid-column: 2; margin: 0; color: var(--admin-text-muted); font-size: 12px; font-weight: 400; line-height: 1.45; }
 #admin-dialog.admin-app .admin-sheet-body form > .form-actions { justify-content: stretch; padding: 12px 0; border-top: 1px solid var(--admin-border); background: #fff; }
 #admin-dialog.admin-app .admin-sheet-body form > .form-actions > button { flex: 1; }
 
