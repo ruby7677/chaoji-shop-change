@@ -19,6 +19,8 @@ const ADMIN_MANAGEMENT_OPTIONS_SECTIONS = new Set(["products", "inventory", "dis
 const ADMIN_MANAGEMENT_OPTIONS_TTL_MS = 5 * 60 * 1000;
 const adminSectionLoaded = new Set();
 const adminSectionInFlight = new Map();
+// 進行中請求送出的查詢條件（分頁、搜尋、篩選），用來判斷新的強制重新載入能否共用它
+const adminSectionInFlightQuery = new Map();
 const adminSectionPages = { orders: 0, members: 0, products: 0, inventory: 0, discounts: 0, audit: 0, notifications: 0 };
 const adminSearchDebounceTimers = { orders: null, members: null, products: null, inventory: null, discounts: null, audit: null, notifications: null };
 
@@ -96,6 +98,7 @@ function resetAdminDataForActor() {
   adminData = null;
   adminSectionLoaded.clear();
   adminSectionInFlight.clear();
+  adminSectionInFlightQuery.clear();
   adminManagementOptionsActorId = null;
   adminManagementOptionsLoadedAt = 0;
   adminManagementOptionsInFlight = null;
@@ -280,7 +283,13 @@ export async function loadAdminSection(tabOrSection, { force = false } = {}) {
   resetAdminDataForActor();
   const section = adminSectionForTab(tabOrSection);
   const existing = adminSectionInFlight.get(section);
-  if (existing) return existing;
+  if (existing) {
+    // 請求進行中條件又改變（例如連續切換篩選）：等它結束後用最新條件再查一次，不沿用舊條件的結果
+    if (force && adminSectionInFlightQuery.get(section) !== adminSectionPageQuery(section)) {
+      return existing.catch(() => undefined).then(() => loadAdminSection(tabOrSection, { force: true }));
+    }
+    return existing;
+  }
   let includeManagementOptions = ADMIN_MANAGEMENT_OPTIONS_SECTIONS.has(section) && !hasFreshAdminManagementOptions();
   if (!force && adminSectionLoaded.has(section) && !includeManagementOptions) return adminData;
   if (includeManagementOptions && adminManagementOptionsInFlight) {
@@ -294,9 +303,9 @@ export async function loadAdminSection(tabOrSection, { force = false } = {}) {
   const errorNode = document.querySelector("#admin-error");
   loading.classList.remove("hidden");
   errorNode.classList.add("hidden");
+  const pageQuery = adminSectionPageQuery(section);
   const request = (async () => {
     try {
-      const pageQuery = adminSectionPageQuery(section);
       const endpoint = ["audit", "notifications"].includes(section)
         ? `${section === "audit" ? "/api/admin/audit-logs" : "/api/admin/notification-deliveries"}?${pageQuery}`
         : `/api/admin/dashboard?section=${encodeURIComponent(section)}${pageQuery ? `&${pageQuery}` : ""}${includeManagementOptions ? "&include_options=true" : ""}`;
@@ -320,11 +329,13 @@ export async function loadAdminSection(tabOrSection, { force = false } = {}) {
       if (adminSectionInFlight.get(section) === request) {
         loading.classList.add("hidden");
         adminSectionInFlight.delete(section);
+        adminSectionInFlightQuery.delete(section);
       }
       if (includeManagementOptions && adminManagementOptionsInFlight === request) adminManagementOptionsInFlight = null;
     }
   })();
   adminSectionInFlight.set(section, request);
+  adminSectionInFlightQuery.set(section, pageQuery);
   if (includeManagementOptions) adminManagementOptionsInFlight = request;
   return request;
 }
