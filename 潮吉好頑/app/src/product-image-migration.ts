@@ -81,7 +81,7 @@ export async function migrateProductImagesToR2(request: Request, env: Env, url: 
 
   const { keys, listFetches } = await referencedImageKeys(env);
   const limit = Math.min(requestedLimit, Math.floor((FETCH_BUDGET - listFetches) / 2));
-  if (limit < 1) return json({ error: "圖片清單過大，單次請求無法同時讀清單與搬檔" }, { status: 507 });
+  if (!dryRun && limit < 1) return json({ error: "圖片清單過大，單次請求無法同時讀清單與搬檔" }, { status: 507 });
   const scan = keys.filter((imageKey) => imageKey > after).slice(0, SCAN_BATCH);
   let pending = 0;
   let copied = 0;

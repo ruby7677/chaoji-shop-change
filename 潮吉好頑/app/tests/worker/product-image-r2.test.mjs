@@ -127,3 +127,18 @@ test("the copy batch shrinks so listing pages and downloads stay within the free
   const response = await migrate({ ...baseEnv, PRODUCT_IMAGES: fakeR2() });
   assert.equal(response.status, 507);
 });
+
+test("a dry run still lists what is missing when the path listing used most of the fetch budget", async () => {
+  const pageOfPaths = (offset) => Array.from({ length: 1000 }, (_, index) => ({ image_path: `p${offset + index}/a.jpg`, storage_path: `p${offset + index}/a.jpg` }));
+  restoreFetch = stubFetch(async (url) => {
+    const offset = Number(url.searchParams.get("offset"));
+    if (url.pathname === "/rest/v1/products" || url.pathname === "/rest/v1/product_images") return jsonResponse(offset < 23000 ? pageOfPaths(offset) : []);
+    throw new Error(`unexpected request ${url}`);
+  });
+  const response = await migrate({ ...baseEnv, PRODUCT_IMAGES: fakeR2() }, { query: "?dry_run=1" });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.copied, 0);
+  assert.equal(result.pending_in_batch, 200);
+  assert.ok(result.next_cursor);
+});
