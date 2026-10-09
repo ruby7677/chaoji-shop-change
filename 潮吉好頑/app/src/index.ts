@@ -10,6 +10,7 @@ import { adjustMemberPoints, createBankAccount, issueBirthdayCoupons, saveCoupon
 import { forgetLiffSession, hasLineIdentity, refreshedAuthUser, rememberLiffSession, requireAdmin, restoreLiffSession, syncMemberIdentity, verifyLiffIdentity } from "./auth";
 import { publicCatalog, runtimeConfig, serveProductImage, uploadProductImage } from "./catalog";
 import { databaseError, databaseErrors } from "./database-errors";
+import { canonicalRedirect } from "./canonical-host";
 import { type Env } from "./env";
 import { MAX_JSON_REQUEST_BYTES, SECURITY_HEADERS, enforceRateLimit, json, serviceHeaders, withSecurityHeaders } from "./http";
 import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFriendship, memberPoints, replaceMemberCart, submitOrderPayment } from "./member-api";
@@ -31,6 +32,8 @@ const webSession = createWebSession<Env>({
 // 呼叫它，讓外層 try/catch 真正攔截到內部各個 `return xxxHandler(...)`（未 await）路由分派
 // 之後才發生的例外或 rejected promise，而不只是同步拋出的錯誤。
 async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
+  const redirect = canonicalRedirect(request, env, url);
+  if (redirect) return redirect;
   const isProductImageUpload = request.method === "POST" && /^\/api\/admin\/products\/[0-9a-f-]{36}\/image$/i.test(url.pathname);
   const contentLength = Number(request.headers.get("Content-Length") || 0);
   if (url.pathname.startsWith("/api/") && ["POST", "PUT", "PATCH"].includes(request.method) && !isProductImageUpload && !isShowcaseImageUpload(request, url) && Number.isFinite(contentLength) && contentLength > MAX_JSON_REQUEST_BYTES) {

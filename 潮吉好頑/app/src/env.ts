@@ -11,6 +11,9 @@ export interface Env {
   LIFF_ID?: string;
   // 獨立訂單頁（/orders）的 LIFF app，與商店 LIFF 同一個 LINE Login channel
   ORDERS_LIFF_ID?: string;
+  // 正式網域與要轉址的舊網域（workers.dev）；兩者都設定時，舊網域的網頁 GET 會 301 轉到正式網域
+  CANONICAL_HOST?: string;
+  LEGACY_HOST?: string;
   LINE_LOGIN_CHANNEL_ID?: string;
   AUTH_SESSION_SECRET?: string;
   LINE_MESSAGING_CHANNEL_ACCESS_TOKEN?: string;

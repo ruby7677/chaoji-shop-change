@@ -6,7 +6,7 @@
 
 - 正式前端入口：`app/public/index.html`、`app/public/app.js`（事件接線、商品頁與開機流程）。登入相關：`liff-session.js`（執行設定、LIFF 啟動情境、登入回呼、session 保存／還原與 LIFF 橋接）、`auth-return-state.js`（登入前後的頁面與結帳還原）、`auth-boot.js`（開機遮罩）、`member-profile.js`（會員載入、身分同步、會員資料表單、LINE 登入入口），結帳流程 `checkout-flow.js`（結帳範圍與送出訂單）。前台模組：`storefront-catalog.js`（型錄與 Hero）、`cart.js`（購物車與雲端同步）、`checkout-form.js`（結帳表單）、`member-benefits.js`（點數與 LINE 好友）、`member-orders.js`（我的訂單與回報匯款；訂單卡與付款明細畫面在 `order-views.js`，與獨立訂單頁共用），獨立訂單頁 `orders.html`／`orders-page.js`／`orders-session.js`（LINE 圖文選單與訂單通知「查看訂單」開啟，LIFF ID 為 `wrangler.jsonc` 的 `ORDERS_LIFF_ID`，不載入型錄）、`app-core.js`（前後台共用：`auth` 狀態、狀態文字、對話框、toast），商品頁與輪播 `product-*.js`、`hero-*.js`，LINE LIFF `liff-auth.js`、登入續期 `web-session.js`／`auth-expiry.js`。後台：`admin-app.js`（狀態、分區載入、分頁切換）、各分頁 `admin-*-panel.js`、`admin-product-image.js`，以及外框／概況／表格等 `admin-*.js`。
 - 前端樣式依原 cascade 順序拆成 `styles.css`（基礎）→ `storefront-refinements.css` → `admin-operations.css` → `storefront-details.css` → `admin-mobile-layout.css` → `admin-mobile-lists.css`，再接功能 CSS（`product-*.css`、`admin-*.css`…）。`index.html` 的 `<link>` 順序就是 cascade 順序，不可調換；新樣式放對應功能檔或新檔。前台連續的樣式在 `index.html` 以合併檔載入（`bundle-base.css`、`bundle-storefront.css`），成員與順序定義在 `app/scripts/build-css.mjs` 的 `CSS_BUNDLES`：編輯原始檔後執行 `node scripts/build-css.mjs`（`wrangler dev`／`deploy` 也會自動執行，`tests/frontend/css-bundles.test.mjs` 會擋下過期的合併檔）；新增前台樣式檔時加進對應的合併段，不要另外在 `index.html` 加 `<link>`。後台樣式（`data-admin-href`）不可併入，需留在原位置。
-- Worker：`app/src/index.ts` 只有路由與排程入口；`env.ts`（Env 型別）、`http.ts`（安全 header／CSP、json、rate limit）、`auth.ts`（LINE／LIFF 驗證、`requireUser`／`requireAdmin`）、`member-api.ts`、`catalog.ts`、`notifications.ts`、`database-errors.ts`、後台 `admin-dashboard.ts`／`admin-overview.ts`／`admin-orders.ts`／`admin-settings.ts`／`admin-catalog.ts`；另有 `product-showcase.ts`（商品頁與多圖 API）、`product-image-storage.ts`（圖片儲存與邊緣快取）、`share-meta.ts`（分享預覽）、`notification-delivery.ts`（通知寄送）、`auth-session.ts`／`liff-session-vault.ts`／`web-session.ts`（登入工作階段）。
+- Worker：`app/src/index.ts` 只有路由與排程入口；`env.ts`（Env 型別）、`http.ts`（安全 header／CSP、json、rate limit）、`auth.ts`（LINE／LIFF 驗證、`requireUser`／`requireAdmin`）、`member-api.ts`、`catalog.ts`、`notifications.ts`、`database-errors.ts`、後台 `admin-dashboard.ts`／`admin-overview.ts`／`admin-orders.ts`／`admin-settings.ts`／`admin-catalog.ts`；另有 `product-showcase.ts`（商品頁與多圖 API）、`product-image-storage.ts`（圖片儲存與邊緣快取）、`share-meta.ts`（分享預覽）、`canonical-host.ts`（`LEGACY_HOST` 的 workers.dev 網頁 GET／HEAD 301 轉到 `CANONICAL_HOST`，`/api/*` 不轉；新增入口頁要同時列入 `run_worker_first` 才會被轉址）、`notification-delivery.ts`（通知寄送）、`auth-session.ts`／`liff-session-vault.ts`／`web-session.ts`（登入工作階段）。
 - LINE 訊息文案：`app/src/line-notification-messages.ts`。
 - DB：`app/supabase/migrations/`；部署：`app/wrangler.jsonc`。
 - Git 根目錄可能在上一層並包含其他專案；用指定路徑查看 diff、暫存與提交，避免 `git add .`。
@@ -64,7 +64,7 @@
 本檔同時供 Codex 與 Claude Code 使用。業務規則、Skill 載入、驗證與部署流程兩者共用；只有工具與分工不同。
 
 - 工具：使用 Claude Code 內建 Read／Edit／Write／Grep／Glob 與 PowerShell（或 Bash）；Chat On Steroids／MCP stale catalog 規則不適用。
-- 分工：主代理直接規劃、實作與驗收，不使用 `luna_worker`，也不預設委派子代理；只有使用者明確要求時才使用子代理。
+- 分工：主代理直接規劃、實作與驗收，不使用 `luna_worker`。唯讀的大範圍搜尋（找呼叫點、對照命名、盤點檔案）可交給子代理，預設模型為 Haiku（`~/.claude/settings.json` 的 `CLAUDE_CODE_SUBAGENT_MODEL`）；子代理只讀不寫，回報的檔案與行號由主代理抽查後才採用。修改檔案、SQL／RPC／RLS、交易流程與部署一律由主代理執行；其他情況只有使用者明確要求時才使用子代理。
 - 參考外部網站時用內建瀏覽器讀取 DOM／computed style 取得實際數值，只借鏡互動模式，不複製對方圖片、文案或品牌元素。
 - 前端預覽使用 `.claude/launch.json` 的 `worker-dev`（`wrangler dev`，port 8082，含 SPA fallback 與 `/api/*`）；`redesign-preview` 只是靜態 python 伺服器，無法測路由與 API。5714 在此機器被 Windows 保留、8080／3000 已被占用。測試用暫存檔放 scratchpad，完成後刪除。
 - 回覆使用繁體中文。
