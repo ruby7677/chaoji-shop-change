@@ -178,6 +178,8 @@ function initAdminModules() {
   });
   adminProductsTable.initAdminProductsTable({
     getProducts: () => adminApp.adminData?.products || [],
+    getCategories: () => adminApp.adminData?.categories || [],
+    reloadProducts: () => adminApp.reloadAdminList("products", true),
     adminFetch: adminApp.adminFetch,
     showToast,
     adminCategoryOptions: adminCatalogPanel.adminCategoryOptions,

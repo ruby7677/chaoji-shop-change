@@ -180,7 +180,7 @@ select
   to_regprocedure('public.admin_update_variant(uuid,uuid,text,text,public.product_kind,integer,integer,boolean,integer,text,numeric,text,boolean,integer)') is not null as admin_update_variant_exists,
   to_regprocedure('public.admin_update_product(uuid,uuid,text,text,uuid,integer,boolean,boolean,integer)') is not null as admin_update_product_exists,
   to_regprocedure('public.admin_update_product_image(uuid,uuid,text,timestamp with time zone)') is not null as admin_update_product_image_exists,
-  to_regprocedure('public.admin_search_product_ids(uuid,text,text,integer,integer)') is not null as admin_search_product_ids_exists,
+  to_regprocedure('public.admin_search_product_ids(uuid,text,text,integer,integer,text,text)') is not null as admin_search_product_ids_exists,
   to_regprocedure('public.admin_search_coupon_ids(uuid,text,integer,integer)') is not null as admin_search_coupon_ids_exists,
   to_regprocedure('public.admin_search_inventory_movement_ids(uuid,uuid,integer,integer)') is not null as admin_search_inventory_movement_ids_exists,
   to_regprocedure('public.admin_management_options(uuid)') is not null as admin_management_options_exists,

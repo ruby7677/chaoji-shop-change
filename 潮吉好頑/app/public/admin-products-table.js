@@ -1,5 +1,6 @@
 // 商品與規格頁（ADMIN_REDESIGN_PLAN Stage 8）：一列一個規格的表格、篩選、上架開關（先確認）、優惠價與編輯滑出面板。
-// 資料沿用 app.js 的 adminData.products；搜尋仍以 #admin-product-search 走伺服器查詢，分類／類型／狀態在本頁篩選。
+// 資料沿用 app.js 的 adminData.products；搜尋與分類／類型／狀態篩選都送到伺服器（篩完再分頁），
+// 本頁再依同樣條件挑出要顯示的規格列。
 // 儲存：表單由 submitDynamicAdminForm 處理；上架開關以同一個 PATCH /api/admin/variants/:id 送出完整欄位，成功後只更新該列。
 import { escapeHtml } from "./product-format.js";
 import { adminPrimaryImageSrc } from "./product-image-src.js";
@@ -39,6 +40,8 @@ function findVariant(variantId) {
 }
 
 const categoryName = (product) => relationOne(product.categories)?.name || "未分類";
+// 分類篩選值：all、none（未分類）或分類 id，與伺服器 admin_search_product_ids 的 p_category 相同
+const matchesCategory = (product) => view.cat === "all" || (view.cat === "none" ? !product.category_id : product.category_id === view.cat);
 const isOnSale = (variant) => discountPercent(variant) > 0;
 const STATUS_FILTER = {
   all: () => true,
@@ -58,11 +61,13 @@ function ensureToolbar() {
     + '</div><p class="admin-products-count" data-products-count role="status" aria-live="polite"></p>');
 }
 
-function syncCategoryFilter(products) {
+// 選項列出全部分類（不只本頁出現的），篩選後的空頁也能切換到其他分類
+function syncCategoryFilter() {
   const select = document.querySelector('[data-products-filter="cat"]');
-  const names = [...new Set(products.map(categoryName))];
-  if (view.cat !== "all" && !names.includes(view.cat)) view.cat = "all";
-  select.innerHTML = `<option value="all">全部分類</option>${names.map((name) => `<option value="${escapeHtml(name)}" ${name === view.cat ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}`;
+  const categories = deps.getCategories();
+  if (view.cat !== "all" && view.cat !== "none" && !categories.some((category) => category.id === view.cat)) view.cat = "all";
+  const option = (value, label) => `<option value="${escapeHtml(value)}" ${value === view.cat ? "selected" : ""}>${escapeHtml(label)}</option>`;
+  select.innerHTML = option("all", "全部分類") + categories.map((category) => option(category.id, category.is_active === false ? `${category.name}（已停用）` : category.name)).join("") + option("none", "未分類");
 }
 
 function thumbMarkup(product) {
@@ -119,10 +124,10 @@ function unpublishedSectionMarkup(rows, maxStock, open) {
 
 function drawTable() {
   const products = deps.getProducts();
-  syncCategoryFilter(products);
+  syncCategoryFilter();
   const rows = [];
   products.forEach((product) => {
-    if (view.cat !== "all" && categoryName(product) !== view.cat) return;
+    if (!matchesCategory(product)) return;
     const variants = [...(product.product_variants || [])].sort((a, b) => b.display_order - a.display_order);
     if (!variants.length) {
       if (view.kind === "all" && view.status === "all") rows.push({ product, variant: null });
@@ -452,7 +457,8 @@ function bindEvents() {
   }, true);
   document.addEventListener("change", (event) => {
     const filter = event.target.closest?.("[data-products-filter]");
-    if (filter) { view[filter.dataset.productsFilter] = filter.value; drawTable(); }
+    // 篩選改由伺服器重新查詢並回到第 1 頁；先重畫本頁，等待期間不會顯示不符合條件的列
+    if (filter) { view[filter.dataset.productsFilter] = filter.value; drawTable(); deps.reloadProducts(); }
     markEditFormDirty(event.target);
   });
   document.addEventListener("input", (event) => {
@@ -474,7 +480,7 @@ function bindEvents() {
   }, true);
 }
 
-// deps：getProducts、adminFetch、showToast、adminCategoryOptions、splitPreorderArrival、fallbackMarkup、onCatalogChanged
+// deps：getProducts、getCategories、reloadProducts、adminFetch、showToast、adminCategoryOptions、splitPreorderArrival、fallbackMarkup、onCatalogChanged
 export function initAdminProductsTable(options) {
   if (deps) return;
   deps = options;

@@ -116,7 +116,7 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
       const page = adminPage(request, 100);
       const params = new URL(request.url).searchParams;
       const [searchResponse, optionsResponse] = await Promise.all([
-        fetchWithTimeout(`${base}/rest/v1/rpc/admin_search_product_ids`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId, p_query: params.get("query")?.trim().slice(0, 100) || "", p_status: params.get("status") || "all", p_page: page.page, p_page_size: page.pageSize }) }),
+        fetchWithTimeout(`${base}/rest/v1/rpc/admin_search_product_ids`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId, p_query: params.get("query")?.trim().slice(0, 100) || "", p_status: params.get("status") || "all", p_page: page.page, p_page_size: page.pageSize, p_category: params.get("category") || "all", p_kind: params.get("kind") || "all" }) }),
         includeManagementOptions
           ? fetchWithTimeout(`${base}/rest/v1/rpc/admin_management_options`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) })
           : Promise.resolve(null)

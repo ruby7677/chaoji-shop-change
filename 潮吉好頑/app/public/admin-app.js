@@ -147,7 +147,10 @@ function adminSectionPageQuery(section) {
   if (section === "members") params.set("query", document.querySelector("#admin-member-search")?.value.trim() || "");
   if (section === "products") {
     params.set("query", document.querySelector("#admin-product-search")?.value.trim() || "");
-    params.set("status", document.querySelector("#admin-product-status")?.value || "all");
+    // 分類／類型／狀態在伺服器篩選後才分頁（見 admin-products-table.js 的工具列）
+    for (const [param, filter] of [["category", "cat"], ["kind", "kind"], ["status", "status"]]) {
+      params.set(param, document.querySelector(`[data-products-filter="${filter}"]`)?.value || "all");
+    }
   }
   if (section === "audit") {
     params.set("resource", document.querySelector("#admin-audit-resource")?.value || "");

@@ -93,3 +93,22 @@ test("non-admins cannot load the overview", async () => {
   assert.equal(response.status, 403);
   assert.deepEqual(seen.restPaths, []);
 });
+
+test("the product list sends category, kind and status to the database so filtering happens before paging", async () => {
+  const bodies = [];
+  restoreFetch = stubFetch((url, init, body) => {
+    if (url.pathname === "/auth/v1/user") return jsonResponse({ id: ADMIN_ID, identities: [{ provider: "custom:line-web", identity_data: { sub: LINE_ID } }] });
+    if (url.pathname === "/rest/v1/profiles") return jsonResponse([{ is_admin: true, line_user_id: LINE_ID }]);
+    if (url.pathname === "/rest/v1/rpc/admin_search_product_ids") { bodies.push(body); return jsonResponse({ ids: [], pagination: { page: 0, pageSize: 100, hasMore: false } }); }
+    if (url.pathname === "/rest/v1/rpc/admin_management_options") return jsonResponse({ products: [], members: [], categories: [] });
+    throw new Error(`unexpected request ${url}`);
+  });
+  const category = "cccccccc-0000-4000-8000-000000000001";
+  assert.equal((await dashboard(`?section=products&page=0&page_size=100&status=unpublished&kind=preorder&category=${category}`)).status, 200);
+  assert.deepEqual(
+    { status: bodies[0].p_status, kind: bodies[0].p_kind, category: bodies[0].p_category, page: bodies[0].p_page },
+    { status: "unpublished", kind: "preorder", category, page: 0 }
+  );
+  assert.equal((await dashboard("?section=products")).status, 200);
+  assert.deepEqual({ status: bodies[1].p_status, kind: bodies[1].p_kind, category: bodies[1].p_category }, { status: "all", kind: "all", category: "all" }, "missing filters default to all");
+});
