@@ -58,3 +58,11 @@ test("robots.txt is a real robots file, not the single-page fallback", async () 
   assert.match(robots, /^Disallow: \/api\/$/m);
   assert.doesNotMatch(robots, /<html/i);
 });
+
+test("the default share image is 1200x630 and small enough for LINE previews", async () => {
+  const { readImageDimensions } = await loadSourceModule("image-dimensions.ts");
+  const share = await readFile(new URL("../../public/og-share.jpg", import.meta.url));
+  assert.deepEqual(readImageDimensions(share), { width: 1200, height: 630 });
+  assert.ok(share.length < 300 * 1024, `og-share.jpg is ${share.length} bytes`);
+  assert.match(await appFile("src/share-meta.ts"), /image: "\/og-share\.jpg"/);
+});

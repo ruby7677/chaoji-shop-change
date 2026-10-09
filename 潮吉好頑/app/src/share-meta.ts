@@ -16,10 +16,11 @@ type ShareMeta = { title: string; description: string; image: string; type: "web
 
 const PRODUCT_PAGE = /^\/products\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/?$/i;
 const SITE_NAME = "潮吉好頑";
+// 預設分享圖 1200×630（約 50KB，LINE／Facebook 建議比例）；商品頁改用商品主圖
 const DEFAULT_META: ShareMeta = {
   title: "潮吉好頑｜好頑玩具選物",
   description: "潮吉好頑｜玩具、公仔、戰鬥陀螺選物。現貨先選，預購先保留。",
-  image: "/Logo.png",
+  image: "/og-share.jpg",
   type: "website"
 };
 const DESCRIPTION_MAX = 110;
