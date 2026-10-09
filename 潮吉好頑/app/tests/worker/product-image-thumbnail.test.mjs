@@ -194,17 +194,17 @@ test("when the database update fails the new objects are removed", async () => {
   assert.equal(bucket.objects.size, 0);
 });
 
-test("replacing the main image deletes the old image and thumbnail from R2 and the old Supabase storage", async () => {
+test("replacing the main image keeps the old files so pages still showing the old address do not break", async () => {
   const oldPath = `${PRODUCT_ID}/primary.jpg`;
   const oldThumbnail = `${PRODUCT_ID}/primary.thumb.webp`;
   const { bucket, calls, env } = setup({ productRow: { id: PRODUCT_ID, image_path: oldPath, image_updated_at: "v1" } });
   await bucket.put(oldPath, new Uint8Array([1]));
   await bucket.put(oldThumbnail, new Uint8Array([1]));
   assert.equal((await uploadRequest(env, mainAndThumbnail())).status, 200);
-  assert.ok(!bucket.objects.has(oldPath));
-  assert.ok(!bucket.objects.has(oldThumbnail));
-  assert.deepEqual(calls.supabaseDeletes.at(-1), [oldPath, oldThumbnail]);
-  assert.equal(bucket.objects.size, 2, "only the new image and its thumbnail remain");
+  assert.ok(bucket.objects.has(oldPath));
+  assert.ok(bucket.objects.has(oldThumbnail));
+  assert.deepEqual(calls.supabaseDeletes, []);
+  assert.equal(bucket.objects.size, 4, "the new image and thumbnail are added next to the old ones");
 });
 
 test("serving size=thumb returns the R2 thumbnail with its stored content type", async () => {

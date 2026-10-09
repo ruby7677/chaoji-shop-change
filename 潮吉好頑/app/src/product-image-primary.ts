@@ -85,7 +85,6 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
   if (!productResponse.ok) return json({ error: "無法確認商品資料" }, { status: 503 });
   const productRows = await productResponse.json() as Array<{ id: string; image_path?: string; image_updated_at?: string | null }>;
   if (!productRows.length) return json({ error: "找不到商品" }, { status: 404 });
-  const previousImagePath = productRows[0].image_path;
   const previousVersion = productRows[0].image_updated_at || "1";
 
   // 每次上傳都是新檔名：公開網域的 CDN 快取不會拿到同網址的舊照片，也不必清除舊縮圖
@@ -112,8 +111,8 @@ export async function uploadProductImage(request: Request, env: Env, productId: 
   await invalidateCatalogCache(request);
   await purgeProductImageCache(request, productId, undefined, previousVersion);
   await purgeProductImageCache(request, productId, undefined, previousVersion, "thumb");
-  // admin_update_product_image 把多圖第一張換成新照片，舊的第一張（＝舊主圖）不再被任何資料列使用
-  if (previousImagePath && previousImagePath !== imagePath) await deleteImageObjects(env, [previousImagePath, thumbnailPathFor(previousImagePath)]);
+  // 舊主圖（admin_update_product_image 換掉的多圖第一張）刻意不刪：其他機房的型錄快取（最多 5 分鐘）與已開啟的頁面
+  // 仍可能用舊網址載入，刪掉會出現破圖。留下的檔案只占少量 R2 空間；明確刪除多圖時才刪檔。
 
   return json({ image_url: primaryImageUrls(env, productId, imagePath, updatedAt)?.image_url });
 }
