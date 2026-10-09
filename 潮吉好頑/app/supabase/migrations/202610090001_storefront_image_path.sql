@@ -8,7 +8,6 @@ begin;
 grant select (image_path) on table public.products to anon, authenticated;
 
 -- 與 202610080002 相同，只在最後追加 image_path（create or replace view 只能在尾端新增欄位）
-create or replace view 只能在尾端新增欄位）
 create or replace view public.storefront_variants with (security_invoker = true) as
 select
   v.id::text,

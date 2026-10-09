@@ -62,9 +62,10 @@ test("the catalog gives every photo a thumbnail address and leaves products with
 
 function migrationSetup(legacy) {
   const fetched = [];
+  const pages = [];
   restoreFetch = stubFetch(async (url) => {
-    if (url.pathname === "/rest/v1/products") return jsonResponse([{ image_path: "p1/a.jpg" }]);
-    if (url.pathname === "/rest/v1/product_images") return jsonResponse([{ storage_path: "p1/a.jpg" }, { storage_path: "p1/b.png" }]);
+    if (url.pathname === "/rest/v1/products") { pages.push(url.search); return jsonResponse([{ image_path: "p1/a.jpg" }]); }
+    if (url.pathname === "/rest/v1/product_images") { pages.push(url.search); return jsonResponse([{ storage_path: "p1/a.jpg" }, { storage_path: "p1/b.png" }]); }
     if (url.pathname.startsWith("/storage/v1/object/product-images/")) {
       const key = decodeURIComponent(url.pathname.replace("/storage/v1/object/product-images/", ""));
       fetched.push(key);
@@ -74,7 +75,7 @@ function migrationSetup(legacy) {
     throw new Error(`unexpected request ${url}`);
   });
   const bucket = fakeR2();
-  return { bucket, fetched, env: { ...baseEnv, PRODUCT_IMAGES: bucket } };
+  return { bucket, fetched, pages, env: { ...baseEnv, PRODUCT_IMAGES: bucket } };
 }
 
 function migrate(env, { token = baseEnv.SUPABASE_SERVICE_ROLE_KEY, query = "" } = {}) {
@@ -89,26 +90,28 @@ test("the copy endpoint only accepts the service role key", async () => {
 });
 
 test("the copy endpoint copies each photo once, keeps real thumbnails and uses the photo when a thumbnail is missing", async () => {
-  const { env, bucket } = migrationSetup({
+  const { env, bucket, pages } = migrationSetup({
     "p1/a.jpg": { bytes: [1], type: "image/jpeg" },
     "p1/a.thumb.webp": { bytes: [2], type: "image/webp" },
     "p1/b.png": { bytes: [3], type: "image/png" }
   });
   const first = await (await migrate(env)).json();
-  assert.deepEqual({ total: first.total, copied: first.copied, remaining: first.remaining, failed: first.failed }, { total: 2, copied: 2, remaining: 0, failed: [] });
+  assert.deepEqual({ total: first.total, copied: first.copied, failed: first.failed, next: first.next_cursor }, { total: 2, copied: 2, failed: [], next: null });
+  assert.ok(pages.every((search) => /order=\w+&limit=1000&offset=0/.test(search)), "path lists are read in sorted pages");
   assert.deepEqual([...bucket.objects.get("p1/a.thumb.webp").bytes], [2]);
   assert.deepEqual([...bucket.objects.get("p1/b.thumb.webp").bytes], [3], "a small photo without a thumbnail becomes its own thumbnail");
   assert.equal(bucket.objects.get("p1/b.thumb.webp").httpMetadata.contentType, "image/png");
   assert.equal(bucket.objects.get("p1/a.jpg").httpMetadata.cacheControl, "public, max-age=31536000, immutable");
   const second = await (await migrate(env)).json();
-  assert.deepEqual({ pending: second.pending_before, copied: second.copied }, { pending: 0, copied: 0 }, "running again copies nothing");
+  assert.deepEqual({ pending: second.pending_in_batch, copied: second.copied }, { pending: 0, copied: 0 }, "running again copies nothing");
 });
 
 test("the copy endpoint reports photos missing from Supabase and respects the batch limit", async () => {
   const { env } = migrationSetup({ "p1/a.jpg": { bytes: [1], type: "image/jpeg" } });
   const limited = await (await migrate(env, { query: "?limit=1" })).json();
   assert.equal(limited.copied, 1);
-  assert.equal(limited.remaining, 1);
-  const rest = await (await migrate(env)).json();
+  assert.equal(limited.next_cursor, "p1/a.jpg", "the next call continues after the last checked path");
+  const rest = await (await migrate(env, { query: `?after=${encodeURIComponent(limited.next_cursor)}` })).json();
   assert.deepEqual(rest.failed.map((item) => item.key), ["p1/b.png"]);
+  assert.equal(rest.next_cursor, null);
 });

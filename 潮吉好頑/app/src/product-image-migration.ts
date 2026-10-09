@@ -1,13 +1,16 @@
 // 一次性搬檔：把資料庫仍在使用的商品照片從 Supabase Storage 複製到 R2（含縮圖；沒有縮圖的小圖以原圖當縮圖）。
 // 搬完、確認公開網域可讀取後移除本檔與 index.ts 的路由。
 // 只接受 service role key 當 Bearer（金鑰只存在 Worker secret 與店主本機 .dev.vars），呼叫端不需要另外的管理員登入。
-// 可重複執行：R2 已有的物件會略過；每次最多搬 limit 張，避免超過免費方案每次請求 50 個外部子請求的上限。
-import { PRODUCT_IMAGE_BUCKET, imageContentType, putImageObject, storageObjectUrl, thumbnailPathFor } from "./product-image-storage";
+// 可重複執行：R2 已有的物件會略過。每次最多搬 limit 張（免費方案每次請求 50 個外部子請求）、最多檢查 SCAN_BATCH 個路徑
+// （每個路徑兩次 R2 head，內部子請求上限 1000）；回應的 next_cursor 不為 null 時帶 ?after= 繼續呼叫。
+import { imageContentType, putImageObject, storageObjectUrl, thumbnailPathFor } from "./product-image-storage";
 import { type Env } from "./env";
 import { UPLOAD_TIMEOUT_MS, fetchWithTimeout, json, serviceHeaders } from "./http";
 
 const DEFAULT_BATCH = 15;
 const MAX_BATCH = 20;
+const SCAN_BATCH = 200;
+const PAGE_SIZE = 1000;
 
 function sameSecret(given: string, expected: string) {
   const encoder = new TextEncoder();
@@ -19,16 +22,21 @@ function sameSecret(given: string, expected: string) {
   return diff === 0;
 }
 
+// Data API 單次最多回傳 1000 列：依路徑排序分頁讀完
+async function allPaths(env: Env, table: string, column: string) {
+  const paths: string[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/${table}?select=${column}&${column}=not.is.null&order=${column}&limit=${PAGE_SIZE}&offset=${offset}`, { headers: serviceHeaders(env) });
+    if (!response.ok) throw new Error(`讀取圖片清單失敗 ${table} status=${response.status}`);
+    const rows = await response.json() as Array<Record<string, string>>;
+    paths.push(...rows.map((row) => row[column]));
+    if (rows.length < PAGE_SIZE) return paths;
+  }
+}
+
 async function referencedImageKeys(env: Env) {
-  const [products, gallery] = await Promise.all([
-    fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/products?select=image_path&image_path=not.is.null`, { headers: serviceHeaders(env) }),
-    fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/product_images?select=storage_path`, { headers: serviceHeaders(env) })
-  ]);
-  if (!products.ok || !gallery.ok) throw new Error(`讀取圖片清單失敗 products=${products.status} gallery=${gallery.status}`);
-  const keys = new Set<string>();
-  for (const row of await products.json() as Array<{ image_path: string }>) keys.add(row.image_path);
-  for (const row of await gallery.json() as Array<{ storage_path: string }>) keys.add(row.storage_path);
-  return [...keys].sort();
+  const [products, gallery] = await Promise.all([allPaths(env, "products", "image_path"), allPaths(env, "product_images", "storage_path")]);
+  return [...new Set([...products, ...gallery])].sort();
 }
 
 async function fetchSupabaseObject(env: Env, key: string) {
@@ -64,17 +72,25 @@ export async function migrateProductImagesToR2(request: Request, env: Env, url: 
   const limit = Number.isInteger(requested) && requested > 0 ? Math.min(requested, MAX_BATCH) : DEFAULT_BATCH;
   const dryRun = url.searchParams.get("dry_run") === "1";
 
+  const after = url.searchParams.get("after") || "";
+
   const keys = await referencedImageKeys(env);
+  const scan = keys.filter((imageKey) => imageKey > after).slice(0, SCAN_BATCH);
   let pending = 0;
   let copied = 0;
+  let lastScanned = after;
   const failed: Array<{ key: string; error: string }> = [];
-  for (const imageKey of keys) {
+  for (const imageKey of scan) {
+    // 本批搬滿就停在這裡，下次從這個路徑繼續（尚未檢查的路徑不算進 pending）
+    if (!dryRun && copied + failed.length >= limit) break;
+    lastScanned = imageKey;
     const [main, thumbnail] = await Promise.all([env.PRODUCT_IMAGES.head(imageKey), env.PRODUCT_IMAGES.head(thumbnailPathFor(imageKey))]);
     if (main && thumbnail) continue;
     pending += 1;
-    if (dryRun || copied + failed.length >= limit) continue;
+    if (dryRun) continue;
     try { await copyImage(env, imageKey, Boolean(main), Boolean(thumbnail)); copied += 1; }
     catch (error) { failed.push({ key: imageKey, error: error instanceof Error ? error.message : String(error) }); }
   }
-  return json({ bucket: PRODUCT_IMAGE_BUCKET, total: keys.length, pending_before: pending, copied, failed, remaining: pending - copied });
+  const done = !keys.some((imageKey) => imageKey > lastScanned);
+  return json({ total: keys.length, scanned_after: after || null, pending_in_batch: pending, copied, failed, next_cursor: done ? null : lastScanned });
 }
