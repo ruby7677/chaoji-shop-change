@@ -201,10 +201,8 @@ select
     select 1
     from information_schema.columns
     where table_schema = 'public' and table_name = 'inventory_movements'
-      and column_name in ('source_movement_id', 'return_confirmation_id')
-    group by table_schema, table_name
-    having count(*) = 2
-  ) as inventory_return_link_columns_exist,
+      and column_name = 'source_movement_id'
+  ) as inventory_source_movement_column_exists,
   exists (
     select 1
     from pg_trigger
