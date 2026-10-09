@@ -194,8 +194,9 @@ export function renderAdminPagination(section) {
     nav.innerHTML = "";
     return;
   }
+  // 只顯示回應的頁碼，不回寫 adminSectionPages：那是「下一次要查的頁碼」，由換頁與重新查詢設定；
+  // 舊回應晚到時若回寫，會蓋掉使用者剛要求的頁碼（例如篩選或搜尋後應回到第 1 頁）
   const page = Number(pagination.page || 0);
-  adminSectionPages[section] = page;
   const pageSize = Number(pagination.pageSize || 100);
   nav.classList.toggle("hidden", page === 0 && !pagination.hasMore);
   nav.innerHTML = `<button class="secondary-button" type="button" data-admin-page="${section}" data-admin-page-delta="-1" ${page <= 0 ? "disabled" : ""}>上一頁</button><span aria-live="polite">第 ${page + 1} 頁</span><button class="secondary-button" type="button" data-admin-page="${section}" data-admin-page-delta="1" ${pagination.hasMore ? "" : "disabled"}>下一頁</button>`;
@@ -286,12 +287,7 @@ export async function loadAdminSection(tabOrSection, { force = false } = {}) {
   if (existing) {
     // 請求進行中條件又改變（例如連續切換篩選）：等它結束後用最新條件再查一次，不沿用舊條件的結果
     if (force && adminSectionInFlightQuery.get(section) !== adminSectionPageQuery(section)) {
-      // 舊回應完成時 renderAdminPagination 會把頁碼改回舊請求的頁碼，這裡記下最新要求的頁碼再還原
-      const wantedPage = adminSectionPages[section];
-      return existing.catch(() => undefined).then(() => {
-        if (section in adminSectionPages) adminSectionPages[section] = wantedPage;
-        return loadAdminSection(tabOrSection, { force: true });
-      });
+      return existing.catch(() => undefined).then(() => loadAdminSection(tabOrSection, { force: true }));
     }
     return existing;
   }
