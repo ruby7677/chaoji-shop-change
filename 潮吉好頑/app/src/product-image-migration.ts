@@ -3,6 +3,7 @@
 // 只接受 service role key 當 Bearer（金鑰只存在 Worker secret 與店主本機 .dev.vars），呼叫端不需要另外的管理員登入。
 // 可重複執行：R2 已有的物件會略過。每次最多搬 limit 張（免費方案每次請求 50 個外部子請求）、最多檢查 SCAN_BATCH 個路徑
 // （每個路徑兩次 R2 head，內部子請求上限 1000）；回應的 next_cursor 不為 null 時帶 ?after= 繼續呼叫。
+// 搬失敗的路徑列在 failed、游標仍會往後走；全部跑完後不帶 after 再跑一次即可重試。
 import { imageContentType, putImageObject, storageObjectUrl, thumbnailPathFor } from "./product-image-storage";
 import { type Env } from "./env";
 import { UPLOAD_TIMEOUT_MS, fetchWithTimeout, json, serviceHeaders } from "./http";
@@ -11,6 +12,8 @@ const DEFAULT_BATCH = 15;
 const MAX_BATCH = 20;
 const SCAN_BATCH = 200;
 const PAGE_SIZE = 1000;
+// 免費方案每次請求最多 50 個外部子請求；清單分頁用掉的次數要先扣掉，每張圖最多再用 2 次（原圖＋縮圖）
+const FETCH_BUDGET = 48;
 
 function sameSecret(given: string, expected: string) {
   const encoder = new TextEncoder();
@@ -23,9 +26,10 @@ function sameSecret(given: string, expected: string) {
 }
 
 // Data API 單次最多回傳 1000 列：依路徑排序分頁讀完
-async function allPaths(env: Env, table: string, column: string) {
+async function allPaths(env: Env, table: string, column: string, counter: { fetches: number }) {
   const paths: string[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
+    counter.fetches += 1;
     const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/${table}?select=${column}&${column}=not.is.null&order=${column}&limit=${PAGE_SIZE}&offset=${offset}`, { headers: serviceHeaders(env) });
     if (!response.ok) throw new Error(`讀取圖片清單失敗 ${table} status=${response.status}`);
     const rows = await response.json() as Array<Record<string, string>>;
@@ -35,8 +39,9 @@ async function allPaths(env: Env, table: string, column: string) {
 }
 
 async function referencedImageKeys(env: Env) {
-  const [products, gallery] = await Promise.all([allPaths(env, "products", "image_path"), allPaths(env, "product_images", "storage_path")]);
-  return [...new Set([...products, ...gallery])].sort();
+  const counter = { fetches: 0 };
+  const [products, gallery] = await Promise.all([allPaths(env, "products", "image_path", counter), allPaths(env, "product_images", "storage_path", counter)]);
+  return { keys: [...new Set([...products, ...gallery])].sort(), listFetches: counter.fetches };
 }
 
 async function fetchSupabaseObject(env: Env, key: string) {
@@ -69,12 +74,14 @@ export async function migrateProductImagesToR2(request: Request, env: Env, url: 
   if (!key || !token || !sameSecret(token, key)) return json({ error: "Unauthorized" }, { status: 401 });
   if (!env.SUPABASE_URL || !env.PRODUCT_IMAGES) return json({ error: "圖片服務尚未設定" }, { status: 503 });
   const requested = Number(url.searchParams.get("limit"));
-  const limit = Number.isInteger(requested) && requested > 0 ? Math.min(requested, MAX_BATCH) : DEFAULT_BATCH;
+  const requestedLimit = Number.isInteger(requested) && requested > 0 ? Math.min(requested, MAX_BATCH) : DEFAULT_BATCH;
   const dryRun = url.searchParams.get("dry_run") === "1";
 
   const after = url.searchParams.get("after") || "";
 
-  const keys = await referencedImageKeys(env);
+  const { keys, listFetches } = await referencedImageKeys(env);
+  const limit = Math.min(requestedLimit, Math.floor((FETCH_BUDGET - listFetches) / 2));
+  if (limit < 1) return json({ error: "圖片清單過大，單次請求無法同時讀清單與搬檔" }, { status: 507 });
   const scan = keys.filter((imageKey) => imageKey > after).slice(0, SCAN_BATCH);
   let pending = 0;
   let copied = 0;

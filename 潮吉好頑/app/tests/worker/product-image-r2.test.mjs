@@ -115,3 +115,15 @@ test("the copy endpoint reports photos missing from Supabase and respects the ba
   assert.deepEqual(rest.failed.map((item) => item.key), ["p1/b.png"]);
   assert.equal(rest.next_cursor, null);
 });
+
+test("the copy batch shrinks so listing pages and downloads stay within the free plan's 50 fetches", async () => {
+  const pageOfPaths = (offset) => Array.from({ length: 1000 }, (_, index) => ({ image_path: `p${offset + index}/a.jpg`, storage_path: `p${offset + index}/a.jpg` }));
+  restoreFetch = stubFetch(async (url) => {
+    const offset = Number(url.searchParams.get("offset"));
+    // 每張表 24 頁滿的清單：清單就用掉 50 次以上，沒有剩餘額度可以搬檔
+    if (url.pathname === "/rest/v1/products" || url.pathname === "/rest/v1/product_images") return jsonResponse(offset < 23000 ? pageOfPaths(offset) : []);
+    throw new Error(`unexpected request ${url}`);
+  });
+  const response = await migrate({ ...baseEnv, PRODUCT_IMAGES: fakeR2() });
+  assert.equal(response.status, 507);
+});
