@@ -51,6 +51,11 @@
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) select,
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) textarea { border-color: var(--admin-border); border-radius: 10px; font-size: 16px; }
+/* iOS Safari 的日期欄位有原生最小寬度，兩欄並排時會超出欄寬；空白時高度也和文字欄位不同。
+   取消原生外觀、允許縮小，並固定為與文字欄位相同的高度（與前台 member-profile.css 同一修法）。 */
+#admin-dialog.admin-app .date-range-grid > label { min-width: 0; }
+#admin-dialog.admin-app .date-range-grid input[type="date"] { min-width: 0; max-width: 100%; height: calc(1.45em + 22px); padding: 10px; line-height: 1.45; -webkit-appearance: none; appearance: none; text-align: left; }
+#admin-dialog.admin-app .date-range-grid input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) input:focus,
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) select:focus,
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) textarea:focus { border-color: #141414; outline: none; box-shadow: 0 0 0 3px #fff6b8; }
