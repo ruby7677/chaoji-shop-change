@@ -1,12 +1,14 @@
 // 商品卡標記：首頁商品格與商品頁「您可能也喜歡」共用同一份 HTML。
 import { escapeHtml, hasProductDiscount, preorderStockMarkup, productAvailability, productAvailabilityBadge, productMark, productPriceMarkup, productPromotionBadge, productTagMarkup } from "./product-format.js";
 
-// 商品卡只需要縮圖（實際渲染約 180–300 CSS px），完整原圖留給 srcset 的高解析度分支。
+// 商品卡只需要縮圖，完整原圖留給 srcset 的高解析度分支。
+// sizes 依實測卡寬：手機 2 欄約 44vw、平板／桌機 4 欄約 20–21vw（1440px 寬約 291px、1920px 約 394px）；
+// 寫成 25vw／50vw 會高估，1440px 的 2 倍螢幕就會改下載 1600w 原圖。
 // thumb_url 由 Worker 提供（R2 公開網域或 Worker 路由的 size=thumb）；縮圖一定存在，小圖的縮圖就是原圖。
 function productCardImageMarkup(product) {
   if (!product.image_url) return `<div class="product-placeholder"><span>${productMark(product)}</span><small>潮吉好頑選物</small></div>`;
   const thumbnailUrl = product.thumb_url || product.image_url;
-  return `<img src="${escapeHtml(thumbnailUrl)}" srcset="${escapeHtml(thumbnailUrl)} 640w, ${escapeHtml(product.image_url)} 1600w" sizes="(min-width: 768px) 25vw, 50vw" alt="${escapeHtml(product.name)}" loading="lazy" />`;
+  return `<img src="${escapeHtml(thumbnailUrl)}" srcset="${escapeHtml(thumbnailUrl)} 640w, ${escapeHtml(product.image_url)} 1600w" sizes="(min-width: 768px) 21vw, 45vw" alt="${escapeHtml(product.name)}" loading="lazy" />`;
 }
 
 export function productPageHref(product) {
