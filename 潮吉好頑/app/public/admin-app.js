@@ -286,7 +286,12 @@ export async function loadAdminSection(tabOrSection, { force = false } = {}) {
   if (existing) {
     // 請求進行中條件又改變（例如連續切換篩選）：等它結束後用最新條件再查一次，不沿用舊條件的結果
     if (force && adminSectionInFlightQuery.get(section) !== adminSectionPageQuery(section)) {
-      return existing.catch(() => undefined).then(() => loadAdminSection(tabOrSection, { force: true }));
+      // 舊回應完成時 renderAdminPagination 會把頁碼改回舊請求的頁碼，這裡記下最新要求的頁碼再還原
+      const wantedPage = adminSectionPages[section];
+      return existing.catch(() => undefined).then(() => {
+        if (section in adminSectionPages) adminSectionPages[section] = wantedPage;
+        return loadAdminSection(tabOrSection, { force: true });
+      });
     }
     return existing;
   }
