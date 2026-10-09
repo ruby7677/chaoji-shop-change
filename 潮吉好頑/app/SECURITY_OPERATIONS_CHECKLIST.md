@@ -83,9 +83,11 @@ Worker 也已加入 provider allowlist；目前 Email provider 已關閉，非 L
 
 ## C. Cloudflare Rate Limiting
 
-目前商店使用 `workers.dev` 網址，沒有 custom domain／Worker route；因此沒有建立 zone-level `/api/*` 規則。Worker 已改用 Cloudflare Workers Rate Limiting API，限制會在程式進入指定 API 後執行。
+正式網址為自訂網域 `super-fun.767780.xyz`（767780.xyz zone）。商店 API 的限流由 Worker 執行：Worker 已改用 Cloudflare Workers Rate Limiting API，限制會在程式進入指定 API 後執行。
 
-部署前不可刪除 `wrangler.jsonc` 的三個 `ratelimits` binding。若未來改用正式網域，仍可額外在該 zone 建立 WAF／Ruleset rate-limit 規則，但要先確認只匹配商店 hostname，不要套到同一 zone 的其他服務。
+部署前不可刪除 `wrangler.jsonc` 的三個 `ratelimits` binding。
+
+767780.xyz zone 另有店主自建的兩條規則（2026-10-09 調整）：WAF 自訂規則封鎖非台灣流量，但放行 `cf.client.bot`、ASN 38631（LINE）與 ASN 32934（Facebook），否則 LINE／FB 分享預覽抓不到縮圖；速率限制只比對掃描路徑（`/wp-`、`.php`、`/.git`、`/.env` 等，每 IP 10 秒 5 次）。速率限制的 `contains` 不支援 `*` 萬用字元，不要比對商店本身的頁面或 `/api/`：行動網路多人共用 IP，容易誤擋顧客。外部工具（PageSpeed、OG 檢查器）回 403 時先查 Security → Events。
 
 官方說明：[Workers Rate Limiting API](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)
 

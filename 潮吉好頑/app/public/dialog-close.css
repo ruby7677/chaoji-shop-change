@@ -14,3 +14,5 @@
 :is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog) .dialog-close ~ h2{padding-right:40px}
 /* 視窗打開時焦點放在視窗本身（tabindex=-1，由 app-core.js 的 showDialog 設定），不再自動停在關閉鈕而出現提示框；鍵盤按 Tab 仍會先到關閉鈕 */
 :is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog):focus{outline:none}
+/* 進入「優惠與確認」時焦點移到標題（讓螢幕閱讀器從新步驟開始念），標題不是可操作元素，不顯示焦點框 */
+#checkout-review-title:focus{outline:none}

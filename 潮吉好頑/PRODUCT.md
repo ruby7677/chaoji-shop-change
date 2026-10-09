@@ -55,7 +55,7 @@ web
 - 需求規格書：`潮吉好頑/需求規格書-v1.md`。
 - 實作專案：`潮吉好頑/app`。
 - Logo 資產：`潮吉好頑/app/logo.jpg`。
-- 已部署網站：`https://chaoji-haowan-shop.ruby7677.workers.dev/`。
+- 已部署網站：`https://super-fun.767780.xyz/`（舊網址 `chaoji-haowan-shop.ruby7677.workers.dev` 的網頁會 301 轉到這裡，`/api/*` 不轉）。
 - 初始商品資料曾提供 BX／UX 系列、售價、庫存與賣貨便連結；正式商品資料以 Supabase 目前資料為準。
 - 目前未提供多圖圖集原始素材；後續圖集功能須由管理員上傳實際商品照片。
 
