@@ -16,6 +16,7 @@ as $$
     when 'category'       then '00000000-0000-4000-8000-0000000000c1'
     when 'product_stock'  then '00000000-0000-4000-8000-0000000000a1'
     when 'product_pre'    then '00000000-0000-4000-8000-0000000000a2'
+    when 'product_empty'  then '00000000-0000-4000-8000-0000000000a3'
     when 'variant_stock'  then '00000000-0000-4000-8000-0000000000b1'
     when 'variant_pre'    then '00000000-0000-4000-8000-0000000000b2'
     when 'bank'           then '00000000-0000-4000-8000-0000000000d1'

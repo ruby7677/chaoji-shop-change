@@ -299,12 +299,12 @@ export async function loadAdminSection(tabOrSection, { force = false } = {}) {
   }
   includeManagementOptions = ADMIN_MANAGEMENT_OPTIONS_SECTIONS.has(section) && !hasFreshAdminManagementOptions();
   if (!force && adminSectionLoaded.has(section) && !includeManagementOptions) return adminData;
+  const pageQuery = adminSectionPageQuery(section);
   const requestActorId = auth.user?.id || null;
   const loading = document.querySelector("#admin-loading");
   const errorNode = document.querySelector("#admin-error");
   loading.classList.remove("hidden");
   errorNode.classList.add("hidden");
-  const pageQuery = adminSectionPageQuery(section);
   const request = (async () => {
     try {
       const endpoint = ["audit", "notifications"].includes(section)

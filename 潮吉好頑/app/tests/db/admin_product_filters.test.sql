@@ -17,8 +17,18 @@ select tests.assert(pg_temp.ids('unpublished') = array[tests.id('product_stock')
                     'a published product with an unpublished variant counts as unpublished; products without variants are left out');
 select tests.assert(pg_temp.ids('published') = array[tests.id('product_pre')], 'published means product and variant are both on sale');
 select tests.assert(pg_temp.ids('sale') = array[tests.id('product_pre')], 'sale means compare-at price above the price');
+-- 與後台 discountPercent 一致：折扣四捨五入後為 0% 不算限時優惠
+update public.product_variants set compare_at_price = 2008 where id = tests.id('variant_pre');
+select tests.assert(cardinality(pg_temp.ids('sale')) = 0, 'a discount that rounds to 0% is not a sale');
+update public.product_variants set compare_at_price = 2500 where id = tests.id('variant_pre');
 select tests.assert(pg_temp.ids('all', 'preorder') = array[tests.id('product_pre')], 'kind filter');
 select tests.assert(cardinality(pg_temp.ids('unpublished', 'preorder')) = 0, 'kind and status must match the same variant');
+-- 同一商品一個上架的預購規格＋一個下架的現貨規格：「預購＋未上架」仍不符合（條件分開判斷時會誤列）
+insert into public.product_variants(id, product_id, name, sku, kind, price, stock_on_hand, deposit_rate, is_published)
+values ('00000000-0000-4000-8000-0000000000b3', tests.id('product_pre'), '第二規格', 'TEST-PRE-2', 'in_stock', 500, 1, 0, false);
+select tests.assert(cardinality(pg_temp.ids('unpublished', 'preorder')) = 0, 'a mixed product does not match when no single variant matches both');
+select tests.assert(pg_temp.ids('unpublished', 'in_stock') @> array[tests.id('product_pre')], 'the unpublished in-stock variant matches');
+delete from public.product_variants where id = '00000000-0000-4000-8000-0000000000b3';
 select tests.assert(tests.id('product_empty') = any(pg_temp.ids('all')), 'with no filters products without variants are listed');
 select tests.assert(pg_temp.ids('all', 'all', 'none') = array[tests.id('product_empty')], 'none lists products without a category');
 select tests.assert(not (tests.id('product_empty') = any(pg_temp.ids('all', 'all', tests.id('category')::text))), 'category filter');

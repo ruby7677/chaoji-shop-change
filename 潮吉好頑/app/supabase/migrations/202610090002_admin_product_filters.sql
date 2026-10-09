@@ -1,7 +1,8 @@
 -- 潮吉好頑：後台商品列表的分類、類型、上架狀態與限時優惠篩選改在資料庫做，篩完再分頁。
 -- 原本伺服器先分頁、後台只篩選目前這一頁，未上架商品排序在後面時第 1 頁會是空的。
 -- 「已上架／未上架／限時優惠」以規格判斷，與後台列表一致：
---   已上架：商品與規格都上架；未上架：商品或規格任一未上架；限時優惠：原價大於售價且售價大於 0。
+--   已上架：商品與規格都上架；未上架：商品或規格任一未上架；
+--   限時優惠：與後台 discountPercent 相同，售價大於 0 且折扣四捨五入到整數百分比後大於 0（原價 1000、售價 996 不算）。
 -- 類型與狀態必須落在同一個規格上（例如「預購＋未上架」= 有一個未上架的預購規格）。
 -- 沒有規格的商品只在類型與狀態都是「全部」時列出。
 -- 新增兩個參數，舊的 5 參數版本移除（Worker 以具名參數呼叫，新參數有預設值，舊版 Worker 仍可呼叫）。
@@ -55,7 +56,8 @@ begin
                 and (v_status = 'all'
                   or (v_status = 'published' and p.is_published and v.is_published)
                   or (v_status = 'unpublished' and not (p.is_published and v.is_published))
-                  or (v_status = 'sale' and v.price > 0 and coalesce(v.compare_at_price, 0) > v.price))))
+                  or (v_status = 'sale' and v.price > 0 and coalesce(v.compare_at_price, 0) > v.price
+                    and round((1 - v.price::numeric / v.compare_at_price) * 100) > 0))))
          and (v_query = '' or p.name ilike '%' || v_query || '%' escape E'\\' or coalesce(p.description, '') ilike '%' || v_query || '%' escape E'\\' or coalesce(c.name, '') ilike '%' || v_query || '%' escape E'\\'
            or exists (select 1 from public.product_variants v where v.product_id = p.id and (v.name ilike '%' || v_query || '%' escape E'\\' or v.sku ilike '%' || v_query || '%' escape E'\\')))
        -- 與前台一致：依商品規格的最大前台排序由大到小
