@@ -57,7 +57,7 @@ function ensureToolbar() {
     + '<select data-products-filter="cat" aria-label="分類"></select>'
     + '<select data-products-filter="kind" aria-label="類型"><option value="all">現貨＋預購</option><option value="in_stock">現貨</option><option value="preorder">預購</option></select>'
     + '<select data-products-filter="status" aria-label="上架狀態"><option value="all">全部狀態</option><option value="published">已上架</option><option value="unpublished">未上架</option><option value="sale">限時優惠中</option></select>'
-    + `<button class="admin-products-new" type="button" data-products-new aria-label="新增商品">${adminIcon("plus")}<span>新增商品</span></button>`
+    + `<button class="admin-products-categories" type="button" data-products-sheet="#admin-category-form" aria-label="分類管理" title="分類管理">${adminIcon("folder")}</button><button class="admin-products-new" type="button" data-products-sheet="#admin-product-form" aria-label="新增商品">${adminIcon("plus")}<span>新增商品</span></button>`
     + '</div><p class="admin-products-count" data-products-count role="status" aria-live="polite"></p>');
 }
 
@@ -138,7 +138,7 @@ function drawTable() {
   });
   const maxStock = Math.max(0, ...rows.map(({ variant }) => Number(variant?.stock_on_hand || 0)));
   const saleCount = products.reduce((sum, product) => sum + (product.product_variants || []).filter(isOnSale).length, 0);
-  document.querySelector("[data-products-count]").textContent = `本頁 ${products.length} 件商品・顯示 ${rows.filter((row) => row.variant).length} 個規格・限時優惠 ${saleCount} 個・勾選規格可批次上下架`;
+  document.querySelector("[data-products-count]").textContent = `本頁 ${products.length} 件商品・${rows.filter((row) => row.variant).length} 個規格${saleCount ? `・限時優惠 ${saleCount} 個` : ""}`;
   if (!rows.length) {
     list.innerHTML = '<div class="empty-state">目前沒有符合條件的商品。</div>';
     syncVariantBatch();
@@ -429,8 +429,8 @@ function bindEvents() {
     if (edit) return openEditSheet(edit.dataset.productEdit, edit);
     const addVariant = target.closest("[data-products-add-variant]");
     if (addVariant) return openVariantCreator(addVariant.dataset.productsAddVariant, null);
-    const create = target.closest("[data-products-new]");
-    if (create) return openAdminSheetFor(document.querySelector("#admin-product-form"), create);
+    const sheet = target.closest("[data-products-sheet]");
+    if (sheet) return openAdminSheetFor(document.querySelector(sheet.dataset.productsSheet), sheet);
     const editTab = target.closest("[data-edit-tab]");
     if (editTab) activateEditTab(editTab.dataset.editTab);
   });

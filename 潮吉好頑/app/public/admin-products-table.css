@@ -17,6 +17,8 @@
 #admin-dialog.admin-app .admin-products-toolbar :is(input, select):focus { border-color: #141414; outline: none; box-shadow: 0 0 0 3px #fff6b8; }
 #admin-dialog.admin-app .admin-products-new { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 42px; padding: 0 14px; border: 1px solid #141414; border-radius: 10px; background: #141414; color: var(--admin-brand-sun); font-size: 14px; font-weight: 800; cursor: pointer; }
 #admin-dialog.admin-app .admin-products-new:hover { background: #2b2926; }
+/* 分類管理圖示鈕只在手機出現（桌機用面板上方的「分類管理」按鈕） */
+#admin-dialog.admin-app .admin-products-categories { display: none; }
 #admin-dialog.admin-app .admin-products-count { margin: 0 0 10px; color: var(--admin-text-muted); font-size: 12px; font-weight: 600; }
 
 /* ---------- 共用小元件 ---------- */
@@ -86,9 +88,15 @@
   #admin-dialog.admin-app .admin-stock-cell { align-items: flex-end; }
 }
 @media (max-width: 760px) {
-  #admin-dialog.admin-app .admin-products-toolbar select { flex: 1 1 calc(50% - 4px); }
+  /* 工具列兩列：分類＋分類管理＋新增商品／類型＋狀態；分類管理改用工具列的圖示鈕 */
+  #admin-dialog.admin-app .admin-products-toolbar select { flex: 1 1 calc(50% - 4px); order: 2; }
+  #admin-dialog.admin-app .admin-products-toolbar [data-products-filter="cat"] { flex-basis: calc(100% - 104px); order: 1; }
   #admin-dialog.admin-app .admin-products-search { flex-basis: 100%; }
+  #admin-dialog.admin-app :is(.admin-products-categories, .admin-products-new) { flex: none; width: 44px; min-width: 0; padding: 0; order: 1; }
+  #admin-dialog.admin-app .admin-products-categories { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; border: 1px solid var(--admin-border); border-radius: 10px; background: #fff; color: #141414; cursor: pointer; }
+  #admin-dialog.admin-app .admin-products-categories:hover { border-color: #141414; }
   #admin-dialog.admin-app .admin-products-new span { display: none; }
+  #admin-dialog.admin-app #admin-category-management > summary { display: none; }
   /* 手機精簡卡：商品列＋「規格｜售價」「類型｜庫存｜上架」兩列＋操作列；限購在編輯面板查看 */
   #admin-dialog.admin-app .admin-stack-table tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px 10px; }
   #admin-dialog.admin-app .admin-stack-table td { min-height: 0; padding: 0; }
