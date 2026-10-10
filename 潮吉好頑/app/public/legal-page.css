@@ -1,0 +1,15 @@
+/* 隱私權政策（privacy.html）與服務條款（terms.html）：單欄閱讀版面，色彩沿用首頁變數（bundle-base.css）。 */
+.legal-page{min-height:100svh;background:var(--cream);color:var(--home-ink)}
+.legal-shell{box-sizing:border-box;width:min(720px,100%);margin:0 auto;padding:24px 16px max(40px,env(safe-area-inset-bottom))}
+.legal-head{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.legal-head img{flex:0 0 44px;border-radius:50%}
+.legal-head .eyebrow{margin:0}
+.legal-head h1{margin:0;font-size:1.6rem;line-height:1.15;letter-spacing:-.03em;font-weight:850}
+.legal-updated{margin:0 0 20px;color:var(--home-muted);font-size:.85rem}
+.legal-shell h2{margin:28px 0 8px;font-size:1.1rem;line-height:1.35;font-weight:800}
+.legal-shell p,.legal-shell li{font-size:1rem;line-height:1.75}
+.legal-shell ul,.legal-shell ol{margin:0;padding-left:1.3em}
+.legal-shell li+li{margin-top:4px}
+.legal-shell a{color:var(--home-ink);font-weight:700;text-underline-offset:3px}
+.legal-shell a:focus-visible{outline:3px solid var(--home-yellow);outline-offset:2px}
+.legal-nav{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:32px;padding-top:16px;border-top:1px solid var(--home-line)}
