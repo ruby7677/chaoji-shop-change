@@ -37,6 +37,17 @@
   }
   .site-header nav .nav-orders-button:hover { background: var(--home-ink); color: var(--home-yellow); }
   .site-header nav .nav-orders-button:focus-visible { outline: 3px solid var(--home-ink); outline-offset: 3px; }
+  /* LINE 客服（業主要求 2026-10-10）：手機版從首頁中段店取列移到主選單列，放在「我的訂單」左邊；
+     兩顆按鈕間距 8px，文字連結之間維持 24px，所有寬度都不換行（店取列的那顆隱藏，避免重複）。 */
+  .site-header nav { gap: 0; }
+  .site-header nav > a:not(.nav-line-button) { margin-right: 24px; }
+  .site-header nav .nav-line-button { flex: none; min-height: 44px; margin-left: auto; padding: 0 14px; }
+  .site-header nav .nav-line-button + .nav-orders-button:not(.hidden) { margin-left: 8px; }
+  .trust-rail a.trust-rail-link.line-service-button { display: none; }
+}
+.site-header nav .nav-line-button { display: none; }
+@media (max-width: 760px) {
+  .site-header nav .nav-line-button { display: inline-flex; }
 }
 
 /* 極窄螢幕（<360px，例如 320px）：縮小 Logo、隱藏副標，讓會員與購物車仍能和品牌同一列 */
@@ -44,6 +55,9 @@
   .site-header { column-gap: 8px; padding-inline: 12px; }
   .site-header .brand img { width: 40px; height: 40px; }
   .site-header .brand small { display: none; }
+  .site-header nav > a:not(.nav-line-button) { margin-right: 16px; }
+  .site-header nav .nav-line-button { padding: 0 10px; }
+  .site-header nav .nav-orders-button:not(.hidden) { padding-inline: 8px 10px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
