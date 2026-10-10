@@ -17,6 +17,8 @@ export interface Env {
   // 商品圖片 R2 bucket；IMAGE_BASE_URL 為其公開網域（未設定時圖片仍走 Worker 路由，見 product-image-urls.ts）
   PRODUCT_IMAGES?: R2Bucket;
   IMAGE_BASE_URL?: string;
+  // 每週資料備份的私有 R2 bucket（不可設定公開網域，內含會員個資），見 database-backup.ts
+  BACKUPS?: R2Bucket;
   LINE_LOGIN_CHANNEL_ID?: string;
   AUTH_SESSION_SECRET?: string;
   LINE_MESSAGING_CHANNEL_ACCESS_TOKEN?: string;

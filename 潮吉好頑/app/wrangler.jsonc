@@ -23,7 +23,7 @@
     "IMAGE_BASE_URL": "https://img.767780.xyz"
   },
   // 商品圖片（公開網域 img.767780.xyz 在 Cloudflare 後台綁定）
-  "r2_buckets": [{ "binding": "PRODUCT_IMAGES", "bucket_name": "chaoji-product-images" }],
+  "r2_buckets": [{ "binding": "PRODUCT_IMAGES", "bucket_name": "chaoji-product-images" }, { "binding": "BACKUPS", "bucket_name": "chaoji-backups" }],
   "ratelimits": [
     {
       "name": "API_ORDER_RATE_LIMITER",
@@ -47,6 +47,6 @@
     }
   ],
   "triggers": {
-    "crons": ["*/5 * * * *", "0 * * * *"]
+    "crons": ["*/5 * * * *", "0 * * * *", "0 19 * * 0"]
   }
 }
