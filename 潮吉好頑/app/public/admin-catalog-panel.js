@@ -36,10 +36,10 @@ export function resetAdminCategoryForm() {
   cancel?.classList.add("hidden");
 }
 
-export function focusAdminCategoryForm() {
+// 焦點交給面板處理（admin-sheets.js）：桌機聚焦分類名稱，觸控裝置聚焦標題，不會一開就彈出鍵盤
+export function openAdminCategoryForm() {
   const details = document.querySelector("#admin-category-management");
   if (details instanceof HTMLDetailsElement) details.open = true;
-  window.setTimeout(() => document.querySelector("#admin-category-name")?.focus(), 0);
 }
 
 export function editAdminCategory(categoryId) {

@@ -79,7 +79,7 @@ function bindAdminClickDelegation() {
       adminSystemPanel.requeueAdminNotification(notificationRequeueButton).catch((error) => showToast(error.message, "error"));
       return;
     }
-    if (event.target.closest("[data-admin-category-focus]")) adminCatalogPanel.focusAdminCategoryForm();
+    if (event.target.closest("[data-admin-category-focus]")) adminCatalogPanel.openAdminCategoryForm();
     if (event.target.closest("[data-admin-category-cancel]")) adminCatalogPanel.resetAdminCategoryForm();
     const categoryEdit = event.target.closest("[data-admin-category-edit]");
     if (categoryEdit) adminCatalogPanel.editAdminCategory(categoryEdit.dataset.adminCategoryEdit);

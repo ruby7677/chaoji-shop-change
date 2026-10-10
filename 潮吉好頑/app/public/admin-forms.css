@@ -51,10 +51,10 @@
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) select,
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) textarea { border-color: var(--admin-border); border-radius: 10px; font-size: 16px; }
-/* iOS Safari 的日期欄位有原生最小寬度，兩欄並排時會超出欄寬；空白時高度也和文字欄位不同。
+/* iOS Safari 的日期／日期時間欄位有原生最小寬度，並排時會超出欄寬；空白時高度也和文字欄位不同。
    取消原生外觀、允許縮小，並固定為與文字欄位相同的高度（與前台 member-profile.css 同一修法）。 */
-#admin-dialog.admin-app .date-range-grid input[type="date"] { min-width: 0; height: calc(1.45em + 22px); line-height: 1.45; -webkit-appearance: none; appearance: none; }
-#admin-dialog.admin-app .date-range-grid input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+#admin-dialog.admin-app input:is([type="date"], [type="datetime-local"]) { min-width: 0; height: calc(1.45em + 22px); line-height: 1.45; -webkit-appearance: none; appearance: none; }
+#admin-dialog.admin-app input:is([type="date"], [type="datetime-local"])::-webkit-date-and-time-value { text-align: left; }
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) input:focus,
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) select:focus,
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) textarea:focus { border-color: #141414; outline: none; box-shadow: 0 0 0 3px #fff6b8; }
@@ -105,7 +105,14 @@
 #admin-dialog.admin-app .admin-confirm-actions .primary-button { border-color: #141414; background: #141414; color: var(--admin-brand-sun); }
 #admin-dialog.admin-app .admin-confirm-actions .primary-button.is-danger { border-color: #9a302a; background: #9a302a; color: #fff; }
 
+/* 同一頁有多個面板按鈕時以 .admin-sheet-bar 排成一列（例：優惠券頁），手機平分寬度不再各佔一整列 */
+#admin-dialog.admin-app .admin-sheet-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+#admin-dialog.admin-app .admin-sheet-bar > details.admin-sheet { margin: 0; }
+
 @media (max-width: 760px) {
+  #admin-dialog.admin-app .admin-sheet-bar > details.admin-sheet { flex: 1 1 0; min-width: 0; }
+  #admin-dialog.admin-app .admin-sheet-bar summary.admin-sheet-trigger { padding: 0 10px; }
+  #admin-dialog.admin-app .admin-sheet-bar summary.admin-sheet-trigger .admin-icon { display: none; }
   #admin-dialog.admin-app .admin-sheet-panel { width: 100vw; border-left: 0; }
   #admin-dialog.admin-app .admin-sheet-body .form-grid { grid-template-columns: 1fr; }
   #admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger { width: 100%; justify-content: center; }
