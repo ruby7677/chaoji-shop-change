@@ -7,6 +7,7 @@ import { adminData, adminFetch, invalidateAdminManagementOptions, refreshAdminSe
 import { renderAdminDiscountOptionBoxes } from "./admin-members-panel.js";
 import { prepareProductImage, uploadAdminProductImage, validateProductImage } from "./admin-product-image.js";
 import { movementMatches } from "./admin-stock-math.js";
+import "./admin-product-delete.js";
 
 function sortedAdminCategories() {
   return (adminData?.categories || []).slice().sort((left, right) => Number(left.display_order || 0) - Number(right.display_order || 0) || String(left.name || "").localeCompare(String(right.name || ""), "zh-Hant"));

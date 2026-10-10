@@ -89,6 +89,13 @@ function productFormMarkup(product, helpers) {
     + '</div><button class="primary-button" type="submit">儲存商品</button></form>';
 }
 
+// 刪除商品放在商品資料最下方，與儲存按鈕分開；點擊後由 admin-product-delete.js 確認並送出
+function deleteSectionMarkup(product) {
+  return '<section class="admin-edit-section admin-product-delete"><div><h4>刪除商品</h4>'
+    + "<p>商品與所有規格會從前台與後台移除，已成立的訂單紀錄保留。還有未完成訂單時無法刪除。</p></div>"
+    + `<button class="secondary-button danger-button" type="button" data-product-delete="${escapeHtml(product.id)}" data-product-name="${escapeHtml(product.name)}">刪除商品</button></section>`;
+}
+
 function variantDetailsMarkup(variant, helpers, open) {
   const sale = discountPercent(variant);
   return `<details class="admin-edit-variant" data-edit-variant="${escapeHtml(variant.id)}" ${open ? "open" : ""}><summary>`
@@ -122,7 +129,7 @@ export function editSheetMarkup(product, helpers, openVariants = new Set(), acti
     + EDIT_TABS.map(({ key, label }) => editTabButtonMarkup(key, label, key === tab)).join("")
     + editTabButtonMarkup("variants", `規格 <span>(${variants.length})</span>`, tab === "variants")
     + "</div>";
-  const productPanel = editTabPanelMarkup("product", tab === "product", `<section class="admin-edit-section">${productFormMarkup(product, helpers)}</section>`);
+  const productPanel = editTabPanelMarkup("product", tab === "product", `<section class="admin-edit-section">${productFormMarkup(product, helpers)}</section>${deleteSectionMarkup(product)}`);
   const mediaPanel = editTabPanelMarkup("media", tab === "media", adminProductGalleryMarkup(product) + adminProductShowcaseMarkup(product));
   const variantsInner = `<section class="admin-edit-section"><header class="admin-edit-section-head"><h4>商品規格 <span>${variants.length}</span></h4><button class="secondary-button" type="button" data-products-add-variant="${escapeHtml(product.id)}">新增規格</button></header>`
     + (variants.map((variant) => variantDetailsMarkup(variant, helpers, openVariants.has(variant.id))).join("") || '<div class="empty-state">此商品尚無規格。</div>')

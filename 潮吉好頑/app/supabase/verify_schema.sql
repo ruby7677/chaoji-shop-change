@@ -390,4 +390,9 @@ select
   to_regprocedure('public.backup_snapshot()') is not null
     and has_function_privilege('service_role', 'public.backup_snapshot()', 'EXECUTE')
     and not has_function_privilege('anon', 'public.backup_snapshot()', 'EXECUTE')
-    and not has_function_privilege('authenticated', 'public.backup_snapshot()', 'EXECUTE') as backup_snapshot_service_only;
+    and not has_function_privilege('authenticated', 'public.backup_snapshot()', 'EXECUTE') as backup_snapshot_service_only,
+  -- 202610100002：後台刪除商品（封存）只有 service_role 能執行。
+  to_regprocedure('public.admin_archive_product(uuid,uuid)') is not null
+    and has_function_privilege('service_role', 'public.admin_archive_product(uuid,uuid)', 'EXECUTE')
+    and not has_function_privilege('anon', 'public.admin_archive_product(uuid,uuid)', 'EXECUTE')
+    and not has_function_privilege('authenticated', 'public.admin_archive_product(uuid,uuid)', 'EXECUTE') as admin_archive_product_service_only;

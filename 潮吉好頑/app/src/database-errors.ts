@@ -37,6 +37,7 @@ export const databaseErrors: Record<string, string> = {
   ORDER_FULFILLMENT_NOT_EDITABLE: "此訂單目前不可修改尾款或運費資訊",
   INVALID_QUANTITY: "商品數量不正確",
   PRODUCT_NOT_FOUND: "商品已下架或不存在",
+  PRODUCT_HAS_OPEN_ORDERS: "此商品還有未完成的訂單，請等訂單完成或取消後再刪除；也可以先取消上架",
   INSUFFICIENT_STOCK: "商品庫存不足，請重新整理購物車",
   ORDER_NOT_PAYABLE: "訂單已逾期、已回報付款或無法付款",
   LINE_FRIEND_REQUIRED: "請先加入官方 LINE，並重新檢查好友狀態",

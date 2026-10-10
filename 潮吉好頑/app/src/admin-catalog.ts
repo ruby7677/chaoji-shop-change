@@ -207,6 +207,20 @@ export async function updateProduct(request: Request, env: Env, productId: strin
   return json({ product });
 }
 
+// 刪除商品＝封存：下架並從後台隱藏，訂單與庫存歷程保留；有未完成訂單時由資料庫拒絕。
+export async function archiveProduct(request: Request, env: Env, productId: string): Promise<Response> {
+  const admin = await requireAdmin(request, env);
+  if (admin instanceof Response) return admin;
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_archive_product`, {
+    method: "POST", headers: serviceHeaders(env), body: JSON.stringify({ p_actor_id: admin.user.id, p_product_id: productId })
+  });
+  if (!response.ok) return databaseError(response);
+  await invalidateCatalogCache(request);
+  const product = await response.json() as { image_updated_at?: string | null };
+  await purgeProductImageCache(request, productId, undefined, product.image_updated_at || "1");
+  return json({ archived: true });
+}
+
 export async function adjustInventory(request: Request, env: Env, variantId: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
   if (admin instanceof Response) return admin;

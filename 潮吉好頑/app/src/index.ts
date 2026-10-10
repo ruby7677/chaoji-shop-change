@@ -3,7 +3,7 @@ import { createProductShowcase, isShowcaseImageUpload } from "./product-showcase
 import { isShareMetaRequest, withShareMeta } from "./share-meta";
 import { backfillProductImageDimensions } from "./product-image-dimensions";
 import { createWebSession } from "./web-session";
-import { adjustInventory, createAdminCategory, createAdminProduct, createVariant, updateAdminCategory, updateProduct, updateVariant } from "./admin-catalog";
+import { adjustInventory, archiveProduct, createAdminCategory, createAdminProduct, createVariant, updateAdminCategory, updateProduct, updateVariant } from "./admin-catalog";
 import { adminAuditLogs, adminDashboard, adminNotificationDeliveries, requeueAdminNotificationDelivery } from "./admin-dashboard";
 import { transitionAdminOrder, updateAdminOrderFulfillment } from "./admin-orders";
 import { adjustMemberPoints, createBankAccount, issueBirthdayCoupons, saveCoupon, updateBankAccount, updateBirthdaySettings, updatePointSettings } from "./admin-settings";
@@ -119,6 +119,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   const productImageUploadMatch = url.pathname.match(/^\/api\/admin\/products\/([0-9a-f-]{36})\/image$/i);
   if (request.method === "POST" && productImageUploadMatch) return uploadProductImage(request, env, productImageUploadMatch[1]);
   if (request.method === "PATCH" && productMatch) return updateProduct(request, env, productMatch[1]);
+  if (request.method === "DELETE" && productMatch) return archiveProduct(request, env, productMatch[1]);
   if (request.method === "POST" && url.pathname === "/api/admin/variants") return createVariant(request, env);
   const variantMatch = url.pathname.match(/^\/api\/admin\/variants\/([0-9a-f-]{36})$/i);
   if (request.method === "PATCH" && variantMatch) return updateVariant(request, env, variantMatch[1]);
