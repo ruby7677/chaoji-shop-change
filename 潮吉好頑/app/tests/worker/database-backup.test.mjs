@@ -85,3 +85,51 @@ test("the hourly cron never runs the backup", async () => {
   await context.settle();
   assert.ok(!calls.some((call) => call.url.pathname === "/rest/v1/rpc/backup_snapshot"));
 });
+
+function multipartBucket({ failPart = 0 } = {}) {
+  const events = [];
+  const bucket = fakeR2({ events });
+  bucket.createMultipartUpload = async (key) => {
+    const uploaded = [];
+    events.push(["create", key]);
+    return {
+      async uploadPart(number, bytes) {
+        if (number === failPart) throw new Error(`part ${number} failed`);
+        uploaded.push([number, new Uint8Array(bytes)]);
+        events.push(["part", number, bytes.length]);
+        return { partNumber: number, etag: `e${number}` };
+      },
+      async complete(parts) {
+        events.push(["complete", parts.map((part) => part.partNumber)]);
+        const all = uploaded.sort((a, b) => a[0] - b[0]).flatMap(([, bytes]) => [...bytes]);
+        await bucket.put(key, new Uint8Array(all));
+      },
+      async abort() { events.push(["abort"]); }
+    };
+  };
+  return { bucket, events };
+}
+
+const streamOf = (...chunks) => new ReadableStream({ start(controller) { for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk)); controller.close(); } });
+
+test("streams large snapshots in equal-sized parts and reassembles them exactly", async () => {
+  const { bucket, events } = multipartBucket();
+  await backup.storeStream(bucket, "k", streamOf("abc", "defgh", "ij"), 4);
+  assert.deepEqual(events.filter(([type]) => type === "part").map(([, number, size]) => [number, size]), [[1, 4], [2, 4], [3, 2]]);
+  assert.deepEqual(events.find(([type]) => type === "complete"), ["complete", [1, 2, 3]]);
+  assert.equal(new TextDecoder().decode(bucket.objects.get("k").bytes), "abcdefghij");
+});
+
+test("a snapshot smaller than one part uses a single put", async () => {
+  const { bucket, events } = multipartBucket();
+  await backup.storeStream(bucket, "k", streamOf("ab", "c"), 4);
+  assert.ok(!events.some(([type]) => type === "create"));
+  assert.equal(new TextDecoder().decode(bucket.objects.get("k").bytes), "abc");
+});
+
+test("a failed part aborts the upload and leaves no object", async () => {
+  const { bucket, events } = multipartBucket({ failPart: 2 });
+  await assert.rejects(backup.storeStream(bucket, "k", streamOf("abcdefghij"), 4), /part 2 failed/);
+  assert.ok(events.some(([type]) => type === "abort"));
+  assert.ok(!bucket.objects.has("k"));
+});
