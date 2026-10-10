@@ -8,7 +8,6 @@ const SWIPE_THRESHOLD_PX = 40;
 export function mountHeroCarousel(root, slides) {
   const abort = new AbortController();
   const { signal } = abort;
-  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   root.classList.add("hero-carousel");
   root.setAttribute("role", "region");
   root.setAttribute("aria-roledescription", "carousel");
@@ -25,8 +24,9 @@ export function mountHeroCarousel(root, slides) {
   let timer = 0;
   let hovering = false;
   let focused = false;
-  // 使用者按下暫停，或系統要求減少動態時，不自動播放（WCAG 2.2.2）。
-  let userPaused = reducedMotion;
+  // 預設一律自動播放（業主決定 2026-10-10：Windows 關閉動畫效果的電腦原本開頁就是暫停）。
+  // 系統要求減少動態時，CSS（product-showcase.css）關閉淡入與位移，只直接換張；暫停鈕滿足 WCAG 2.2.2。
+  let userPaused = false;
 
   slideNodes.forEach((slide) => {
     slide.querySelectorAll("[data-stagger]").forEach((node, order) => node.style.setProperty("--stagger-i", String(order)));
