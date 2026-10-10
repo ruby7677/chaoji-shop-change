@@ -72,6 +72,12 @@ export const NOTIFICATION_COPY = {
     title: "低庫存提醒（統一通知）",
     bullet: "• "
   },
+  backupFailed: {
+    title: "每週資料備份失敗",
+    dateLabel: "備份日期",
+    reasonLabel: "原因",
+    note: "請到 Cloudflare Worker 紀錄查看，並確認 Supabase 與 R2（chaoji-backups）狀態。"
+  },
   birthday: {
     greeting: "生日快樂！",
     coupon: "您收到優惠券",
@@ -443,6 +449,12 @@ export function buildLineBirthdayFlexMessage(
 export function buildLowStockMessage(storeName: string, lines: string[]) {
   const copy = NOTIFICATION_COPY.lowStock;
   return [storeName, copy.title, ...lines.map((line) => `${copy.bullet}${line}`)].join("\n");
+}
+
+export function buildBackupFailureMessage(storeName: string, date: string, reason: string) {
+  const copy = NOTIFICATION_COPY.backupFailed;
+  const safeReason = reason.replace(/[\r\n]+/g, " ").trim().slice(0, 300) || "未知錯誤";
+  return [storeName, copy.title, `${copy.dateLabel}：${date}`, `${copy.reasonLabel}：${safeReason}`, copy.note].join("\n");
 }
 
 export function buildBirthdayCouponMessage(storeName: string, coupon: { name: string; code: string; discountAmount: number }) {

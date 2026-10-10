@@ -216,6 +216,11 @@ export async function deliverLineNotification(
   return { sent: await deliverClaim(env, "line", claim, recipientId), handled: true };
 }
 
+/** 不經佇列直接送一則 Telegram（資料庫無法使用時的備援，沒有重試與紀錄）；回傳是否送達。 */
+export async function sendTelegramUnqueued(env: NotificationDeliveryEnv, recipientId: string, text: string): Promise<boolean> {
+  return (await sendTelegram(env, recipientId, { text }, 1)).sent;
+}
+
 /** Queue/claim and deliver one Telegram notification. Its result is independent from LINE. */
 export async function deliverTelegramNotification(
   env: NotificationDeliveryEnv,

@@ -4,7 +4,7 @@
 // 舊備份由 bucket 的生命週期規則自動刪除（見 SECURITY_OPERATIONS_CHECKLIST.md）。
 import type { Env } from "./env";
 import { fetchWithTimeout, serviceHeaders } from "./http";
-import { taipeiDate } from "./notifications";
+import { notifyBackupFailure, taipeiDate } from "./notifications";
 
 /** 每週日 19:00 UTC（台灣週一 03:00，離峰）；必須與 wrangler.jsonc 的 crons 項目一致。 */
 export const BACKUP_CRON = "0 19 * * SUN";
@@ -74,5 +74,16 @@ export async function storeStream(bucket: R2Bucket, key: string, body: ReadableS
   } catch (error) {
     await (upload as R2MultipartUpload | null)?.abort().catch(() => undefined);
     throw error;
+  }
+}
+
+/** 每週排程入口：執行備份，失敗（含缺少設定）時記錄並通知 Telegram 管理員；不丟錯。 */
+export async function runWeeklyBackup(env: Env, now: Date) {
+  try {
+    if (!await runDatabaseBackup(env, now)) throw new Error("缺少 Supabase 設定或 BACKUPS 綁定");
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    console.error("資料備份失敗", reason);
+    await notifyBackupFailure(env, reason, now);
   }
 }

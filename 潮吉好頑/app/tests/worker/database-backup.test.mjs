@@ -155,3 +155,70 @@ test("slow R2 parts do not abort a body that is still within the backup budget",
   await backup.storeStream(bucket, "k", body, 4);
   assert.equal(new TextDecoder().decode(bucket.objects.get("k").bytes), "abcdefghij");
 });
+
+// 備份失敗通知：先排入通知佇列；資料庫無法使用（佇列寫不進去）時直接送 Telegram；成功時不通知。
+async function runWeekly(env, handler) {
+  const seen = { claims: [], direct: [] };
+  restoreFetch = stubFetch((url, init, body) => {
+    if (url.hostname === "api.telegram.org") { seen.direct.push(body); return jsonResponse({ ok: true }); }
+    if (url.pathname === "/rest/v1/rpc/claim_notification_delivery") {
+      seen.claims.push(body);
+      return handler.claim ? handler.claim() : jsonResponse({ id: "n1", claim_token: null, status: "sent", attempt_count: 1, payload: {}, claimed: false });
+    }
+    if (url.pathname === "/rest/v1/rpc/backup_snapshot") return handler.snapshot();
+    throw new Error(`unexpected request ${url}`);
+  });
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  console.error = () => {};
+  console.warn = () => {};
+  try {
+    const context = ctx();
+    worker.scheduled({ cron: backup.BACKUP_CRON, scheduledTime: NOW.getTime() }, env, context);
+    await context.settle();
+  } finally {
+    console.error = originalError;
+    console.warn = originalWarn;
+  }
+  return seen;
+}
+
+test("a failed weekly backup queues one Telegram alert per admin with the reason", async () => {
+  const seen = await runWeekly({ ...baseEnv, BACKUPS: fakeR2() }, { snapshot: () => new Response("boom", { status: 500 }) });
+  assert.deepEqual(seen.claims.map((claim) => claim.p_recipient_id), ["111", "222"]);
+  for (const claim of seen.claims) {
+    assert.equal(claim.p_channel, "telegram");
+    assert.equal(claim.p_event_type, "backup_failed");
+    assert.equal(claim.p_event_key, "backup-failed:2026-10-12");
+    assert.match(claim.p_payload.text, /每週資料備份失敗[\s\S]*備份日期：2026-10-12[\s\S]*原因：backup_snapshot failed: HTTP 500/);
+    assert.ok(!claim.p_payload.text.includes("service-key"));
+  }
+  assert.equal(seen.direct.length, 0);
+});
+
+test("when the database cannot queue the alert, it is sent to Telegram directly", async () => {
+  const seen = await runWeekly({ ...baseEnv, BACKUPS: fakeR2() }, {
+    snapshot: () => new Response("down", { status: 503 }),
+    claim: () => new Response("down", { status: 503 })
+  });
+  assert.deepEqual(seen.direct.map((message) => message.chat_id), ["111", "222"]);
+  assert.match(seen.direct[0].text, /HTTP 503/);
+});
+
+test("a missing BACKUPS binding is reported as a failure", async () => {
+  const seen = await runWeekly({ ...baseEnv }, { snapshot: () => jsonResponse({}) });
+  assert.equal(seen.claims.length, 2);
+  assert.match(seen.claims[0].p_payload.text, /缺少 Supabase 設定或 BACKUPS 綁定/);
+});
+
+test("a successful weekly backup sends no alert", async () => {
+  const bucket = fakeR2();
+  const seen = await runWeekly({ ...baseEnv, BACKUPS: bucket }, { snapshot: () => jsonResponse(SNAPSHOT) });
+  assert.ok(bucket.objects.has(KEY));
+  assert.equal(seen.claims.length + seen.direct.length, 0);
+});
+
+test("the alert stays quiet when Telegram notifications are disabled", async () => {
+  const seen = await runWeekly({ ...baseEnv, TELEGRAM_NOTIFY_ENABLED: "false", BACKUPS: fakeR2() }, { snapshot: () => new Response("boom", { status: 500 }) });
+  assert.equal(seen.claims.length + seen.direct.length, 0);
+});

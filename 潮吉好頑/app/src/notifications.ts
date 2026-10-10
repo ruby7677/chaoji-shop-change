@@ -1,6 +1,6 @@
 // 訂單事件、低庫存、生日券通知與每小時排程補送；實際發送與重試狀態機在 notification-delivery.ts。
-import { type LinePushMessage, type OrderNotificationEventType, buildBirthdayCouponMessage, buildLineBirthdayFlexMessage, buildLineOrderFlexMessage, buildLowStockMessage, buildOrderNotificationMessage, buildTelegramOrderNotificationMessage, buildTelegramTestMessage, routeOrderNotificationRecipients } from "./line-notification-messages";
-import { type DeliveryResult, deliverLineNotification, deliverTelegramNotification } from "./notification-delivery";
+import { type LinePushMessage, type OrderNotificationEventType, buildBackupFailureMessage, buildBirthdayCouponMessage, buildLineBirthdayFlexMessage, buildLineOrderFlexMessage, buildLowStockMessage, buildOrderNotificationMessage, buildTelegramOrderNotificationMessage, buildTelegramTestMessage, routeOrderNotificationRecipients } from "./line-notification-messages";
+import { type DeliveryResult, deliverLineNotification, deliverTelegramNotification, sendTelegramUnqueued } from "./notification-delivery";
 import { requireAdmin } from "./auth";
 import { type Env } from "./env";
 import { fetchWithTimeout, json, serviceHeaders } from "./http";
@@ -164,6 +164,21 @@ export async function notifyLowStock(env: Env) {
 }
 
 const BIRTHDAY_COUPON_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * 每週備份失敗時通知 Telegram 管理員。資料庫可能正是失敗原因：寫不進通知佇列（notification_deliveries）時改為直接送出。
+ * 同一台灣日只排入佇列一次；不丟錯。
+ */
+export async function notifyBackupFailure(env: Env, reason: string, now = new Date()) {
+  const recipients = telegramAdminRecipients(env);
+  if (!telegramNotificationEnabled(env) || !recipients.length) return;
+  const date = taipeiDate(now);
+  const message = buildBackupFailureMessage(env.STORE_NAME, date, reason);
+  await Promise.all(recipients.map(async (chatId) => {
+    const queued = await notifyTelegram(env, `backup-failed:${date}`, chatId, "backup_failed", message).catch(() => null);
+    if (!queued?.handled) await sendTelegramUnqueued(env, chatId, message).catch(() => false);
+  }));
+}
 
 /** 台灣日期（YYYY-MM-DD）。 */
 export function taipeiDate(date: Date) {
