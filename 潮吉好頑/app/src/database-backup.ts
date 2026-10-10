@@ -9,8 +9,11 @@ import { taipeiDate } from "./notifications";
 /** 每週日 19:00 UTC（台灣週一 03:00，離峰）；必須與 wrangler.jsonc 的 crons 項目一致。 */
 export const BACKUP_CRON = "0 19 * * 0";
 
-/** 快照可能比一般 API 回應大，給較長的逾時。 */
-const SNAPSHOT_TIMEOUT_MS = 60_000;
+/**
+ * 整次備份的時間上限：逾時訊號在取得回應後仍作用於本體讀取，而讀取期間會等待 R2 分段上傳，
+ * 所以這是「下載＋上傳」的總預算，不是單純的請求逾時。Cron Trigger 每次最多執行 15 分鐘。
+ */
+export const BACKUP_TIMEOUT_MS = 10 * 60_000;
 
 /** 執行一次備份；回傳寫入的 R2 key。缺設定時不做任何事；失敗時丟出錯誤，由呼叫端記錄。 */
 export async function runDatabaseBackup(env: Env, now = new Date()): Promise<string | null> {
@@ -22,7 +25,7 @@ export async function runDatabaseBackup(env: Env, now = new Date()): Promise<str
     method: "POST",
     headers: serviceHeaders(env),
     body: "{}"
-  }, SNAPSHOT_TIMEOUT_MS);
+  }, BACKUP_TIMEOUT_MS);
   if (!response.ok) {
     await response.arrayBuffer();
     throw new Error(`backup_snapshot failed: HTTP ${response.status}`);

@@ -133,3 +133,25 @@ test("a failed part aborts the upload and leaves no object", async () => {
   assert.ok(events.some(([type]) => type === "abort"));
   assert.ok(!bucket.objects.has("k"));
 });
+
+test("the backup time budget covers download and R2 uploads but stays inside the 15-minute cron limit", () => {
+  assert.ok(backup.BACKUP_TIMEOUT_MS >= 5 * 60_000);
+  assert.ok(backup.BACKUP_TIMEOUT_MS < 15 * 60_000);
+});
+
+test("slow R2 parts do not abort a body that is still within the backup budget", async () => {
+  const { bucket } = multipartBucket();
+  const slowPart = bucket.createMultipartUpload;
+  bucket.createMultipartUpload = async (key) => {
+    const upload = await slowPart(key);
+    const uploadPart = upload.uploadPart;
+    upload.uploadPart = async (...args) => { await new Promise((resolve) => setTimeout(resolve, 30)); return uploadPart(...args); };
+    return upload;
+  };
+  // 本體讀取綁定逾時訊號（同 fetchWithTimeout）；上傳等待 30ms × 3 段仍在預算內
+  const signal = AbortSignal.timeout(500);
+  const source = streamOf("abcdefghij");
+  const body = source.pipeThrough(new TransformStream(), { signal });
+  await backup.storeStream(bucket, "k", body, 4);
+  assert.equal(new TextDecoder().decode(bucket.objects.get("k").bytes), "abcdefghij");
+});
