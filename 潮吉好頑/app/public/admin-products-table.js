@@ -57,7 +57,7 @@ function ensureToolbar() {
     + '<select data-products-filter="cat" aria-label="分類"></select>'
     + '<select data-products-filter="kind" aria-label="類型"><option value="all">現貨＋預購</option><option value="in_stock">現貨</option><option value="preorder">預購</option></select>'
     + '<select data-products-filter="status" aria-label="上架狀態"><option value="all">全部狀態</option><option value="published">已上架</option><option value="unpublished">未上架</option><option value="sale">限時優惠中</option></select>'
-    + `<button class="admin-products-categories" type="button" data-products-sheet="#admin-category-form" aria-label="分類管理" title="分類管理">${adminIcon("folder")}</button><button class="admin-products-new" type="button" data-products-sheet="#admin-product-form" aria-label="新增商品">${adminIcon("plus")}<span>新增商品</span></button>`
+    + `<button class="admin-icon-button admin-products-categories" type="button" data-products-sheet="#admin-category-form" aria-haspopup="dialog" aria-label="分類管理" title="分類管理">${adminIcon("folder")}</button><button class="admin-products-new" type="button" data-products-sheet="#admin-product-form" aria-haspopup="dialog" aria-label="新增商品">${adminIcon("plus")}<span>新增商品</span></button>`
     + '</div><p class="admin-products-count" data-products-count role="status" aria-live="polite"></p>');
 }
 
