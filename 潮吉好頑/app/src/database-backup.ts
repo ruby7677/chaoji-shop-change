@@ -7,7 +7,7 @@ import { fetchWithTimeout, serviceHeaders } from "./http";
 import { taipeiDate } from "./notifications";
 
 /** 每週日 19:00 UTC（台灣週一 03:00，離峰）；必須與 wrangler.jsonc 的 crons 項目一致。 */
-export const BACKUP_CRON = "0 19 * * 0";
+export const BACKUP_CRON = "0 19 * * SUN";
 
 /**
  * 整次備份的時間上限：逾時訊號在取得回應後仍作用於本體讀取，而讀取期間會等待 R2 分段上傳，

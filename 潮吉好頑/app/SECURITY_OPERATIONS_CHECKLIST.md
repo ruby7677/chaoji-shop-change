@@ -97,7 +97,7 @@ Worker 也已加入 provider allowlist；目前 Email provider 已關閉，非 L
 - **Worker 回復**：先 `$env:WRANGLER_WRITE_LOGS='0'`，以 `npx wrangler deployments list --json` 找出前一個正常版本的 Version ID，再執行 `npx wrangler rollback <version-id>` 回退。回復前先確認舊版 Worker 相容目前資料庫 schema（Worker 回復不會復原已套用的 migration，若新 migration 已改變欄位或移除舊 RPC，舊版程式碼可能無法運作）。回復後依 AGENTS.md 的 post-deploy smoke 檢查（`deployments list --json` 確認流量 100%、Node `fetch` 驗證 health／config／catalog／首頁與本次相關 route）。
 - **資料庫回復**：migration 一律只能往前疊加，不可重跑或修改已套用檔案。若已套用的 migration 造成問題，撰寫新的 incremental migration 修正（依 AGENTS.md 部署流程走完整檢查與 `test:db`）；執行有風險的 migration 前，先在 Supabase Dashboard 確認專案的 backup／point-in-time recovery 可用狀態，作為復原的最後手段，不假設特定方案功能已啟用。
 - 若懷疑資料已損壞且無法以新 migration 修正，先停止繼續套用變更並回報範圍，再由店主／有權限者依 Supabase Dashboard 的備份功能評估還原，不在本清單自行執行資料庫還原。
-- **每週資料備份（R2）**：Worker 每週一台灣 03:00（cron `0 19 * * 0`，`src/database-backup.ts`）以 service role 呼叫 `backup_snapshot()`，在同一個資料庫快照內讀出營運資料表（訂單與明細不會錯開），原樣存到私有 bucket `chaoji-backups` 的 `weekly/<台灣日期>/snapshot.json`（`tables.<資料表>` 為該表所有列）。bucket 不可設定公開網域或 r2.dev；生命週期規則刪除 90 天前的 `weekly/` 物件。
+- **每週資料備份（R2）**：Worker 每週一台灣 03:00（cron `0 19 * * SUN`，`src/database-backup.ts`）以 service role 呼叫 `backup_snapshot()`，在同一個資料庫快照內讀出營運資料表（訂單與明細不會錯開），原樣存到私有 bucket `chaoji-backups` 的 `weekly/<台灣日期>/snapshot.json`（`tables.<資料表>` 為該表所有列）。bucket 不可設定公開網域或 r2.dev；生命週期規則刪除 90 天前的 `weekly/` 物件。
   - 不含：`auth.users`（不在 public schema）、`liff_session_vault`、`member_cart_items`、`line_low_stock_states`、`notification_deliveries`。還原後會員需重新以 LINE 登入，`profiles.id` 仍需對應到同一個 auth 使用者。
   - 檢查：Cloudflare Dashboard → R2 → `chaoji-backups` 確認每週有新檔案；失敗只寫 Worker log（`資料備份失敗`），不會產生當週檔案。
   - 還原：由店主／有權限者評估後，先還原到測試專案驗證，再依外鍵順序（categories → products → product_variants → … → orders → order_items）以 SQL 匯入；不在正式資料庫直接覆寫。
