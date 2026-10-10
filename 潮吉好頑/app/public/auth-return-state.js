@@ -1,5 +1,6 @@
 // 登入回跳狀態：LINE 登入前保存頁面、購物車與結帳進度，登入回來（或補完會員資料）後還原。
 import { auth, showToast } from "./app-core.js";
+import { authReturnErrorMessage } from "./auth-error-message.js";
 import { selectedDeliveryMethod, toggleCart } from "./cart.js";
 import { renderCheckoutBenefits, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields } from "./checkout-form.js";
 import { activeCheckoutItems, activeCheckoutScope, openCheckout, selectCheckoutScope } from "./checkout-flow.js";
@@ -92,9 +93,8 @@ export function captureAuthReturn(fragment) {
     authReturnState = readAuthReturnState();
     shouldRestoreAuthReturnState = Boolean(authReturnState);
   }
-  if (fragment.get("error")) {
-    authReturnError = fragment.get("error") === "access_denied" ? "你已取消 LINE 登入" : "LINE 登入未完成，請稍後再試";
-  }
+  const message = authReturnErrorMessage(fragment);
+  if (message) authReturnError = message;
 }
 
 /** 補完會員資料後，繼續登入前未完成的結帳。 */
