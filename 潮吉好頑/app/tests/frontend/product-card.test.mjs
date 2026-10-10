@@ -23,7 +23,7 @@ test("商品卡以 thumb_url 當預設圖、原圖當高解析度分支", () => 
   const html = productCardMarkup({ ...variant, image_url: "https://img.test/p-1/a.jpg?v=1", thumb_url: "https://img.test/p-1/a.thumb.webp?v=1" });
   assert.match(html, /src="https:\/\/img\.test\/p-1\/a\.thumb\.webp\?v=1"/);
   assert.match(html, /srcset="https:\/\/img\.test\/p-1\/a\.thumb\.webp\?v=1 640w, https:\/\/img\.test\/p-1\/a\.jpg\?v=1 1600w"/);
-  assert.match(html, /sizes="\(min-width: 768px\) 21vw, 45vw"/, "sizes matches the measured card width so 2x laptops still pick the thumbnail");
+  assert.match(html, /sizes="\(min-width: 761px\) 21vw, 45vw"/, "sizes matches the measured card width so 2x laptops still pick the thumbnail");
 });
 
 test("沒有 thumb_url 時（舊快取資料）退回原圖", () => {

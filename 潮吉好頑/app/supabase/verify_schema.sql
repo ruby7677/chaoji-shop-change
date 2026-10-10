@@ -155,7 +155,7 @@ select
   to_regclass('public.line_low_stock_states') is not null as line_low_stock_states_exists,
   -- 202610090003：退貨驗收資料表與 inventory_movements.return_confirmation_id 已移除。
   to_regclass('public.inventory_return_confirmations') is null as inventory_return_confirmations_removed,
-  not exists (select 1 from pg_attribute where attrelid = 'public.inventory_movements'::regclass and attname = 'return_confirmation_id' and not attisdropped) as return_confirmation_column_removed,
+  not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'inventory_movements' and column_name = 'return_confirmation_id') as return_confirmation_column_removed,
   to_regprocedure('public.admin_confirm_order_return(uuid,uuid,integer,integer,integer,text)') is null as admin_confirm_order_return_removed,
   to_regprocedure('public.admin_dashboard_stats(uuid)') is not null as admin_dashboard_stats_exists,
   -- 202609250007_unified_low_stock：低庫存唯一定義，後台統計共用。
