@@ -1,108 +1,45 @@
-// 每週資料備份（src/database-backup.ts）：只讀取清單內的資料表、依 Content-Range 分頁、單表失敗不影響其他表、不寫出 service key。
+// 每週資料備份（src/database-backup.ts）：一次呼叫 backup_snapshot() 並原樣寫入 R2；只在每週排程執行，失敗會丟錯、不寫出 service key。
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { baseEnv, fakeR2, loadSourceModule, stubFetch } from "./harness.mjs";
+import { readFile } from "node:fs/promises";
+import { baseEnv, ctx, fakeR2, jsonResponse, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
 
 const backup = await loadSourceModule("database-backup");
+const worker = await loadWorker();
 const NOW = new Date(Date.UTC(2026, 9, 11, 19, 0));
-const PREFIX = "weekly/2026-10-12";
+const KEY = "weekly/2026-10-12/snapshot.json";
+const SNAPSHOT = { taken_at: "2026-10-11T19:00:00Z", tables: { orders: [{ id: "o1" }] } };
 
 let restoreFetch = () => {};
 afterEach(() => restoreFetch());
 
-const page = (rows, start, total) => new Response(JSON.stringify(rows), {
-  headers: { "Content-Type": "application/json", "Content-Range": rows.length ? `${start}-${start + rows.length - 1}/${total}` : `*/${total}` }
-});
-
-function stubTables(handler) {
+function stubSnapshot(response = () => jsonResponse(SNAPSHOT)) {
   const calls = [];
-  restoreFetch = stubFetch((url, init) => {
-    calls.push({ table: url.pathname.replace("/rest/v1/", ""), offset: Number(url.searchParams.get("offset")), url, init });
-    return handler(url) ?? page([], 0, 0);
-  });
+  restoreFetch = stubFetch((url, init) => { calls.push({ url, init }); return response(); });
   return calls;
 }
 
-test("totalFromContentRange reads the total and rejects missing totals", () => {
-  assert.equal(backup.totalFromContentRange("0-999/1234"), 1234);
-  assert.equal(backup.totalFromContentRange("*/0"), 0);
-  assert.equal(backup.totalFromContentRange("0-9/*"), null);
-  assert.equal(backup.totalFromContentRange(null), null);
+test("one POST to backup_snapshot, stored unchanged under the Taipei date", async () => {
+  const calls = stubSnapshot();
+  const bucket = fakeR2();
+  assert.equal(await backup.runDatabaseBackup({ ...baseEnv, BACKUPS: bucket }, NOW), KEY);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url.href, "https://db.test/rest/v1/rpc/backup_snapshot");
+  assert.equal(calls[0].init.method, "POST");
+  assert.ok(!calls[0].url.href.includes("service-key"));
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(bucket.objects.get(KEY).bytes)), SNAPSHOT);
+  assert.equal(bucket.objects.get(KEY).httpMetadata.contentType, "application/json");
 });
 
-test("only listed tables are read, never session or cart tables, with the service key in headers only", async () => {
-  const calls = stubTables(() => null);
+test("a failed snapshot throws without writing to R2 or exposing the key", async () => {
+  stubSnapshot(() => new Response("denied", { status: 403 }));
   const bucket = fakeR2();
-  await backup.runDatabaseBackup({ ...baseEnv, BACKUPS: bucket }, NOW);
-  const tables = calls.map((call) => call.table);
-  assert.deepEqual(tables, backup.BACKUP_TABLES.map(([table]) => table));
-  for (const excluded of ["liff_session_vault", "member_cart_items", "line_low_stock_states", "notification_deliveries"]) assert.ok(!tables.includes(excluded));
-  for (const call of calls) {
-    assert.equal(call.init.method ?? "GET", "GET");
-    assert.ok(!call.url.href.includes("service-key"));
-    assert.equal(call.init.headers.Prefer, "count=exact");
-  }
-});
-
-test("pages follow Content-Range and each page is stored as its own object", async () => {
-  const size = backup.BACKUP_PAGE_SIZE;
-  const calls = stubTables((url) => {
-    if (url.pathname !== "/rest/v1/audit_logs") return null;
-    const offset = Number(url.searchParams.get("offset"));
-    const total = size + 2;
-    const count = Math.min(size, total - offset);
-    return page(Array.from({ length: count }, (_, i) => ({ id: offset + i })), offset, total);
-  });
-  const bucket = fakeR2();
-  const results = await backup.runDatabaseBackup({ ...baseEnv, BACKUPS: bucket }, NOW);
-  assert.deepEqual(calls.filter((call) => call.table === "audit_logs").map((call) => call.offset), [0, size]);
-  assert.ok(bucket.objects.has(`${PREFIX}/audit_logs/000.json`));
-  assert.ok(bucket.objects.has(`${PREFIX}/audit_logs/001.json`));
-  assert.deepEqual(results.find((item) => item.table === "audit_logs"), { table: "audit_logs", rows: size + 2, pages: 2 });
-  const manifest = JSON.parse(new TextDecoder().decode(bucket.objects.get(`${PREFIX}/manifest.json`).bytes));
-  assert.equal(manifest.complete, true);
-});
-
-test("one failing table is reported in the manifest without stopping the others", async () => {
-  stubTables((url) => (url.pathname === "/rest/v1/orders" ? new Response("boom", { status: 500 }) : null));
-  const bucket = fakeR2();
-  const originalError = console.error;
-  const logged = [];
-  console.error = (...args) => logged.push(args.join(" "));
-  try {
-    await backup.runDatabaseBackup({ ...baseEnv, BACKUPS: bucket }, NOW);
-  } finally {
-    console.error = originalError;
-  }
-  const manifest = JSON.parse(new TextDecoder().decode(bucket.objects.get(`${PREFIX}/manifest.json`).bytes));
-  assert.equal(manifest.complete, false);
-  assert.equal(manifest.tables.find((item) => item.table === "orders").error, "HTTP 500");
-  assert.ok(bucket.objects.has(`${PREFIX}/audit_logs/000.json`));
-  assert.ok(logged.some((line) => line.includes("orders")));
-  assert.ok(!logged.some((line) => line.includes("service-key")));
-});
-
-test("stops at the fetch budget and marks the backup incomplete", async () => {
-  const size = backup.BACKUP_PAGE_SIZE;
-  const calls = stubTables((url) => {
-    const offset = Number(url.searchParams.get("offset"));
-    return page([{ id: offset }], offset, size * 100);
-  });
-  const bucket = fakeR2();
-  const originalError = console.error;
-  console.error = () => {};
-  try {
-    await backup.runDatabaseBackup({ ...baseEnv, BACKUPS: bucket }, NOW);
-  } finally {
-    console.error = originalError;
-  }
-  assert.equal(calls.length, backup.BACKUP_FETCH_BUDGET);
-  const manifest = JSON.parse(new TextDecoder().decode(bucket.objects.get(`${PREFIX}/manifest.json`).bytes));
-  assert.equal(manifest.complete, false);
+  await assert.rejects(backup.runDatabaseBackup({ ...baseEnv, BACKUPS: bucket }, NOW), (error) => error.message.includes("HTTP 403") && !error.message.includes("service-key"));
+  assert.equal(bucket.objects.size, 0);
 });
 
 test("does nothing without the BACKUPS binding or Supabase settings", async () => {
-  const calls = stubTables(() => null);
+  const calls = stubSnapshot();
   const originalWarn = console.warn;
   console.warn = () => {};
   try {
@@ -114,27 +51,37 @@ test("does nothing without the BACKUPS binding or Supabase settings", async () =
   assert.equal(calls.length, 0);
 });
 
-test("the weekly backup cron runs only the backup, and wrangler.jsonc schedules it", async () => {
-  const { loadWorker, ctx } = await import("./harness.mjs");
-  const { readFile } = await import("node:fs/promises");
-  const worker = await loadWorker();
-  const calls = stubTables(() => null);
+test("the weekly cron runs the backup with its scheduled time, and wrangler.jsonc schedules it", async () => {
+  const calls = stubSnapshot();
   const bucket = fakeR2();
   const context = ctx();
   worker.scheduled({ cron: backup.BACKUP_CRON, scheduledTime: NOW.getTime() }, { ...baseEnv, BACKUPS: bucket }, context);
   await context.settle();
-  assert.deepEqual(calls.map((call) => call.table), backup.BACKUP_TABLES.map(([table]) => table));
-  assert.ok(bucket.objects.has(`${PREFIX}/manifest.json`));
+  assert.deepEqual(calls.map((call) => call.url.pathname), ["/rest/v1/rpc/backup_snapshot"]);
+  assert.ok(bucket.objects.has(KEY));
   const config = await readFile(new URL("../../wrangler.jsonc", import.meta.url), "utf8");
   assert.ok(config.includes(`"${backup.BACKUP_CRON}"`));
 });
 
+test("a failing weekly backup is logged, not thrown out of the scheduled handler", async () => {
+  stubSnapshot(() => new Response("boom", { status: 500 }));
+  const originalError = console.error;
+  const logged = [];
+  console.error = (...args) => logged.push(args.map(String).join(" "));
+  try {
+    const context = ctx();
+    worker.scheduled({ cron: backup.BACKUP_CRON, scheduledTime: NOW.getTime() }, { ...baseEnv, BACKUPS: fakeR2() }, context);
+    await context.settle();
+  } finally {
+    console.error = originalError;
+  }
+  assert.ok(logged.some((line) => line.includes("HTTP 500")));
+});
+
 test("the hourly cron never runs the backup", async () => {
-  const { loadWorker, ctx } = await import("./harness.mjs");
-  const worker = await loadWorker();
-  const calls = stubTables(() => null);
+  const calls = stubSnapshot(() => jsonResponse([]));
   const context = ctx();
   worker.scheduled({ cron: "0 * * * *", scheduledTime: NOW.getTime() }, { ...baseEnv, BACKUPS: fakeR2() }, context);
   await context.settle();
-  assert.ok(!calls.some((call) => call.table === "audit_logs"));
+  assert.ok(!calls.some((call) => call.url.pathname === "/rest/v1/rpc/backup_snapshot"));
 });

@@ -385,4 +385,9 @@ select
       order by i.sort_order, i.created_at
       limit 1
     )
-  ) as product_primary_image_in_sync;
+  ) as product_primary_image_in_sync,
+  -- 202610100001：每週備份快照只有 service_role 能執行（內含所有會員個資）。
+  to_regprocedure('public.backup_snapshot()') is not null
+    and has_function_privilege('service_role', 'public.backup_snapshot()', 'EXECUTE')
+    and not has_function_privilege('anon', 'public.backup_snapshot()', 'EXECUTE')
+    and not has_function_privilege('authenticated', 'public.backup_snapshot()', 'EXECUTE') as backup_snapshot_service_only;
