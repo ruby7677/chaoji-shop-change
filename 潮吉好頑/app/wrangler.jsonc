@@ -5,7 +5,7 @@
   // 部署與 wrangler dev 前產生前台 CSS 合併檔（內容未變時不寫入）；設了 build 後 dev 只依 watch_dir 重建，src 必須列入
   "build": { "command": "node scripts/build-css.mjs", "watch_dir": ["src", "public", "scripts"] },
   "compatibility_date": "2026-09-08",
-  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/", "/index.html", "/products/*", "/orders", "/admin", "/api/*"] },
+  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/", "/index.html", "/products/*", "/orders", "/admin", "/privacy", "/terms", "/api/*"] },
   "workers_dev": true,
   "routes": [{ "pattern": "super-fun.767780.xyz", "custom_domain": true }],
   "vars": {

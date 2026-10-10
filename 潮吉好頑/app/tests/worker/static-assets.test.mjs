@@ -47,7 +47,7 @@ test("run_worker_first sends share-preview pages and the API to the Worker", asy
   }
   for (const path of ["/api/catalog", "/api/admin/dashboard", "/api/product-images/x"]) assert.ok(workerFirst(path), path);
   // 入口頁要進 Worker 才能把 workers.dev 舊網址 301 到正式網域（canonical-host.ts）
-  for (const path of ["/orders", "/admin"]) assert.ok(workerFirst(path), `${path} needs the Worker to redirect the legacy host`);
+  for (const path of ["/orders", "/admin", "/privacy", "/terms"]) assert.ok(workerFirst(path), `${path} needs the Worker to redirect the legacy host`);
   for (const path of ["/app.js", "/styles.css", "/orders-page.js", "/admin-app.js"]) assert.equal(workerFirst(path), false, `${path} is served as a static asset`);
 });
 
