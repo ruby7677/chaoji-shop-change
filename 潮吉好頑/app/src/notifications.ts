@@ -1,6 +1,6 @@
 // 訂單事件、低庫存、生日券通知與每小時排程補送；實際發送與重試狀態機在 notification-delivery.ts。
 import { type LinePushMessage, type OrderNotificationEventType, buildBackupFailureMessage, buildBirthdayCouponMessage, buildLineBirthdayFlexMessage, buildLineOrderFlexMessage, buildLowStockMessage, buildOrderNotificationMessage, buildTelegramOrderNotificationMessage, buildTelegramTestMessage, routeOrderNotificationRecipients } from "./line-notification-messages";
-import { type DeliveryResult, deliverLineNotification, deliverTelegramNotification, sendTelegramUnqueued } from "./notification-delivery";
+import { type DeliveryResult, deliverLineNotification, deliverTelegramNotification, deliverTelegramNotificationOrDirect } from "./notification-delivery";
 import { requireAdmin } from "./auth";
 import { type Env } from "./env";
 import { fetchWithTimeout, json, serviceHeaders } from "./http";
@@ -174,10 +174,9 @@ export async function notifyBackupFailure(env: Env, reason: string, now = new Da
   if (!telegramNotificationEnabled(env) || !recipients.length) return;
   const date = taipeiDate(now);
   const message = buildBackupFailureMessage(env.STORE_NAME, date, reason);
-  await Promise.all(recipients.map(async (chatId) => {
-    const queued = await notifyTelegram(env, `backup-failed:${date}`, chatId, "backup_failed", message).catch(() => null);
-    if (!queued?.handled) await sendTelegramUnqueued(env, chatId, message).catch(() => false);
-  }));
+  // 取得 claim 後的錯誤由通知狀態機重試；這裡只記錄，不丟出
+  await Promise.all(recipients.map((chatId) => deliverTelegramNotificationOrDirect(env, `backup-failed:${date}`, chatId, "backup_failed", message)
+    .catch((error) => console.error("備份失敗通知未完成", error instanceof Error ? error.message : "unknown"))));
 }
 
 /** 台灣日期（YYYY-MM-DD）。 */

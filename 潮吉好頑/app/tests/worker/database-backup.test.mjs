@@ -205,6 +205,27 @@ test("when the database cannot queue the alert, it is sent to Telegram directly"
   assert.match(seen.direct[0].text, /HTTP 503/);
 });
 
+test("a lost completion after Telegram accepted the alert is not sent again directly", async () => {
+  const sent = [];
+  restoreFetch = stubFetch((url, init, body) => {
+    if (url.hostname === "api.telegram.org") { sent.push(body.chat_id); return jsonResponse({ ok: true, result: {} }); }
+    if (url.pathname === "/rest/v1/rpc/claim_notification_delivery") return jsonResponse({ id: `n-${body.p_recipient_id}`, claim_token: "t", status: "sending", attempt_count: 1, payload: body.p_payload, claimed: true });
+    if (url.pathname === "/rest/v1/rpc/complete_notification_delivery") throw new TypeError("connection reset");
+    if (url.pathname === "/rest/v1/rpc/backup_snapshot") return new Response("boom", { status: 500 });
+    throw new Error(`unexpected request ${url}`);
+  });
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const context = ctx();
+    worker.scheduled({ cron: backup.BACKUP_CRON, scheduledTime: NOW.getTime() }, { ...baseEnv, BACKUPS: fakeR2() }, context);
+    await context.settle();
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(sent.sort(), ["111", "222"], "each admin gets exactly one message");
+});
+
 test("a missing BACKUPS binding is reported as a failure", async () => {
   const seen = await runWeekly({ ...baseEnv }, { snapshot: () => jsonResponse({}) });
   assert.equal(seen.claims.length, 2);

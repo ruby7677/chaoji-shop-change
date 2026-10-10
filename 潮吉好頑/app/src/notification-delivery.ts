@@ -216,9 +216,23 @@ export async function deliverLineNotification(
   return { sent: await deliverClaim(env, "line", claim, recipientId), handled: true };
 }
 
-/** 不經佇列直接送一則 Telegram（資料庫無法使用時的備援，沒有重試與紀錄）；回傳是否送達。 */
-export async function sendTelegramUnqueued(env: NotificationDeliveryEnv, recipientId: string, text: string): Promise<boolean> {
-  return (await sendTelegram(env, recipientId, { text }, 1)).sent;
+/**
+ * 同 deliverTelegramNotification，但佇列 claim 建立失敗（資料庫無法使用）時改為直接送出，沒有重試與紀錄。
+ * 只有 claim 階段失敗才直接送：取得 claim 後的錯誤（例如送出後完成紀錄失敗）交回狀態機重試，避免重複通知。
+ */
+export async function deliverTelegramNotificationOrDirect(
+  env: NotificationDeliveryEnv,
+  eventKey: string,
+  recipientId: string,
+  eventType: string,
+  message: string
+): Promise<DeliveryResult> {
+  if (env.TELEGRAM_NOTIFY_ENABLED === "false" || !env.TELEGRAM_BOT_TOKEN || !recipientId) return { sent: false, handled: true };
+  const text = message.slice(0, 4096);
+  const claim = await claimNotification(env, "telegram", eventKey, recipientId, eventType, { text }).catch(() => null);
+  if (!claim) return { sent: (await sendTelegram(env, recipientId, { text }, 1)).sent, handled: true };
+  if (!claim.claimed) return { sent: claim.status === "sent", handled: true };
+  return { sent: await deliverClaim(env, "telegram", claim, recipientId), handled: true };
 }
 
 /** Queue/claim and deliver one Telegram notification. Its result is independent from LINE. */
