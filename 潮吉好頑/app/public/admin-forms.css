@@ -1,7 +1,7 @@
 /* 後台滑出面板、說明收合、表單與清單卡片（ADMIN_REDESIGN_PLAN Stage 7）；前綴同 admin-shell.css */
 
 /* ---------- 滑出面板觸發按鈕（原 <summary>） ---------- */
-#admin-dialog.admin-app details.admin-sheet { margin: 0 0 12px; border: 0; background: transparent; }
+#admin-dialog.admin-app details.admin-sheet { margin: 0 0 12px; padding: 0; border: 0; background: transparent; }
 #admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 16px; border: 1px solid var(--admin-border); border-radius: 10px; background: #fff; color: #141414; font-size: 14px; font-weight: 700; list-style: none; cursor: pointer; transition: border-color 150ms ease; }
 #admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger::-webkit-details-marker { display: none; }
 #admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger::after { content: none; }
@@ -107,7 +107,7 @@
 
 /* 同一頁有多個面板按鈕時以 .admin-sheet-bar 排成一列（例：優惠券頁），手機平分寬度不再各佔一整列 */
 #admin-dialog.admin-app .admin-sheet-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
-#admin-dialog.admin-app .admin-sheet-bar > details.admin-sheet { margin: 0; padding: 0; }
+#admin-dialog.admin-app .admin-sheet-bar > details.admin-sheet { margin: 0; }
 
 @media (max-width: 760px) {
   #admin-dialog.admin-app .admin-sheet-bar > details.admin-sheet { flex: 1 1 0; min-width: 0; }

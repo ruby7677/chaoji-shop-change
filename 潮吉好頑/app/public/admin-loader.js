@@ -88,7 +88,7 @@ function bindAdminClickDelegation() {
     if (event.target.closest("[data-account-cancel]")) adminSystemPanel.resetAccountForm();
     if (event.target.closest("[data-coupon-reset]")) adminMembersPanel.resetCouponForm();
     const couponEdit = event.target.closest("[data-coupon-edit]");
-    if (couponEdit) adminMembersPanel.editCoupon(couponEdit.dataset.couponEdit);
+    if (couponEdit) adminMembersPanel.editCoupon(couponEdit.dataset.couponEdit, couponEdit);
   });
   document.addEventListener("error", adminProductImage.handleAdminProductImageError, true);
 }

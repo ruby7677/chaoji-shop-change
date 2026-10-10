@@ -4,6 +4,7 @@ import { adminConfirm } from "./admin-confirm.js";
 import { formatDateTime, orderStatusLabel, showToast, taipeiDateTimeInputToIso, taipeiDateTimeInputValue } from "./app-core.js";
 import { products } from "./storefront-catalog.js";
 import { adminData, adminFetch, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
+import { openAdminSheetFor } from "./admin-sheets.js";
 
 export function ensureDiscountAdminUI() {
   if (!document.querySelector("[data-admin-tab='discounts']") || !document.querySelector("[data-admin-panel='discounts']")) return;
@@ -101,7 +102,7 @@ export async function submitPointSettings(event) {
   showToast("點數規則已儲存", "success");
 }
 
-export function editCoupon(couponId) {
+export function editCoupon(couponId, trigger = null) {
   const coupon = (adminData.coupons || []).find((item) => item.id === couponId);
   if (!coupon) return;
   document.querySelector("#coupon-id").value = coupon.id;
@@ -118,9 +119,9 @@ export function editCoupon(couponId) {
   const memberIds = new Set((coupon.coupon_members || []).map((item) => item.member_id));
   document.querySelectorAll("[name='coupon_product']").forEach((input) => { input.checked = productIds.has(input.value); });
   document.querySelectorAll("[name='coupon_member']").forEach((input) => { input.checked = memberIds.has(input.value); });
-  // 表單在滑出面板內時由 admin-sheets.js 開啟並捲回頂端；對 fixed 面板呼叫 scrollIntoView 會讓 iOS Safari 捲動整頁、點擊錯位
+  // 表單在滑出面板內時打開面板（關閉後焦點回到「編輯」按鈕）；對 fixed 面板呼叫 scrollIntoView 會讓 iOS Safari 捲動整頁、點擊錯位
   const couponForm = document.querySelector("#admin-coupon-form");
-  if (!couponForm.closest(".admin-sheet-panel")) couponForm.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!openAdminSheetFor(couponForm, trigger)) couponForm.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 export async function submitCoupon(event) {

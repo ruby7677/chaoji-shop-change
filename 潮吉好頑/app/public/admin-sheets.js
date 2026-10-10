@@ -203,12 +203,6 @@ export function initAdminSheets() {
       help.setAttribute("aria-expanded", String(!copy.hidden));
     }
   });
-  // 優惠券「編輯」會把資料填入表單（app.js editCoupon），這裡負責把表單面板打開
-  document.addEventListener("click", (event) => {
-    if (!event.target.closest("[data-coupon-edit]")) return;
-    const details = sheetOf(document.querySelector("#admin-coupon-form"));
-    if (details) details.open = true;
-  });
   // 送出成功時 app.js 會重設該表單（form.reset）；失敗則保留資料。據此在成功後自動關閉面板
   const pendingForms = new WeakMap();
   dialog.addEventListener("submit", (event) => {
