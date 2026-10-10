@@ -1173,10 +1173,16 @@ body.is-product-view .product-page {
   /* LINE 客服（業主要求 2026-10-10）：手機版從首頁中段店取列移到主選單列，放在「我的訂單」左邊；
      兩顆按鈕間距 8px，文字連結之間維持 24px，所有寬度都不換行（店取列的那顆隱藏，避免重複）。 */
   .site-header nav { gap: 0; }
-  .site-header nav > a:not(.nav-line-button) { margin-right: 24px; }
+  .site-header nav > a:not(.nav-line-button) { flex: none; margin-right: 24px; white-space: nowrap; }
   .site-header nav .nav-line-button { flex: none; min-height: 44px; margin-left: auto; padding: 0 14px; }
   .site-header nav .nav-line-button + .nav-orders-button:not(.hidden) { margin-left: 8px; }
   .trust-rail a.trust-rail-link.line-service-button { display: none; }
+}
+/* 400px 以下（含 360／375px 手機）：登入後四個項目要擠在一列，字型寬度因裝置而異，預留餘裕 */
+@media (max-width: 400px) {
+  .site-header nav > a:not(.nav-line-button) { margin-right: 16px; }
+  .site-header nav .nav-line-button { padding: 0 12px; }
+  .site-header nav .nav-orders-button:not(.hidden) { padding-inline: 10px 12px; }
 }
 .site-header nav .nav-line-button { display: none; }
 @media (max-width: 760px) {
@@ -1188,9 +1194,10 @@ body.is-product-view .product-page {
   .site-header { column-gap: 8px; padding-inline: 12px; }
   .site-header .brand img { width: 40px; height: 40px; }
   .site-header .brand small { display: none; }
-  .site-header nav > a:not(.nav-line-button) { margin-right: 16px; }
+  .site-header nav > a:not(.nav-line-button) { margin-right: 12px; }
   .site-header nav .nav-line-button { padding: 0 10px; }
-  .site-header nav .nav-orders-button:not(.hidden) { padding-inline: 8px 10px; }
+  .site-header nav .nav-orders-button:not(.hidden) { padding-inline: 10px; }
+  .site-header nav .nav-orders-button svg { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
