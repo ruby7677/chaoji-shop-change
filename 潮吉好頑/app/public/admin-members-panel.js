@@ -41,7 +41,7 @@ export function renderAdminDiscountOptionBoxes({ preserveSelection = false } = {
   const members = adminData.discountMembers || adminData.members || [];
   const checkedProducts = preserveSelection ? new Set([...productBox.querySelectorAll("[name='coupon_product']:checked")].map((input) => input.value)) : new Set();
   const checkedMembers = preserveSelection ? new Set([...memberBox.querySelectorAll("[name='coupon_member']:checked")].map((input) => input.value)) : new Set();
-  productBox.innerHTML = products.map((product) => `<label><input type="checkbox" name="coupon_product" value="${escapeHtml(product.id)}" ${checkedProducts.has(product.id) ? "checked" : ""} /> ${escapeHtml(product.name)}</label>`).join("") || "<small>尚無商品</small>";
+  productBox.innerHTML = products.map((product) => `<label><input type="checkbox" name="coupon_product" value="${escapeHtml(product.id)}" ${checkedProducts.has(product.id) ? "checked" : ""} /> ${escapeHtml(product.name)}${product.archived ? "（已刪除）" : ""}</label>`).join("") || "<small>尚無商品</small>";
   memberBox.innerHTML = members.map((member) => `<label><input type="checkbox" name="coupon_member" value="${escapeHtml(member.id)}" ${checkedMembers.has(member.id) ? "checked" : ""} /> ${escapeHtml(member.full_name || member.phone || "未命名會員")}</label>`).join("") || "<small>尚無會員</small>";
 }
 

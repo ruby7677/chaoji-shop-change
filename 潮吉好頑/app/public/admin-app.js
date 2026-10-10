@@ -126,7 +126,8 @@ function mergeAdminData(partial) {
     const members = Array.isArray(managementOptions.members) ? managementOptions.members : [];
     const categories = Array.isArray(managementOptions.categories) ? managementOptions.categories : [];
     adminData.managementOptions = { products, members, categories };
-    adminData.productOptions = products;
+    // 已刪除商品只為了保留優惠券的適用商品而回傳，庫存調整與新增規格的選單不列出
+    adminData.productOptions = products.filter((product) => !product.archived);
     adminData.discountProducts = products;
     adminData.discountMembers = members;
     adminData.categories = categories;

@@ -42,3 +42,27 @@ select tests.expect_error(format($$select public.admin_archive_product(%L, %L)$$
 select tests.logout();
 select tests.assert((select archived_at is null from public.products where id = tests.id('product_pre')), 'the product is untouched');
 rollback;
+
+-- 刪除後的防護（202610100003）：不能重新上架、不能放進購物車；仍綁在優惠券上的已刪除商品留在優惠券選單並標記。
+begin;
+select tests.seed();
+insert into public.coupons(id, code, name, discount_amount, valid_from, valid_until)
+values ('00000000-0000-4000-8000-0000000000c9', 'ONLYPRE', '預購限定券', 100, now() - interval '1 day', now() + interval '10 days');
+insert into public.coupon_products(coupon_id, product_id) values ('00000000-0000-4000-8000-0000000000c9', tests.id('product_pre'));
+select tests.as_service();
+select public.admin_archive_product(tests.id('admin'), tests.id('product_stock'));
+select public.admin_archive_product(tests.id('admin'), tests.id('product_pre'));
+select tests.logout();
+select tests.expect_error(format($$update public.products set is_published = true where id = %L$$, tests.id('product_stock')), 'PRODUCT_ARCHIVED', 'an archived product cannot be republished');
+select tests.expect_error(format($$update public.product_variants set is_published = true where id = %L$$, tests.id('variant_stock')), 'PRODUCT_ARCHIVED', 'variants of an archived product cannot be republished');
+select tests.as_service();
+select tests.expect_error(format($$select public.admin_update_product(%L, %L, '現貨測試商品', '', null, null, null, true, 0)$$, tests.id('admin'), tests.id('product_stock')), 'PRODUCT_ARCHIVED', 'the admin save RPC cannot republish it either');
+select tests.logout();
+update public.products set archived_at = null, is_published = true where id = tests.id('product_stock');
+select tests.assert((select is_published from public.products where id = tests.id('product_stock')), 'restoring by clearing archived_at allows publishing again');
+select tests.login(tests.id('member_a'));
+select tests.expect_error(format($$insert into public.member_cart_items(member_id, variant_id, quantity) values (%L, %L, 1)$$, tests.id('member_a'), tests.id('variant_pre')), 'CART_PRODUCT_NOT_FOUND', 'a deleted product cannot be put in a cart');
+select tests.expect_error(format($$select public.replace_member_cart(jsonb_build_array(jsonb_build_object('variant_id', %L, 'quantity', 1)))$$, tests.id('variant_pre')), 'CART_PRODUCT_NOT_FOUND', 'cart sync rejects it');
+select tests.logout();
+select tests.assert((select jsonb_agg(p->'archived') from jsonb_array_elements(public.admin_management_options(tests.id('admin'))->'products') p where p->>'id' = tests.id('product_pre')::text) = '[true]'::jsonb, 'a deleted product still tied to a coupon stays in the options, marked archived');
+rollback;

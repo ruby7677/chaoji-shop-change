@@ -395,4 +395,6 @@ select
   to_regprocedure('public.admin_archive_product(uuid,uuid)') is not null
     and has_function_privilege('service_role', 'public.admin_archive_product(uuid,uuid)', 'EXECUTE')
     and not has_function_privilege('anon', 'public.admin_archive_product(uuid,uuid)', 'EXECUTE')
-    and not has_function_privilege('authenticated', 'public.admin_archive_product(uuid,uuid)', 'EXECUTE') as admin_archive_product_service_only;
+    and not has_function_privilege('authenticated', 'public.admin_archive_product(uuid,uuid)', 'EXECUTE') as admin_archive_product_service_only,
+  -- 202610100003：已刪除商品不可重新上架、不可放進購物車。
+  (select count(*) from pg_trigger where not tgisinternal and tgname in ('products_archived_stays_unpublished', 'product_variants_archived_stays_unpublished', 'member_cart_items_on_sale')) = 3 as archived_product_guards_installed;
