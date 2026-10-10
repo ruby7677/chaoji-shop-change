@@ -19,7 +19,6 @@ function enhanceSheet(details) {
   if (!summary) return;
   details.classList.add("admin-sheet");
   details.removeAttribute("open");
-  details.removeAttribute("data-admin-mobile-collapse");
   const title = summary.textContent.trim();
   const panel = document.createElement("div");
   panel.className = "admin-sheet-panel";

@@ -78,9 +78,6 @@ export function relationOne(value) {
 export async function openAdmin() {
   if (!auth.user || auth.profile?.is_admin !== true) return showToast("僅限管理員使用");
   resetAdminDataForActor();
-  if (window.matchMedia("(max-width: 900px)").matches) {
-    document.querySelectorAll("#admin-dialog details[data-admin-mobile-collapse][open]").forEach((details) => details.removeAttribute("open"));
-  }
   const dialog = document.querySelector("#admin-dialog");
   showDialog(dialog);
   const tab = document.querySelector("[data-admin-tab].active")?.dataset.adminTab || "overview";
