@@ -25,6 +25,8 @@ export function availableTransitions(order) {
     && !(item.value === "cancelled" && order.delivery_method === "seller_delivery" && order.status === "ready_for_pickup")
     && (item.value !== "completed" || order.delivery_method !== "home_delivery" || Boolean(order.final_payment_confirmed_at))
     && (item.value !== "completed" || order.delivery_method !== "cvs_delivery" || !hasPreorder || Boolean(order.final_payment_confirmed_at))
+    // 預購到店取貨：先「更新到貨狀態」通知客戶來取，完成取貨只在已通知到貨後出現，避免兩個選項並列誤選
+    && (item.value !== "completed" || !preorderStorePickup || order.status === "ready_for_pickup")
   );
 }
 

@@ -75,3 +75,13 @@ test("7-11 店到店：預購先更新到貨，尾款確認前不能寄出", () 
   assert.deepEqual(availableTransitions({ ...preorder, status: "ready_for_pickup" }).map((item) => item.value), ["cancelled"]);
   assert.deepEqual(availableTransitions({ ...preorder, status: "ready_for_pickup", final_payment_confirmed_at: "x" }).map((item) => item.value), ["completed", "cancelled"]);
 });
+
+test("預購到店取貨：通知到貨前不提供完成取貨，到貨後才出現", () => {
+  const preorderPickup = { delivery_method: "store_pickup", bank_account_id: "bank", order_items: [{ kind: "preorder" }] };
+  for (const status of ["confirmed", "partially_ready"]) {
+    const values = availableTransitions({ ...preorderPickup, status, pickup_plan: "split" }).map((item) => item.value);
+    assert.ok(values.includes("ready_for_pickup") && !values.includes("completed"), status);
+  }
+  assert.deepEqual(availableTransitions({ ...preorderPickup, status: "ready_for_pickup" }).map((item) => item.value), ["completed", "cancelled"]);
+  assert.ok(availableTransitions({ ...preorderPickup, status: "confirmed", order_items: [{ kind: "in_stock" }] }).some((item) => item.value === "completed"));
+});

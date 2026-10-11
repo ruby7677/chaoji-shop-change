@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { BATCH_LIMIT, batchSelectionError, canBatchComplete, completionBatchConfirmation, outstandingBalance, publishBatchConfirmation, summarizeBatchResults } from "../../public/admin-batch.js";
 
-const order = (overrides = {}) => ({ order_number: "CJ-1", status: "confirmed", delivery_method: "store_pickup", amount_due: 3000, paid_amount: 1500, order_items: [{ kind: "preorder" }], ...overrides });
+const order = (overrides = {}) => ({ order_number: "CJ-1", status: "ready_for_pickup", delivery_method: "store_pickup", amount_due: 3000, paid_amount: 1500, order_items: [{ kind: "preorder" }], ...overrides });
 
 test("選取數量：0 筆與超過上限都被拒絕", () => {
   assert.equal(BATCH_LIMIT, 10);
@@ -13,7 +13,9 @@ test("選取數量：0 筆與超過上限都被拒絕", () => {
 
 test("可批次完成：到店取貨的已確認／配送處理中訂單", () => {
   assert.equal(canBatchComplete(order()), true);
-  assert.equal(canBatchComplete(order({ status: "ready_for_pickup" })), true);
+  assert.equal(canBatchComplete(order({ status: "confirmed", order_items: [{ kind: "in_stock" }] })), true);
+  // 預購到店取貨要先通知到貨，已確認階段不能直接完成
+  assert.equal(canBatchComplete(order({ status: "confirmed" })), false);
 });
 
 test("不可批次完成：待確認款項、退款中、已完成", () => {
