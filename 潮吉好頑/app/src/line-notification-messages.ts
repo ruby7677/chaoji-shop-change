@@ -197,15 +197,16 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
   }
 
   if (data.eventType === "created") {
+    const sellerStock = isSeller && !isPreorder;
     const lines = [
       productLine,
       `${copy.labels.total}：${money(data.amountDue)}`,
-      ...(isSeller && !isPreorder ? [] : [`${copy.labels.deposit}：${money(data.depositDue)}`]),
+      ...(sellerStock ? [] : [`${copy.labels.deposit}：${money(data.depositDue)}`]),
       ...(isHome ? [`${copy.labels.shipping}：${isPreorder ? copy.delivery.homeShippingPending : copy.delivery.homeShippingPendingStock}`] : []),
-      `${copy.labels.payment}：${isSeller && !isPreorder ? copy.payment.seller : copy.payment.bank}`
+      `${copy.labels.payment}：${sellerStock ? copy.payment.seller : copy.payment.bank}`
     ];
     if (isPreorder) lines.push("", copy.delivery.preorderNoticeHeading, copy.delivery.preorderNoticeLine, copy.delivery.preorderNoticeCancel);
-    return message(isSeller && !isPreorder ? copy.status.created : copy.status.createdPayment, lines);
+    return message(sellerStock ? copy.status.created : copy.status.createdPayment, lines);
   }
 
   if (data.eventType === "payment_reported") {

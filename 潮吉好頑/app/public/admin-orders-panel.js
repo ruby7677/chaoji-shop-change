@@ -124,8 +124,8 @@ export function renderAdminOrders() {
     if (paymentGrid) paymentGrid.insertAdjacentHTML("beforeend", `<span>${order.delivery_method === "seller_delivery" ? "賣貨便運費" : isCvsOrder(order) ? "店到店運費" : "實際運費"} <b>${shippingFeeLabel}</b></span><span>尾款／運費 <b>${balanceLabel}</b></span>`);
     mountCvsFulfillment(card, order, hasPreorder, card.querySelector(":scope > .admin-order-more, :scope > .admin-order-action, :scope > .admin-order-history"));
     if (order.delivery_method === "home_delivery") {
-      // 現貨宅配：待確認款項或已確認（款項先確認、運費尚未填）都可補填運費與末五碼，確認入帳後才能完成出貨（對應 SQL admin_update_order_fulfillment）
-      const currentStockHomePending = order.delivery_method === "home_delivery" && !hasPreorder && ["pending_review", "confirmed"].includes(order.status);
+      // 現貨宅配：待確認款項或已確認（款項先確認、運費尚未填）都可補填運費與末五碼，確認入帳後才能完成出貨（對應 SQL admin_update_order_fulfillment）；因此下方 confirmed 的提示只剩預購宅配
+      const currentStockHomePending = !hasPreorder && ["pending_review", "confirmed"].includes(order.status);
       const canUpdateFulfillment = currentStockHomePending || ["partially_ready", "ready_for_pickup"].includes(order.status);
       const terminalStatuses = ["completed", "cancelled"];
       // 一鍵確認卡片把 .admin-order-action 表單包進 <details class="admin-order-more">，不再是 card 的直接子節點；
@@ -135,7 +135,7 @@ export function renderAdminOrders() {
         const form = document.createElement("form");
         form.className = "admin-fulfillment-form";
         form.dataset.adminFulfillmentForm = order.id;
-        const fulfillmentTiming = currentStockHomePending ? (order.status === "confirmed" ? "出貨前" : "待確認款項階段") :hasPreorder ? "預購商品到貨後" : "現貨備貨完成後";
+        const fulfillmentTiming = currentStockHomePending ? (order.status === "confirmed" ? "出貨前" : "待確認款項階段") : hasPreorder ? "預購商品到貨後" : "現貨備貨完成後";
         const shippingFeeField = `<label>實際運費<input name="shipping_fee" type="number" min="0" step="1" value="${Number(order.shipping_fee || 0)}" required /><small>${fulfillmentTiming}填寫，會加入待收金額。</small></label>`;
         const finalPaymentLabel = currentStockHomePending ? "已確認全額與運費入帳" : "已確認尾款與運費入帳";
         const lastFiveLabel = currentStockHomePending ? "匯款末五碼" : "尾款匯款末五碼";
@@ -148,7 +148,7 @@ export function renderAdminOrders() {
         prompt.className = "admin-order-terminal";
         prompt.textContent = order.status === "confirmed"
           ? "預購宅配：請等商品實際到貨後，更新為「預購商品已到貨」；之後即可填寫尾款與運費。"
-          :"請先完成訂金／付款確認；宅配進入備貨或到貨狀態後，才能填寫尾款與運費。";
+          : "請先完成訂金／付款確認；宅配進入備貨或到貨狀態後，才能填寫尾款與運費。";
         card.insertBefore(prompt, insertBefore);
       }
     }
