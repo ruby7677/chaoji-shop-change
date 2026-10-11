@@ -397,4 +397,10 @@ select
     and not has_function_privilege('anon', 'public.admin_archive_product(uuid,uuid)', 'EXECUTE')
     and not has_function_privilege('authenticated', 'public.admin_archive_product(uuid,uuid)', 'EXECUTE') as admin_archive_product_service_only,
   -- 202610100003：已刪除商品不可重新上架、不可放進購物車。
-  (select count(*) from pg_trigger where not tgisinternal and tgname in ('products_archived_stays_unpublished', 'product_variants_archived_stays_unpublished', 'member_cart_items_on_sale')) = 3 as archived_product_guards_installed;
+  (select count(*) from pg_trigger where not tgisinternal and tgname in ('products_archived_stays_unpublished', 'product_variants_archived_stays_unpublished', 'member_cart_items_on_sale')) = 3 as archived_product_guards_installed,
+  -- 202610110001：交貨便建單入口（含取件門市）給會員；運費函式與寄件編號 RPC 不開放 API 角色。
+  coalesce(has_function_privilege('authenticated', to_regprocedure('public.create_delivery_order(jsonb,text,text,text,integer,uuid,text,text,text,text,text,text,text,text)'), 'EXECUTE')
+    and not has_function_privilege('anon', to_regprocedure('public.create_delivery_order(jsonb,text,text,text,integer,uuid,text,text,text,text,text,text,text,text)'), 'EXECUTE'), false) as cvs_order_rpc_member_only,
+  coalesce(not has_function_privilege('authenticated', to_regprocedure('private.cvs_shipping_fee(integer)'), 'EXECUTE'), false) as cvs_shipping_fee_hidden,
+  coalesce(has_function_privilege('service_role', to_regprocedure('public.admin_set_order_shipment_tracking(uuid,uuid,text)'), 'EXECUTE')
+    and not has_function_privilege('authenticated', to_regprocedure('public.admin_set_order_shipment_tracking(uuid,uuid,text)'), 'EXECUTE'), false) as shipment_tracking_rpc_service_only;
