@@ -30,7 +30,7 @@ test("a failed catalog shows a reload prompt instead of demo products and leaves
   const cartSource = await readFile(new URL("../../public/cart.js", import.meta.url), "utf8");
   assert.match(catalog, /export let products = \[\];/);
   assert.match(catalog, /data-catalog-retry/);
-  for (const fn of ["export function loadLocalCart()", "export async function loadMemberCart()"]) {
+  for (const fn of ["export function loadLocalCart()", "async function runLoadMemberCart("]) {
     const body = cartSource.slice(cartSource.indexOf(fn), cartSource.indexOf(fn) + 300);
     assert.match(body, /if \(!catalogLoaded\) return;/, fn);
   }
@@ -68,8 +68,16 @@ test("member cart sync waits for the first merge, and LINE logins keep the LIFF 
   assert.match(cartSource, /cartSyncUserId === auth\.user\.id\);/);
   for (const fn of ["function scheduleMemberCartSync()", "export async function syncMemberCartNow"]) {
     const body = cartSource.slice(cartSource.indexOf(fn), cartSource.indexOf(fn) + 120);
-    assert.match(body, /if \(!memberCartReady\(\)\) return;/, fn);
+    assert.match(body, /if \(!memberCartReady\(\)\) \{/, fn);
   }
   const profile = await readFile(new URL("../../public/member-profile.js", import.meta.url), "utf8");
   assert.match(profile, /if \(automatic \|\| liffState\.isInClient\) redirectUrl\.searchParams\.set\(LIFF_AUTO_CALLBACK_PARAM/);
+});
+
+test("a failed first member cart load is retried on later cart changes instead of disabling sync for the session", async () => {
+  const cartSource = await readFile(new URL("../../public/cart.js", import.meta.url), "utf8");
+  assert.match(cartSource, /if \(!memberCartReady\(\)\) \{ retryMemberCartMerge\(\); return; \}/);
+  assert.match(cartSource, /if \(!memberCartReady\(\)\) \{ await retryMemberCartMerge\(\); return; \}/);
+  assert.match(cartSource, /catch \(error\) \{\s*memberCartLoadFailed = true;/);
+  assert.match(source, /addEventListener\("pageshow", \(event\) => \{ if \(event\.persisted\) memberEntryPending = false; \}\)/, "bfcache restore unlocks the login button");
 });

@@ -22,10 +22,14 @@ let pendingCartSnapshot = null;
 let pendingCartHash = null;
 let cartSyncInFlight = null;
 let cartSyncGeneration = 0;
+// 首次載入雲端購物車失敗時為 true：之後加入／移除商品或結帳時會重試合併，成功後才恢復同步
+let memberCartLoadFailed = false;
+let memberCartLoadInFlight = null;
 
 // 登出或切換會員時清除購物車同步對象（登入模組不能直接重新指定這個 let）
 export function forgetCartSyncUser() {
   cartSyncUserId = null;
+  memberCartLoadFailed = false;
   // 用儲存裡未裁切的內容：開機早期（還原購物車前）記憶體中的 cart 可能還是空的
   markCartGuestStart((storedCartStale ? null : readStoredCartItems()) ?? cartPayload(cart));
 }
@@ -43,6 +47,7 @@ export function resetMemberCartSyncState() {
   // member session.
   cartSyncInFlight = null;
   cartSyncUserId = null;
+  memberCartLoadFailed = false;
 }
 
 try {
@@ -153,8 +158,13 @@ function queueMemberCartSnapshot(items = cart) {
 function memberCartReady() {
   return Boolean(auth.accessToken && auth.user && auth.config?.authEnabled && cartSyncUserId === auth.user.id);
 }
+// 首次合併失敗後的重試：不直接上傳本機購物車，而是重新載入雲端並合併（loadMemberCart 成功後會自行同步）
+function retryMemberCartMerge() {
+  if (!memberCartLoadFailed || memberCartReady()) return Promise.resolve();
+  return loadMemberCart({ silent: true });
+}
 function scheduleMemberCartSync() {
-  if (!memberCartReady()) return;
+  if (!memberCartReady()) { retryMemberCartMerge(); return; }
   cartSyncRevision += 1;
   const hash = queueMemberCartSnapshot(cart);
   if (!cartSyncInFlight && hash === lastSyncedCartHash) {
@@ -221,7 +231,7 @@ async function syncMemberCartToServer(revision = cartSyncRevision) {
   catch (error) { showToast(error.message || "會員購物車同步失敗，稍後會再試", "warning"); }
 }
 export async function syncMemberCartNow({ silent = false } = {}) {
-  if (!memberCartReady()) return;
+  if (!memberCartReady()) { await retryMemberCartMerge(); return; }
   if (cartSyncTimer) { window.clearTimeout(cartSyncTimer); cartSyncTimer = null; }
   cartSyncRevision += 1;
   queueMemberCartSnapshot(cart);
@@ -252,7 +262,11 @@ export function loadLocalCart() {
     }
   } catch { try { sessionStorage.removeItem("cj-cart"); } catch { /* ignore restricted storage */ } }
 }
-export async function loadMemberCart() {
+export function loadMemberCart(options = {}) {
+  if (!memberCartLoadInFlight) memberCartLoadInFlight = runLoadMemberCart(options).finally(() => { memberCartLoadInFlight = null; });
+  return memberCartLoadInFlight;
+}
+async function runLoadMemberCart({ silent = false } = {}) {
   // 型錄沒載入成功時不合併：所有商品都對不到，會把雲端購物車同步成空的
   if (!catalogLoaded) return;
   if (!auth.accessToken || !auth.user || !auth.config?.authEnabled || cartSyncUserId === auth.user.id) return;
@@ -277,13 +291,15 @@ export async function loadMemberCart() {
     }
     cart.splice(0, cart.length, ...[...merged.values()].slice(0, 50));
     cartSyncUserId = auth.user.id;
+    memberCartLoadFailed = false;
     lastSyncedCartHash = remoteCartHash;
     writeCartOwner(auth.user.id, remoteItems);
     saveCart({ sync: false });
     if (stableCartHash(cart) !== remoteCartHash) await syncMemberCartNow({ silent: true });
     if (document.body.classList.contains("auth-boot-ready")) renderCart();
   } catch (error) {
-    showToast(error.message || "會員購物車同步失敗，仍保留本機購物車", "warning");
+    memberCartLoadFailed = true;
+    if (!silent) showToast(error.message || "會員購物車同步失敗，仍保留本機購物車", "warning");
   }
 }
 function addToCart(id) { const product = products.find((item) => item.id === id); const existing = cart.find((item) => item.id === id); if (existing) { if (existing.quantity >= product.stock) return showToast("已達可選購庫存上限"); existing.quantity += 1; } else cart.push({ ...product, quantity: 1 }); saveCart(); renderCart(); showToast(`${product.name} 已加入購物車`); }

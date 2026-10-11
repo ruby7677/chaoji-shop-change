@@ -158,6 +158,8 @@ document.querySelectorAll("dialog").forEach((dialog) => {
 
 // 會員按鈕：等背景登入完成再決定開會員資料或前往 LINE 登入；等待中連點只算一次，不重複發起 OAuth
 let memberEntryPending = false;
+// 從 LINE 授權頁按上一頁、頁面由 bfcache 還原時，JS 狀態仍在：解除鎖定才能再按登入
+window.addEventListener("pageshow", (event) => { if (event.persisted) memberEntryPending = false; });
 async function openMemberEntry() {
   if (memberEntryPending) return;
   memberEntryPending = true;
