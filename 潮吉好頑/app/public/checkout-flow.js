@@ -21,7 +21,7 @@ export function selectCheckoutScope(scope) {
 export async function openCheckout(scope = null) {
   // 先等背景登入與會員購物車合併完成，再依合併後的購物車建立結帳快照（loadMemberCart 會換掉 cart 內的物件）
   await whenAuthReady();
-  await settleMemberCart();
+  const memberCartSettled = await settleMemberCart();
   const groups = cartGroups();
   const resolvedScope = scope || activeCheckoutScope || (groups.preorder.length ? "preorder" : "in_stock");
   const scopedItems = cartItemsForScope(resolvedScope);
@@ -29,6 +29,8 @@ export async function openCheckout(scope = null) {
   activeCheckoutScope = resolvedScope;
   activeCheckoutItems = scopedItems.slice();
   if (!auth.accessToken || !auth.user) return beginLineLogin();
+  // 會員購物車沒合併成功（網路中斷或逾時）就不結帳，避免事後合併把已購商品加回購物車；再按一次會重試
+  if (!memberCartSettled) return showToast("購物車還在與會員資料同步，請稍後再按一次結帳；持續失敗請重新整理頁面", "warning");
   if (!profileIsComplete()) return showProfileDialog(true);
   if (!await requireLineFriendshipForCheckout()) return;
   const cartMethod = selectedCartDeliveryMethod(resolvedScope);

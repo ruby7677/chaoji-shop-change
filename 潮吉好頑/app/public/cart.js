@@ -163,10 +163,15 @@ function retryMemberCartMerge() {
   if (!memberCartLoadFailed || memberCartReady()) return Promise.resolve();
   return loadMemberCart({ silent: true });
 }
-/** 結帳建立快照前呼叫：等進行中的雲端購物車載入／重試合併完成，避免快照之後 cart 內的物件被換掉。 */
+const MEMBER_CART_SETTLE_TIMEOUT_MS = 8000;
+/**
+ * 結帳建立快照前呼叫：等進行中的雲端購物車載入／重試合併（最多 8 秒），回傳是否已合併完成。
+ * 未完成時結帳必須停下：沒合併就結帳，事後的合併可能換掉快照物件，或把已購商品從雲端加回購物車。
+ */
 export async function settleMemberCart() {
-  if (memberCartLoadInFlight) await memberCartLoadInFlight;
-  await retryMemberCartMerge();
+  const pending = memberCartLoadInFlight || retryMemberCartMerge();
+  await Promise.race([pending, new Promise((resolve) => setTimeout(resolve, MEMBER_CART_SETTLE_TIMEOUT_MS))]);
+  return memberCartReady();
 }
 function scheduleMemberCartSync() {
   if (!memberCartReady()) { retryMemberCartMerge(); return; }
