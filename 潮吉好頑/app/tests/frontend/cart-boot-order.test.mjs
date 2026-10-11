@@ -61,6 +61,7 @@ test("checkout snapshots the cart only after the background login and member car
   const body = text.slice(text.indexOf("export async function openCheckout"));
   assert.ok(body.indexOf("await whenAuthReady()") < body.indexOf("cartGroups()"), "wait before reading the cart");
   assert.ok(body.indexOf("await whenAuthReady()") < body.indexOf("activeCheckoutItems = "), "wait before the snapshot");
+  assert.ok(body.indexOf("await settleMemberCart()") > 0 && body.indexOf("await settleMemberCart()") < body.indexOf("cartGroups()"), "a pending member cart merge finishes before the snapshot");
 });
 
 test("member cart sync waits for the first merge, and LINE logins keep the LIFF callback marker", async () => {
@@ -80,4 +81,9 @@ test("a failed first member cart load is retried on later cart changes instead o
   assert.match(cartSource, /if \(!memberCartReady\(\)\) \{ await retryMemberCartMerge\(\); return; \}/);
   assert.match(cartSource, /catch \(error\) \{\s*memberCartLoadFailed = true;/);
   assert.match(source, /addEventListener\("pageshow", \(event\) => \{ if \(event\.persisted\) memberEntryPending = false; \}\)/, "bfcache restore unlocks the login button");
+});
+
+test("waiting for the background login is bounded", async () => {
+  const ready = await readFile(new URL("../../public/auth-ready.js", import.meta.url), "utf8");
+  assert.match(ready, /Promise\.race\(\[settledPromise, new Promise\(\(resolve\) => setTimeout\(resolve, AUTH_READY_TIMEOUT_MS\)\)\]\)/);
 });

@@ -12,9 +12,12 @@ export function markAuthSettled() {
   resolveSettled();
 }
 
-/** 會員登入恢復完成前等待；等待中提示一次，讓按下按鈕的客人知道不是沒反應。 */
+// 背景恢復最多等這麼久：某個請求一直沒回應時，按鈕仍會以當下的登入狀態繼續（未登入就改走 LINE 登入）
+const AUTH_READY_TIMEOUT_MS = 10000;
+
+/** 會員登入恢復完成前等待（有上限）；等待中提示一次，讓按下按鈕的客人知道不是沒反應。 */
 export async function whenAuthReady() {
   if (settled) return;
   showToast("正在確認登入狀態…");
-  await settledPromise;
+  await Promise.race([settledPromise, new Promise((resolve) => setTimeout(resolve, AUTH_READY_TIMEOUT_MS))]);
 }

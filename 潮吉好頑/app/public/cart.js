@@ -163,6 +163,11 @@ function retryMemberCartMerge() {
   if (!memberCartLoadFailed || memberCartReady()) return Promise.resolve();
   return loadMemberCart({ silent: true });
 }
+/** 結帳建立快照前呼叫：等進行中的雲端購物車載入／重試合併完成，避免快照之後 cart 內的物件被換掉。 */
+export async function settleMemberCart() {
+  if (memberCartLoadInFlight) await memberCartLoadInFlight;
+  await retryMemberCartMerge();
+}
 function scheduleMemberCartSync() {
   if (!memberCartReady()) { retryMemberCartMerge(); return; }
   cartSyncRevision += 1;
