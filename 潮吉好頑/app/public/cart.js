@@ -30,8 +30,18 @@ let memberCartLoadInFlight = null;
 export function forgetCartSyncUser() {
   cartSyncUserId = null;
   memberCartLoadFailed = false;
-  // 用儲存裡未裁切的內容：開機早期（還原購物車前）記憶體中的 cart 可能還是空的
-  markCartGuestStart((storedCartStale ? null : readStoredCartItems()) ?? cartPayload(cart));
+  // 用儲存裡未裁切的內容：開機早期（還原購物車前）記憶體中的 cart 可能還是空的。
+  // 背景登入期間改用開放購物前固定的基準，客人在這段時間加入的商品才不會被當成舊會員的內容排除
+  markCartGuestStart(bootCartBaseline ?? (storedCartStale ? null : readStoredCartItems()) ?? cartPayload(cart));
+}
+
+// 開機時、開放加入商品之前固定購物車基準；背景登入（含會員載入）結束後解除
+let bootCartBaseline = null;
+export function freezeBootCartBaseline() {
+  bootCartBaseline = (storedCartStale ? null : readStoredCartItems()) ?? cartPayload(cart);
+}
+export function releaseBootCartBaseline() {
+  bootCartBaseline = null;
 }
 
 export function resetMemberCartSyncState() {

@@ -41,7 +41,7 @@ test("LINE login restores in the background after the page shows, without an aut
   assert.ok(boot.indexOf("initializeLiffBridge(") < boot.indexOf("await catalogLoading"), "the bridge still starts right after liff.init");
   assert.ok(boot.indexOf("markAuthSettled()") > boot.indexOf("await loadMember()"), "auth settles after the member loads");
   assert.ok(boot.indexOf("markAuthSettled()") < boot.indexOf("await restoreAuthReturnState()"), "auth settles before a resumed checkout waits on it");
-  assert.match(source.slice(source.indexOf("await bootstrapAuth();")), /catch \(error\) \{\s*markAuthSettled\(\);/, "a failed boot never leaves buttons waiting");
+  assert.match(source.slice(source.indexOf("await bootstrapAuth();")), /catch \(error\) \{\s*releaseBootCartBaseline\(\);\s*markAuthSettled\(\);/, "a failed boot never leaves buttons waiting");
   const liffSession = await readFile(new URL("../../public/liff-session.js", import.meta.url), "utf8");
   assert.ok(!liffSession.includes("beginLineLogin({ automatic: true })"), "the bridge never starts OAuth on its own");
 });
@@ -93,4 +93,10 @@ test("waiting for the background login is bounded", async () => {
 test("the checkout wait for a member cart merge is bounded", async () => {
   const cartSource = await readFile(new URL("../../public/cart.js", import.meta.url), "utf8");
   assert.match(cartSource, /await Promise\.race\(\[pending, new Promise\(\(resolve\) => setTimeout\(resolve, MEMBER_CART_SETTLE_TIMEOUT_MS\)\)\]\);\s*return memberCartReady\(\);/);
+});
+
+test("the cart baseline is frozen before shopping opens and released after the member loads", () => {
+  const freeze = boot.indexOf("freezeBootCartBaseline()");
+  assert.ok(freeze > boot.indexOf("loadLocalCart()") && freeze < boot.indexOf("finishAuthBoot()"), "frozen before shoppers can add items");
+  assert.ok(boot.indexOf("releaseBootCartBaseline()") > boot.indexOf("await loadMember()"), "released after the member cart merge");
 });

@@ -5,7 +5,7 @@ import { initAuthExpiry } from "./auth-expiry.js";
 import { initAdminTab, openAdminFromRoute, openAdminInNewTab } from "./admin-tab.js";
 import { openAdminLazy } from "./admin-loader.js";
 import { auth, closeDialog, showDialog, showToast, syncPageScrollLock } from "./app-core.js";
-import { addToCartWithFeedback, addVariantQuantityToCart, buyNowFromCard, buyNowVariant, cart, handleCartCheckout, loadLocalCart, renderCart, saveCart, setCartDeliveryMethod, setCartGroupDeliveryMethod, toggleCart } from "./cart.js";
+import { addToCartWithFeedback, addVariantQuantityToCart, buyNowFromCard, buyNowVariant, cart, freezeBootCartBaseline, handleCartCheckout, loadLocalCart, releaseBootCartBaseline, renderCart, saveCart, setCartDeliveryMethod, setCartGroupDeliveryMethod, toggleCart } from "./cart.js";
 import { bankAccounts, clearCheckoutFieldErrorFor, openCheckoutReview, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields, syncPaymentFields } from "./checkout-form.js";
 import { checkLineFriendship, handleLineFriendRequest, showLineFriendDialog } from "./member-benefits.js";
 import { currentOrders, openOrders, showPaymentDialog, submitPayment } from "./member-orders.js";
@@ -215,6 +215,8 @@ async function bootstrapAuth() {
     await catalogLoading;
     // 購物車只存商品 id，要等正式型錄載入後才能對回商品；型錄失敗時 loadLocalCart 會略過，保留原本的購物車。
     loadLocalCart();
+    // 背景登入完成前就能加入商品：先固定購物車基準，換會員時才分得出哪些是剛加入的
+    freezeBootCartBaseline();
     renderInitialPageOnce();
     // 主圖不再擋開機畫面：商品頁先出現，主圖（fetchpriority=high）自行載入
     finishAuthBoot();
@@ -225,6 +227,7 @@ async function bootstrapAuth() {
     // so a slow auth request cannot keep ordinary browsers behind the boot UI.
     if (!inLineClient) await ensureWebSession();
     await loadMember();
+    releaseBootCartBaseline();
     // 回到登入前的結帳等畫面會呼叫 openCheckout（會等 whenAuthReady），必須先標記完成
     markAuthSettled();
     await restoreAuthReturnState();
@@ -239,6 +242,7 @@ startAuthBoot();
 try {
   await bootstrapAuth();
 } catch (error) {
+  releaseBootCartBaseline();
   markAuthSettled();
   console.error("App bootstrap failed.", error);
   if (liffPrimaryRedirectPending || hasLiffPrimaryRedirectParams() || new URL(location.href).searchParams.has(LIFF_AUTO_CALLBACK_PARAM)) {
