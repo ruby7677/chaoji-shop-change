@@ -5,6 +5,7 @@ import { clearCheckoutFieldErrors, ensurePaymentMethodUI, loadBankAccounts, rend
 import { loadPoints, requireLineFriendshipForCheckout } from "./member-benefits.js";
 import { showPaymentDialog } from "./member-orders.js";
 import { rememberCvsStore } from "./checkout-cvs-store.js";
+import { ensureCheckoutCouponApplied, resetCheckoutCoupon } from "./checkout-coupon.js";
 import { beginLineLogin, profileIsComplete, saveProfile, showProfileDialog } from "./member-profile.js";
 
 export let activeCheckoutScope = null;
@@ -37,6 +38,7 @@ export async function openCheckout(scope = null) {
   const pointsInput = document.querySelector("#checkout-points");
   if (couponInput) couponInput.value = "";
   if (pointsInput) pointsInput.value = "0";
+  resetCheckoutCoupon();
   syncDeliveryFields();
   renderCheckoutSummary();
   setCheckoutStage("details", { focus: false });
@@ -56,6 +58,9 @@ export async function submitOrder() {
   if (!auth.config?.authEnabled) return showToast("目前為靜態預覽，尚未連接訂單資料庫");
   if (!auth.accessToken || !auth.user) return beginLineLogin();
   const details = validateCheckoutDetails();
+  const couponReady = await ensureCheckoutCouponApplied();
+  renderCheckoutSummary();
+  if (!couponReady) throw new Error("優惠碼無法使用，請修正或移除後再建立訂單");
   const itemsForOrder = checkoutCartItems().slice();
   const pickupPlan = "together";
   const needsRecipient = ["home_delivery", "cvs_delivery"].includes(details.deliveryMethod);

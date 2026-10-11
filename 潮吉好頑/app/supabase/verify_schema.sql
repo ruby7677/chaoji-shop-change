@@ -403,4 +403,7 @@ select
     and not has_function_privilege('anon', to_regprocedure('public.create_delivery_order(jsonb,text,text,text,integer,uuid,text,text,text,text,text,text,text,text)'), 'EXECUTE'), false) as cvs_order_rpc_member_only,
   coalesce(not has_function_privilege('authenticated', to_regprocedure('private.cvs_shipping_fee(integer)'), 'EXECUTE'), false) as cvs_shipping_fee_hidden,
   coalesce(has_function_privilege('service_role', to_regprocedure('public.admin_set_order_shipment_tracking(uuid,uuid,text)'), 'EXECUTE')
-    and not has_function_privilege('authenticated', to_regprocedure('public.admin_set_order_shipment_tracking(uuid,uuid,text)'), 'EXECUTE'), false) as shipment_tracking_rpc_service_only;
+    and not has_function_privilege('authenticated', to_regprocedure('public.admin_set_order_shipment_tracking(uuid,uuid,text)'), 'EXECUTE'), false) as shipment_tracking_rpc_service_only,
+  -- 202610110002：結帳套用優惠碼試算只給已登入會員。
+  coalesce(has_function_privilege('authenticated', to_regprocedure('public.preview_checkout_coupon(jsonb,text)'), 'EXECUTE')
+    and not has_function_privilege('anon', to_regprocedure('public.preview_checkout_coupon(jsonb,text)'), 'EXECUTE'), false) as coupon_preview_rpc_member_only;

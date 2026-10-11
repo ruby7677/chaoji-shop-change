@@ -14,6 +14,7 @@ import { databaseError, databaseErrors } from "./database-errors";
 import { canonicalRedirect } from "./canonical-host";
 import { type Env } from "./env";
 import { MAX_JSON_REQUEST_BYTES, SECURITY_HEADERS, enforceRateLimit, json, serviceHeaders, withSecurityHeaders } from "./http";
+import { previewCheckoutCoupon } from "./coupon-preview";
 import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFriendship, memberPoints, replaceMemberCart, submitOrderPayment } from "./member-api";
 import { notifyLowStock, notifyOrderEvent, runScheduledNotifications, testTelegramNotification } from "./notifications";
 import { isKeepaliveHour, pingSupabase } from "./supabase-keepalive";
@@ -66,6 +67,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   if (request.method === "GET" && url.pathname === "/api/member/points") return memberPoints(request, env);
   if (request.method === "GET" && url.pathname === "/api/member/line-friendship") return memberLineFriendship(request, env);
   if (request.method === "POST" && url.pathname === "/api/member/identity-sync") return syncMemberIdentity(request, env);
+  if (request.method === "POST" && url.pathname === "/api/checkout/coupon-preview") return previewCheckoutCoupon(request, env);
   if (request.method === "POST" && url.pathname === "/api/orders") {
     const response = await createOrder(request, env);
     if (response.ok) {

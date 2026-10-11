@@ -5,6 +5,8 @@ import { checkoutCartItems, selectedDeliveryMethod, selectedPaymentMethod } from
 import { activeCheckoutScope, showCheckoutError } from "./checkout-flow.js";
 import { cvsFeeHint, cvsShippingFee } from "./cvs-delivery.js";
 import { cvsStoreDetails, cvsStoreProblem, ensureCvsStoreFields, toggleCvsStoreFields } from "./checkout-cvs-store.js";
+import { currentAppliedCoupon, syncCouponControls } from "./checkout-coupon.js";
+import { estimateEarnedPoints } from "./checkout-earned-points.js";
 
 export let bankAccounts = [];
 
@@ -23,24 +25,31 @@ export function renderCheckoutSummary() {
   const points = Math.max(0, Number(document.querySelector("#checkout-points")?.value || 0));
   const couponCode = document.querySelector("#checkout-coupon-code")?.value.trim() || "";
   const settings = auth.points?.settings;
-  const pointDiscount = settings ? Math.min(points * settings.point_value, preorderCheckout ? depositTotal : total) : 0;
-  const couponRow = `<div class="checkout-summary-row"><span>優惠券</span><strong>${couponCode ? "待系統確認" : "未使用"}</strong></div>`;
-  const couponNote = couponCode ? `<p class="checkout-summary-note checkout-coupon-note"><strong>優惠碼已輸入</strong>：${escapeHtml(couponCode)} 的折抵會依商品、會員資格、有效期限與併用規則於建立訂單時驗證；預估總額尚未先扣除。</p>` : "";
+  syncCouponControls();
+  const coupon = currentAppliedCoupon();
+  // 與建單相同：優惠券與點數都從本次應付的商品金額（預購為訂金）扣除，最低為 0
+  const discountBase = preorderCheckout ? depositTotal : total;
+  const couponDiscount = coupon ? Math.min(coupon.discount_amount, discountBase) : 0;
+  const pointDiscount = settings ? Math.min(points * settings.point_value, Math.max(discountBase - couponDiscount, 0)) : 0;
+  const couponValue = coupon ? `-${money(couponDiscount)}` : couponCode ? "尚未套用" : "未使用";
+  const couponRow = `<div class="checkout-summary-row${coupon ? " checkout-summary-discount" : ""}"><span>優惠券${coupon ? `（${escapeHtml(coupon.name)}）` : ""}</span><strong>${couponValue}</strong></div>`;
+  const earnedPoints = settings ? estimateEarnedPoints({ items: checkoutItems, couponDiscount, pointDiscount, earnAmountPerPoint: settings.earn_amount_per_point }) : 0;
+  const earnedRow = settings ? `<div class="checkout-summary-row checkout-summary-earned"><span>本次累積點數</span><strong>+${earnedPoints}</strong></div>` : "";
   const cvs = deliveryMethod === "cvs_delivery";
   const shippingFee = cvs ? cvsShippingFee(total) : 0;
   // 現貨交貨便運費併入本次匯款；預購運費到貨後與尾款一起收，不加進訂金
   const payableShipping = cvs && !preorderCheckout ? shippingFee : 0;
   const deliveryNote = cvs ? cvsFeeHint(total, preorderCheckout) : deliveryMethodNotes[deliveryMethod];
   const shippingRow = cvs ? `<div class="checkout-summary-row"><span>${preorderCheckout ? "運費（到貨後與尾款一併收取）" : "運費"}</span><strong>${shippingFee ? money(shippingFee) : "免運"}</strong></div>` : "";
-  const estimatedTotal = Math.max(depositTotal - pointDiscount, 0) + payableShipping;
+  const payableTotal = Math.max(depositTotal - couponDiscount - pointDiscount, 0) + payableShipping;
   const itemRows = checkoutItems.map((item) => `<div class="checkout-summary-row checkout-summary-item"><span>${escapeHtml(item.name)} × ${item.quantity}</span><strong>${money(item.price * item.quantity)}</strong></div>`).join("");
   const depositRow = preorderCheckout ? `<div class="checkout-summary-row"><span>預購訂金 50%</span><strong>${money(depositTotal)}</strong></div>` : "";
-  const pointRow = `<div class="checkout-summary-row checkout-summary-discount"><span>點數預估折抵</span><strong>${pointDiscount ? `-${money(pointDiscount)}` : money(0)}</strong></div>`;
-  document.querySelector("#checkout-order-summary").innerHTML = `<div class="checkout-summary-head"><span aria-hidden="true">金額</span><div><h4>結算金額</h4><p>建立訂單後，系統回傳最終優惠與付款金額。</p></div></div><div class="checkout-summary-lines">${itemRows}<div class="checkout-summary-row"><span>商品總額</span><strong>${money(total)}</strong></div>${depositRow}${couponRow}${pointRow}${shippingRow}<div class="checkout-summary-row checkout-summary-payable"><span>本次預估應付</span><strong>${money(estimatedTotal)}</strong></div></div>${couponNote}<p class="checkout-summary-note"><strong>${escapeHtml(deliveryMethodLabels[deliveryMethod])}</strong>：${escapeHtml(deliveryNote)}</p>`;
+  const pointRow = `<div class="checkout-summary-row checkout-summary-discount"><span>點數折抵</span><strong>${pointDiscount ? `-${money(pointDiscount)}` : money(0)}</strong></div>`;
+  document.querySelector("#checkout-order-summary").innerHTML = `<div class="checkout-summary-head"><span aria-hidden="true">金額</span><div><h4>結算金額</h4><p>${coupon || pointDiscount ? "已套用優惠，以下為本次應付金額。" : "以下為本次應付金額。"}</p></div></div><div class="checkout-summary-lines">${itemRows}<div class="checkout-summary-row"><span>商品總額</span><strong>${money(total)}</strong></div>${depositRow}${couponRow}${pointRow}${shippingRow}<div class="checkout-summary-row checkout-summary-payable"><span>本次應付</span><strong>${money(payableTotal)}</strong></div>${earnedRow}</div><p class="checkout-summary-note"><strong>${escapeHtml(deliveryMethodLabels[deliveryMethod])}</strong>：${escapeHtml(deliveryNote)}</p>`;
   const payable = document.querySelector("#checkout-review-payable");
-  if (payable) payable.textContent = money(estimatedTotal);
+  if (payable) payable.textContent = money(payableTotal);
   const totalNote = document.querySelector("#checkout-review-total-note");
-  if (totalNote) totalNote.textContent = couponCode ? "預估應付・優惠券待確認" : "本次預估應付";
+  if (totalNote) totalNote.textContent = "本次應付";
 }
 
 function ensureShippingRecipientFields() {
@@ -274,7 +283,7 @@ export function syncPaymentFields() {
 
 function ensureCheckoutBenefits() {
   if (document.querySelector("#checkout-coupon-code")) return;
-  document.querySelector("#checkout-order-summary").insertAdjacentHTML("beforebegin", '<section class="checkout-benefits" data-checkout-review aria-hidden="true" aria-labelledby="checkout-benefits-title"><div class="checkout-benefits-head"><div><h4 id="checkout-benefits-title">優惠折抵</h4><p>可選擇使用，不影響商品保留流程。</p></div><span>OPTIONAL</span></div><div class="checkout-benefits-grid"><label>優惠碼<input id="checkout-coupon-code" maxlength="32" autocomplete="off" placeholder="輸入優惠碼（選填）" list="member-coupon-options" /><datalist id="member-coupon-options"></datalist></label><label>使用點數<input id="checkout-points" type="number" min="0" step="1" value="0" inputmode="numeric" aria-describedby="checkout-point-help" /><small id="checkout-point-help">未使用點數</small></label></div><p class="checkout-benefits-note">優惠資格、有效期限、使用次數及併用規則，會在建立訂單時由系統確認。</p></section>');
+  document.querySelector("#checkout-order-summary").insertAdjacentHTML("beforebegin", '<section class="checkout-benefits" data-checkout-review aria-hidden="true" aria-labelledby="checkout-benefits-title"><div class="checkout-benefits-head"><div><h4 id="checkout-benefits-title">優惠折抵</h4><p>可選擇使用，不影響商品保留流程。</p></div><span>OPTIONAL</span></div><div class="checkout-benefits-grid"><div class="checkout-coupon-group"><label for="checkout-coupon-code">優惠碼</label><div class="checkout-coupon-field"><input id="checkout-coupon-code" maxlength="32" autocomplete="off" enterkeyhint="done" placeholder="輸入優惠碼（選填）" list="member-coupon-options" aria-describedby="checkout-coupon-status" /><button class="checkout-coupon-apply" type="button" data-checkout-coupon-apply data-action="apply">套用</button></div><datalist id="member-coupon-options"></datalist><small id="checkout-coupon-status" class="checkout-coupon-status" aria-live="polite"></small></div><label>使用點數<input id="checkout-points" type="number" min="0" step="1" value="0" inputmode="numeric" aria-describedby="checkout-point-help" /><small id="checkout-point-help">未使用點數</small></label></div><p class="checkout-benefits-note">輸入優惠碼後按「套用」，系統會確認資格、有效期限、使用次數及併用規則並帶入折抵。</p></section>');
 }
 
 export function renderCheckoutBenefits() {

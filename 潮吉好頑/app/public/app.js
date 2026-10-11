@@ -13,6 +13,7 @@ import { loadProducts, openProductDetail, products, renderHeroSpotlight, renderP
 import { failAuthBoot, finishAuthBoot, startAuthBoot } from "./auth-boot.js";
 import { restoreAuthReturnState } from "./auth-return-state.js";
 import { activeCheckoutScope, openCheckout, showCheckoutError, submitOrder } from "./checkout-flow.js";
+import { applyCheckoutCoupon, handleCouponInputChange, removeCheckoutCoupon } from "./checkout-coupon.js";
 import { LIFF_AUTO_CALLBACK_PARAM, captureAuthSession, clearLiffLaunchContext, clearStoredAuthSession, ensureWebSession, hasLiffLaunchIntent, hasLiffPrimaryRedirectParams, initializeLiffBridge, initializeLiffStage, liffPrimaryRedirectPending, loadRuntimeConfig, readLiffLaunchContext, restorePersistentLiffSession, restoreWebSession } from "./liff-session.js";
 import { beginLineLogin, loadMember, showProfileDialog, submitProfile } from "./member-profile.js";
 import { handleCopyBankAccount } from "./copy-bank-account.js";
@@ -37,6 +38,11 @@ document.addEventListener("click", (event) => {
   if (event.target.closest("[data-checkout-close]")) closeDialog(document.querySelector("#checkout-dialog"));
   if (event.target.closest("[data-checkout-review-next]")) openCheckoutReview();
   if (event.target.closest("[data-checkout-details-back]")) setCheckoutStage("details");
+  const couponButton = event.target.closest("[data-checkout-coupon-apply]");
+  if (couponButton) {
+    if (couponButton.dataset.action === "remove") { removeCheckoutCoupon(); renderCheckoutSummary(); }
+    else applyCheckoutCoupon().then(renderCheckoutSummary);
+  }
   if (event.target.closest("[data-demo='login']")) auth.user ? showProfileDialog(false) : beginLineLogin();
   if (event.target.closest("[data-profile-close]")) closeDialog(document.querySelector("#profile-dialog"));
   if (event.target.closest("[data-orders-open]")) openOrders();
@@ -81,7 +87,7 @@ document.addEventListener("change", (event) => {
 });
 document.addEventListener("input", (event) => {
   if (event.target.matches("#checkout-points")) renderCheckoutSummary();
-  if (event.target.matches("#checkout-coupon-code")) renderCheckoutSummary();
+  if (event.target.matches("#checkout-coupon-code")) { handleCouponInputChange(); renderCheckoutSummary(); }
   if (event.target.matches("#checkout-address")) renderCheckoutSummary();
   if (event.target.closest("#checkout-form")) clearCheckoutFieldErrorFor(event.target);
 });
@@ -115,6 +121,12 @@ document.querySelector(".filter-row")?.addEventListener("click", (event) => {
   if (button) selectCategory(button.dataset.category);
 });
 search.addEventListener("input", renderProducts);
+// 在優惠碼欄按 Enter 是「套用」，不直接送出建立訂單
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || !event.target.matches?.("#checkout-coupon-code")) return;
+  event.preventDefault();
+  applyCheckoutCoupon().then(renderCheckoutSummary);
+});
 document.querySelector("#checkout-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;

@@ -142,3 +142,75 @@ select tests.expect_error(
 select tests.logout();
 select tests.assert((select count(*) = 0 from public.orders), 'rejected order leaves no rows');
 rollback;
+
+-- 結帳「套用」試算：與建單相同的折抵金額，且不寫入任何核銷或訂單。
+begin;
+select tests.seed();
+insert into public.coupons(code, name, discount_amount, combinable_with_points, valid_from, valid_until)
+values ('PREVIEW1', '試算券', 5000, false, now() - interval '1 day', now() + interval '30 days');
+select tests.login(tests.id('member_a'));
+create temp table t_preview on commit drop as
+  select public.preview_checkout_coupon(tests.order_items(tests.id('variant_stock'), 2), ' preview1 ') as result;
+select tests.assert((select (result->>'discount_amount')::integer = 2000 and result->>'code' = 'PREVIEW1'
+                            and (result->>'combinable_with_points')::boolean = false from t_preview),
+                    'preview caps the discount at the eligible subtotal and normalizes the code');
+create temp table t_preview_order on commit drop as select public.create_delivery_order(
+    tests.order_items(tests.id('variant_stock'), 2), 'together', 'store_pickup', 'PREVIEW1', 0,
+    tests.id('bank'), null, null, null, null) as id;
+select tests.logout();
+select tests.assert((select coupon_discount = (select (result->>'discount_amount')::integer from t_preview)
+                       from public.orders where id = (select id from t_preview_order)),
+                    'preview discount matches the discount applied at order creation');
+rollback;
+
+-- 試算不核銷：試算後 coupon_redemptions 仍為空；被拒絕的代碼回傳與建單相同的錯誤。
+begin;
+select tests.seed();
+insert into public.coupons(code, name, discount_amount, valid_from, valid_until, per_member_limit)
+values ('PREVIEW2', '單次券', 100, now() - interval '1 day', now() + interval '30 days', 1);
+insert into public.coupons(code, name, discount_amount, valid_from, valid_until)
+values ('PREVIEWOLD', '過期券', 100, now() - interval '10 days', now() - interval '1 day');
+select tests.login(tests.id('member_a'));
+select public.preview_checkout_coupon(tests.order_items(tests.id('variant_stock'), 1), 'PREVIEW2');
+select public.preview_checkout_coupon(tests.order_items(tests.id('variant_stock'), 1), 'PREVIEW2');
+select tests.expect_error(
+  $$select public.preview_checkout_coupon(tests.order_items(tests.id('variant_stock'), 1), 'NOSUCHCODE')$$,
+  'COUPON_NOT_FOUND', 'preview rejects an unknown code');
+select tests.expect_error(
+  $$select public.preview_checkout_coupon(tests.order_items(tests.id('variant_stock'), 1), 'PREVIEWOLD')$$,
+  'COUPON_EXPIRED', 'preview rejects an expired code');
+select public.create_delivery_order(tests.order_items(tests.id('variant_stock'), 1), 'together', 'store_pickup', 'PREVIEW2', 0, tests.id('bank'), null, null, null, null);
+select tests.expect_error(
+  $$select public.preview_checkout_coupon(tests.order_items(tests.id('variant_stock'), 1), 'PREVIEW2')$$,
+  'COUPON_MEMBER_LIMIT', 'preview reports a used-up coupon');
+select tests.logout();
+select tests.assert((select count(*) = 1 from public.coupon_redemptions), 'previews never record a redemption');
+rollback;
+
+-- 試算的資格限制：限定商品、會員專屬與未登入。
+begin;
+select tests.seed();
+create temp table t_preview_coupon on commit drop as
+  with c as (
+    insert into public.coupons(code, name, discount_amount, valid_from, valid_until)
+    values ('PREVIEWPROD', '限定商品券', 100, now() - interval '1 day', now() + interval '30 days')
+    returning id
+  )
+  select id from c;
+insert into public.coupon_products(coupon_id, product_id) values ((select id from t_preview_coupon), tests.id('product_pre'));
+insert into public.coupons(code, name, discount_amount, valid_from, valid_until)
+values ('PREVIEWMEM', '會員專屬券', 100, now() - interval '1 day', now() + interval '30 days');
+insert into public.coupon_members(coupon_id, member_id)
+select id, tests.id('member_b') from public.coupons where code = 'PREVIEWMEM';
+select tests.expect_error(
+  $$select public.preview_checkout_coupon(tests.order_items(tests.id('variant_stock'), 1), 'PREVIEWPROD')$$,
+  'LOGIN_REQUIRED', 'preview requires a signed-in member');
+select tests.login(tests.id('member_a'));
+select tests.expect_error(
+  $$select public.preview_checkout_coupon(tests.order_items(tests.id('variant_stock'), 1), 'PREVIEWPROD')$$,
+  'COUPON_PRODUCT_NOT_ELIGIBLE', 'preview rejects a coupon for other products');
+select tests.expect_error(
+  $$select public.preview_checkout_coupon(tests.order_items(tests.id('variant_stock'), 1), 'PREVIEWMEM')$$,
+  'COUPON_NOT_ELIGIBLE', 'preview rejects a coupon bound to another member');
+select tests.logout();
+rollback;

@@ -1,5 +1,5 @@
 @charset "UTF-8";
-/* 自動產生（scripts/build-css.mjs），請改原始檔：product-showcase.css、hero-desktop.css、hero-ratio.css、store-info.css、product-page.css、storefront-legibility.css、hero-flag-shine.css、header-orders.css、card-subgrid.css、filter-chips.css、catalog-paging.css、member-profile.css、dialog-close.css、checkout-cvs.css */
+/* 自動產生（scripts/build-css.mjs），請改原始檔：product-showcase.css、hero-desktop.css、hero-ratio.css、store-info.css、product-page.css、storefront-legibility.css、hero-flag-shine.css、header-orders.css、card-subgrid.css、filter-chips.css、catalog-paging.css、member-profile.css、dialog-close.css、checkout-cvs.css、checkout-coupon.css */
 /* ==== product-showcase.css ==== */
 /* 商品展示升級樣式：Hero 預購輪播、商品頁多圖、詳細介紹、推薦商品。
    規劃見 app/PRODUCT_SHOWCASE_PLAN.md；載入順序在 styles.css 之後。 */
@@ -1305,3 +1305,18 @@ body.is-product-view .product-page {
 .field-hint{display:block;margin:6px 0 0;color:var(--home-muted,var(--muted));font-size:.75rem;font-weight:600;line-height:1.5}
 .field-hint.hidden{display:none}
 @media(max-width:360px){.checkout-cvs-grid{grid-template-columns:1fr}}
+/* ==== checkout-coupon.css ==== */
+/* 結帳第三步：優惠碼「套用」按鈕、套用結果提示與本次累積點數列 */
+.checkout-coupon-group{min-width:0}
+.checkout-coupon-group>label{display:block}
+.checkout-benefits-grid .checkout-coupon-field{display:flex;align-items:stretch;gap:8px;margin-top:5px}
+#checkout-form .checkout-coupon-field input{flex:1 1 auto;min-width:0;margin-top:0}
+.checkout-coupon-apply{flex:none;min-width:72px;min-height:44px;padding:0 16px;border:1px solid var(--home-ink,var(--ink));border-radius:7px;background:var(--home-ink,var(--ink));color:#fff;font-size:.875rem;font-weight:900;cursor:pointer}
+.checkout-coupon-apply[data-action="remove"]{background:transparent;color:var(--home-ink,var(--ink))}
+.checkout-coupon-apply:disabled{opacity:.55;cursor:progress}
+.checkout-coupon-apply:focus-visible{outline:2px solid var(--home-ink,var(--ink));outline-offset:2px}
+.checkout-benefits-grid .checkout-coupon-status:empty{display:none}
+.checkout-benefits-grid .checkout-coupon-status.is-error{color:#8a3025;font-weight:700}
+.checkout-benefits-grid .checkout-coupon-status.is-success{color:#18864b;font-weight:700}
+.checkout-summary-earned span{color:var(--home-muted,var(--muted))}
+.checkout-summary-earned strong{color:#18864b}
