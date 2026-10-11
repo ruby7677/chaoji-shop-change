@@ -3,10 +3,11 @@ import { escapeHtml, isPreorderItem } from "./product-format.js";
 
 export const auth = { config: null, accessToken: null, refreshToken: null, lineProviderToken: null, user: null, profile: null, points: null, lineFriendFlag: null };
 
-export const deliveryMethodLabels = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配" };
+export const deliveryMethodLabels = { store_pickup: "到店取貨", seller_delivery: "賣貨便", cvs_delivery: "7-11店到店(交貨便)", home_delivery: "宅配" };
 export const deliveryMethodNotes = {
   store_pickup: "台南市中西區民生路二段 93 號，免運。",
   seller_delivery: "本站先建立待確認訂單，再前往賣貨便完成結帳；運費由 7-11 於取貨時向客戶收取。",
+  cvs_delivery: "運費 NT$60，單筆商品滿 NT$6,000 免運；現貨運費併入本次匯款，預購運費到貨後與尾款一併收取。出貨後請留意 7-11 到貨簡訊。",
   home_delivery: "現貨宅配匯款時先私訊小幫手確認運費再連同商品一併匯款即可；預購商品到貨後通知，尾款與運費確認入帳後安排寄出。"
 };
 
@@ -35,9 +36,14 @@ export function orderInventoryTypeLabel(order) {
 export function orderStatusLabel(order, status = order?.status) {
   if (status === "ready_for_pickup") {
     if (order?.delivery_method === "seller_delivery") return orderIncludesPreorder(order) ? "預購賣貨便已到貨" : "現貨賣貨便已出貨";
+    if (order?.delivery_method === "cvs_delivery") return "已到貨，待尾款／運費";
     if (order?.delivery_method === "home_delivery") return orderIncludesPreorder(order) ? "預購宅配待尾款／運費" : "現貨宅配待尾款／運費";
     if (order?.delivery_method === "store_pickup" && orderIncludesPreorder(order)) return "待取貨";
     return "配送處理中";
+  }
+  if (order?.delivery_method === "cvs_delivery") {
+    if (status === "completed") return "已出貨";
+    if (status === "confirmed") return orderIncludesPreorder(order) ? "已確認，待到貨" : "已確認，待出貨";
   }
   return orderStatusLabels[status] || status || "未知狀態";
 }
@@ -45,6 +51,8 @@ export function adminOrderStatusLabel(order, status = order?.status) {
   if (status === "confirmed" && order?.delivery_method === "store_pickup" && !orderIncludesPreorder(order)) return "待取貨";
   if (status === "confirmed" && order?.delivery_method === "home_delivery") return orderIncludesPreorder(order) ? "預購宅配待到貨" : "現貨宅配備貨中";
   if (status === "confirmed" && order?.delivery_method === "seller_delivery") return orderIncludesPreorder(order) ? "預購賣貨便待到貨" : "現貨賣貨便備貨中";
+  if (status === "confirmed" && order?.delivery_method === "cvs_delivery") return orderIncludesPreorder(order) ? "預購店到店待到貨" : "現貨店到店待出貨";
+  if (status === "ready_for_pickup" && order?.delivery_method === "cvs_delivery") return "預購店到店待尾款／運費";
   if (status === "ready_for_pickup" && order?.delivery_method === "home_delivery") return orderIncludesPreorder(order) ? "預購宅配待尾款／運費" : "現貨宅配待尾款／運費";
   if (status === "ready_for_pickup" && order?.delivery_method === "seller_delivery") return orderIncludesPreorder(order) ? "預購賣貨便已到貨" : "現貨賣貨便已出貨";
   if (status === "ready_for_pickup" && order?.delivery_method === "store_pickup" && orderIncludesPreorder(order)) return "預購到店待取貨";

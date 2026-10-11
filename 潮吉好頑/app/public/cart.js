@@ -4,11 +4,11 @@ import { planBuyNowQuantity, variantMaxQuantity } from "./cart-quantity.js";
 import { auth, showToast, syncPageScrollLock } from "./app-core.js";
 import { products } from "./storefront-catalog.js";
 import { activeCheckoutItems, activeCheckoutScope, openCheckout } from "./checkout-flow.js";
-import { beginLineLogin, profileIsComplete, showProfileDialog } from "./member-profile.js";
-import { requireLineFriendshipForCheckout } from "./member-benefits.js";
+import { cvsFeeHint, cvsFeeRule } from "./cvs-delivery.js";
 import { markCartGuestStart, planLoginCart, readCartOwner, readStoredCartItems, shrinkCartGuestBase, writeCartOwner } from "./cart-merge.js";
 
 export const cart = [];
+const DELIVERY_METHODS = ["store_pickup", "cvs_delivery", "home_delivery"];
 
 let cartDeliveryMethod = "store_pickup";
 
@@ -47,10 +47,10 @@ export function resetMemberCartSyncState() {
 
 try {
   const savedDeliveryMethod = sessionStorage.getItem("cj-cart-delivery-method");
-  if (["store_pickup", "seller_delivery", "home_delivery"].includes(savedDeliveryMethod)) cartDeliveryMethod = savedDeliveryMethod;
+  if (DELIVERY_METHODS.includes(savedDeliveryMethod)) cartDeliveryMethod = savedDeliveryMethod;
   for (const scope of Object.keys(cartGroupDeliveryMethods)) {
     const savedGroupMethod = sessionStorage.getItem(`cj-cart-delivery-method-${scope}`);
-    if (["store_pickup", "seller_delivery", "home_delivery"].includes(savedGroupMethod)) cartGroupDeliveryMethods[scope] = savedGroupMethod;
+    if (DELIVERY_METHODS.includes(savedGroupMethod)) cartGroupDeliveryMethods[scope] = savedGroupMethod;
     else cartGroupDeliveryMethods[scope] = cartDeliveryMethod;
   }
 } catch { /* sessionStorage may be unavailable in restricted previews. */ }
@@ -81,33 +81,21 @@ function renderCartSplitGroups() {
     const title = scope === "in_stock" ? "現貨商品" : "預購商品";
     const subtotal = group.reduce((sum, item) => sum + item.price * item.quantity, 0);
     const method = selectedCartDeliveryMethod(scope);
-    const sellerNote = scope === "preorder"
-      ? "本站先建立預購訂單；到貨後客服通知，再由客服開賣貨便。運費由 7-11 取貨時收取。"
-      : "先建立本站待確認訂單，再前往賣貨便完成結帳；運費由 7-11 取貨時收取。";
     const options = [
-      ["store_pickup", "到店取貨", "台南市中西區民生路二段 93 號", ""],
-      ["seller_delivery", "賣貨便", sellerNote, scope === "in_stock" ? "現貨／賣貨便 無法使用優惠券、點數折抵" : ""],
-      ["home_delivery", "宅配", "現貨備貨完成或預購商品到貨後，由客服通知實際運費。", ""]
+      ["store_pickup", "到店取貨", "台南市中西區民生路二段 93 號"],
+      ["cvs_delivery", "7-11店到店(交貨便)", cvsOptionNote(scope === "preorder")],
+      ["home_delivery", "宅配", "現貨備貨完成或預購商品到貨後，由客服通知實際運費。"]
     ];
-    return `<section class="cart-group" data-cart-group="${scope}"><header><div><span class="eyebrow">${scope === "in_stock" ? "READY" : "PREORDER"}</span><h3>${title}</h3></div><strong>${money(subtotal)}</strong></header><div class="cart-group-items">${group.map(cartItemMarkup).join("")}</div><fieldset class="cart-group-delivery"><legend>此組商品取貨方式</legend>${options.map(([value, label, note, warning]) => `<label class="cart-delivery-option"><input type="radio" name="cart_group_delivery_method_${scope}" value="${value}" data-group-delivery="${scope}" ${method === value ? "checked" : ""} /> <span><strong>${label}</strong><small>${note}</small>${warning ? `<em class="cart-seller-benefit-warning">${warning}</em>` : ""}</span></label>`).join("")}</fieldset><p class="cart-delivery-feedback hidden" data-group-feedback="${scope}" role="status" aria-live="polite"></p><button class="primary-button cart-group-checkout" type="button" data-checkout-scope="${scope}">${scope === "in_stock" ? "結帳現貨商品" : "結帳預購商品"}</button></section>`;
+    return `<section class="cart-group" data-cart-group="${scope}"><header><div><span class="eyebrow">${scope === "in_stock" ? "READY" : "PREORDER"}</span><h3>${title}</h3></div><strong>${money(subtotal)}</strong></header><div class="cart-group-items">${group.map(cartItemMarkup).join("")}</div><fieldset class="cart-group-delivery"><legend>此組商品取貨方式</legend>${options.map(([value, label, note]) => `<label class="cart-delivery-option"><input type="radio" name="cart_group_delivery_method_${scope}" value="${value}" data-group-delivery="${scope}" ${method === value ? "checked" : ""} /> <span><strong>${label}</strong><small>${note}</small></span></label>`).join("")}</fieldset><p class="cart-delivery-feedback hidden" data-group-feedback="${scope}" role="status" aria-live="polite"></p><button class="primary-button cart-group-checkout" type="button" data-checkout-scope="${scope}">${scope === "in_stock" ? "結帳現貨商品" : "結帳預購商品"}</button></section>`;
   }).join("");
   itemsNode.appendChild(wrapper);
 }
 
+function cvsOptionNote(preorder) { return preorder ? `${cvsFeeRule}；運費到貨後與尾款一併收取。` : `${cvsFeeRule}，運費併入本次匯款。`; }
 function syncGlobalCartDeliveryCopy() {
   const allPreorder = cart.length > 0 && cart.every(isPreorderItem);
-  const hasInStock = cart.some((item) => !isPreorderItem(item));
-  const sellerOption = document.querySelector("input[name='cart_delivery_method'][value='seller_delivery']")?.closest("label");
-  const sellerNote = sellerOption?.querySelector("small");
-  const sellerWarning = sellerOption?.querySelector(".cart-seller-benefit-warning");
-  if (sellerNote) sellerNote.textContent = allPreorder
-    ? "本站先建立預購訂單；到貨後客服通知並開立賣貨便，運費由 7-11 取貨時收取。"
-    : "前往賣貨便完成結帳，運費由 7-11 取貨時收取。";
-  sellerWarning?.classList.toggle("hidden", !hasInStock);
-  const note = document.querySelector(".cart-delivery-note");
-  if (note) note.textContent = allPreorder
-    ? "預購賣貨便流程：先建立本站訂金訂單 → 到貨後客服通知 → 客服開立賣貨便供尾款取貨。"
-    : "現貨賣貨便流程：加入購物車 → 選賣貨便 → 建立本站待確認訂單 → 前往賣貨便 → 管理員人工核對。";
+  const cvsNote = document.querySelector("input[name='cart_delivery_method'][value='cvs_delivery']")?.closest("label")?.querySelector("small");
+  if (cvsNote) cvsNote.textContent = cvsOptionNote(allPreorder);
 }
 
 export function renderCart() {
@@ -328,7 +316,7 @@ export function addToCartWithFeedback(id, button) {
   if (afterCount > beforeCount) flashAddedButton(button);
 }
 export function setCartDeliveryMethod(method) {
-  if (!["store_pickup", "seller_delivery", "home_delivery"].includes(method)) return;
+  if (!DELIVERY_METHODS.includes(method)) return;
   cartDeliveryMethod = method;
   const groups = cartGroups();
   const scope = groups.in_stock.length && !groups.preorder.length ? "in_stock" : groups.preorder.length && !groups.in_stock.length ? "preorder" : null;
@@ -339,32 +327,26 @@ export function setCartDeliveryMethod(method) {
   updateCartCheckoutAction();
 }
 export function setCartGroupDeliveryMethod(scope, method) {
-  if (!Object.prototype.hasOwnProperty.call(cartGroupDeliveryMethods, scope) || !["store_pickup", "seller_delivery", "home_delivery"].includes(method)) return;
+  if (!Object.prototype.hasOwnProperty.call(cartGroupDeliveryMethods, scope) || !DELIVERY_METHODS.includes(method)) return;
   cartGroupDeliveryMethods[scope] = method;
   try { sessionStorage.setItem(`cj-cart-delivery-method-${scope}`, method); } catch { /* ignore restricted storage */ }
   updateCartCheckoutAction();
 }
-function cartSellerDeliveryState(scope = null) {
-  const method = selectedCartDeliveryMethod(scope);
+// 選 7-11店到店(交貨便)時，依該組商品小計提示運費或免運差額
+function cartDeliveryHint(scope = null) {
   const groupItems = cartItemsForScope(scope);
-  if (method !== "seller_delivery" || !groupItems.length) return { invalid: false, message: "" };
-  if (scope === "preorder" || groupItems.every(isPreorderItem)) return { invalid: false, message: "預購會先建立本站訂單並收取訂金；商品到貨後由客服通知，再開立賣貨便供尾款取貨。" };
-  const links = [...new Set(groupItems.map((item) => item.link || item.seller_link).filter(Boolean))];
-  if (groupItems.some(isPreorderItem)) return { invalid: true, message: "現貨與預購已分組，請分開選擇取貨方式。" };
-  if (!links.length) return { invalid: true, message: "這組現貨商品尚未設定賣貨便連結，請改選到店取貨或宅配。" };
-  if (links.length > 1) return { invalid: true, message: "這組商品有不同賣場連結，請拆成不同批次結帳。" };
-  return { invalid: false, message: "下一步會先建立本站「待確認」訂單，再開啟賣貨便；完成賣貨便結帳後，請等待管理員人工核對。" };
+  if (selectedCartDeliveryMethod(scope) !== "cvs_delivery" || !groupItems.length) return "";
+  const subtotal = groupItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  return cvsFeeHint(subtotal, scope === "preorder" || groupItems.every(isPreorderItem));
 }
 function syncCartDeliveryFeedback(scope = null) {
   const feedback = scope ? document.querySelector(`[data-group-feedback='${scope}']`) : document.querySelector("#cart-delivery-feedback");
-  const state = cartSellerDeliveryState(scope);
-  if (!feedback) return state;
-  feedback.textContent = state.message;
-  feedback.classList.toggle("hidden", !state.message);
-  feedback.classList.toggle("is-error", state.invalid);
-  feedback.classList.toggle("is-ready", Boolean(state.message) && !state.invalid);
-  feedback.setAttribute("role", state.invalid ? "alert" : "status");
-  return state;
+  const message = cartDeliveryHint(scope);
+  if (!feedback) return message;
+  feedback.textContent = message;
+  feedback.classList.toggle("hidden", !message);
+  feedback.classList.toggle("is-ready", Boolean(message));
+  return message;
 }
 function updateCartCheckoutAction() {
   const button = document.querySelector("#cart-drawer [data-checkout]");
@@ -373,69 +355,16 @@ function updateCartCheckoutAction() {
   if (button) {
     button.classList.toggle("hidden", mixed);
     if (!mixed) {
-      const scope = groups.preorder.length ? "preorder" : "in_stock";
-      const method = selectedCartDeliveryMethod(scope);
-      const sellerCheckout = method === "seller_delivery" && scope === "in_stock";
-      const sellerState = syncCartDeliveryFeedback();
-      button.textContent = sellerCheckout ? "前往賣貨便結帳" : "前往 結帳";
-      button.setAttribute("aria-label", sellerCheckout ? "前往賣貨便結帳" : "前往本站結帳");
-      button.classList.toggle("seller-checkout-button", sellerCheckout);
-      button.disabled = sellerCheckout && sellerState.invalid;
-      button.setAttribute("aria-disabled", String(button.disabled));
-      if (sellerState.message) button.setAttribute("aria-describedby", "cart-delivery-feedback");
+      if (syncCartDeliveryFeedback()) button.setAttribute("aria-describedby", "cart-delivery-feedback");
       else button.removeAttribute("aria-describedby");
     }
   }
-  ["in_stock", "preorder"].forEach((scope) => {
-    const groupButton = document.querySelector(`[data-checkout-scope='${scope}']`);
-    if (!groupButton || !groups[scope].length) return;
-    const method = selectedCartDeliveryMethod(scope);
-    const sellerCheckout = method === "seller_delivery" && scope === "in_stock";
-    const state = syncCartDeliveryFeedback(scope);
-    groupButton.textContent = sellerCheckout ? "前往賣貨便結帳" : `結帳${scope === "in_stock" ? "現貨" : "預購"}商品`;
-    groupButton.classList.toggle("seller-checkout-button", sellerCheckout);
-    groupButton.disabled = sellerCheckout && state.invalid;
-    groupButton.setAttribute("aria-disabled", String(groupButton.disabled));
-  });
-  if (!mixed) syncCartDeliveryFeedback();
-}
-async function openSellerDeliveryCheckout(scope = "in_stock") {
-  const groupItems = cartItemsForScope(scope);
-  if (!groupItems.length) return showToast("請先加入商品", "warning");
-  const links = [...new Set(groupItems.map((item) => item.link || item.seller_link).filter(Boolean))];
-  if (!links.length) return showToast("購物車商品尚未設定賣貨便連結，請改選其他取貨方式", "warning");
-  if (links.length > 1) return showToast("購物車內商品屬於不同賣場，請分開前往賣貨便結帳", "warning");
-  if (groupItems.some(isPreorderItem)) return showToast("預購賣貨便請使用本站結帳，商品到貨後再由客服開立賣貨便", "warning");
-  if (!auth.accessToken || !auth.user) return beginLineLogin();
-  if (!profileIsComplete()) return showProfileDialog(true);
-  if (!await requireLineFriendshipForCheckout()) return;
-  const button = document.querySelector(`[data-checkout-scope='${scope}']`) || document.querySelector("#cart-drawer [data-checkout]");
-  if (button instanceof HTMLButtonElement) { button.disabled = true; button.textContent = "建立待確認紀錄…"; }
-  try {
-    const response = await fetch("/api/orders", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${auth.accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ items: groupItems.map((item) => ({ variant_id: item.id, quantity: item.quantity })), pickup_plan: "together", delivery_method: "seller_delivery", payment_method: "store_payment" })
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || result.message || "賣貨便待確認訂單建立失敗");
-    cart.splice(0, cart.length, ...cart.filter((item) => !groupItems.includes(item)));
-    saveCart();
-    await syncMemberCartNow({ silent: true });
-    renderCart();
-    window.location.assign(links[0]);
-  } catch (error) {
-    showToast(error.message, "error");
-  } finally {
-    if (button instanceof HTMLButtonElement) { button.disabled = false; updateCartCheckoutAction(); }
-  }
+  if (mixed) ["in_stock", "preorder"].forEach((scope) => syncCartDeliveryFeedback(scope));
 }
 export function handleCartCheckout(scope = null) {
   const groups = cartGroups();
   if (!scope && groups.in_stock.length && groups.preorder.length) return showToast("購物車含現貨與預購，請分別點選各組的結帳按鈕", "warning");
   const checkoutScope = scope || (groups.preorder.length ? "preorder" : "in_stock");
-  const method = selectedCartDeliveryMethod(checkoutScope);
-  if (method === "seller_delivery" && checkoutScope === "in_stock") return openSellerDeliveryCheckout(checkoutScope);
   openCheckout(checkoutScope);
 }
 // 商品頁加入購物車：依庫存與限購檢查後加入指定數量。伺服器建單時仍會重新驗證。

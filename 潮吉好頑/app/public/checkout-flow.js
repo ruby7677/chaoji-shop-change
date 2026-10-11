@@ -1,9 +1,10 @@
 // 結帳流程：選定結帳範圍（現貨／預購）、開啟結帳視窗與送出訂單；結帳範圍與商品只由本模組改寫。
 import { auth, closeDialog, showDialog, showToast } from "./app-core.js";
 import { cart, cartGroups, cartItemsForScope, checkoutCartItems, renderCart, saveCart, selectedCartDeliveryMethod, syncMemberCartNow, toggleCart } from "./cart.js";
-import { clearCheckoutFieldErrors, ensurePaymentMethodUI, loadBankAccounts, renderCheckoutBenefits, renderCheckoutSummary, setCheckoutStage, syncCheckoutSellerOption, syncDeliveryFields, validateCheckoutDetails } from "./checkout-form.js";
+import { clearCheckoutFieldErrors, ensurePaymentMethodUI, loadBankAccounts, renderCheckoutBenefits, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields, validateCheckoutDetails } from "./checkout-form.js";
 import { loadPoints, requireLineFriendshipForCheckout } from "./member-benefits.js";
 import { showPaymentDialog } from "./member-orders.js";
+import { rememberCvsStore } from "./checkout-cvs-store.js";
 import { beginLineLogin, profileIsComplete, saveProfile, showProfileDialog } from "./member-profile.js";
 
 export let activeCheckoutScope = null;
@@ -26,7 +27,6 @@ export async function openCheckout(scope = null) {
   if (!profileIsComplete()) return showProfileDialog(true);
   if (!await requireLineFriendshipForCheckout()) return;
   const cartMethod = selectedCartDeliveryMethod(resolvedScope);
-  syncCheckoutSellerOption();
   const deliveryInput = document.querySelector(`input[name='delivery_method'][value='${cartMethod}']`);
   if (deliveryInput) deliveryInput.checked = true;
   try { await loadPoints(); } catch { /* 結帳仍可不使用優惠 */ }
@@ -58,14 +58,17 @@ export async function submitOrder() {
   const details = validateCheckoutDetails();
   const itemsForOrder = checkoutCartItems().slice();
   const pickupPlan = "together";
+  const needsRecipient = ["home_delivery", "cvs_delivery"].includes(details.deliveryMethod);
+  const store = details.pickupStore;
   await saveProfile({ full_name: details.fullName, phone: details.normalizedPhone, birthday: auth.profile?.birthday || null, address: details.deliveryMethod === "home_delivery" ? details.shippingAddress : (auth.profile?.address || null) });
   const response = await fetch("/api/orders", {
     method: "POST",
     headers: { Authorization: `Bearer ${auth.accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ items: itemsForOrder.map((item) => ({ variant_id: item.id, quantity: item.quantity })), pickup_plan: pickupPlan, delivery_method: details.deliveryMethod, payment_method: details.paymentMethod, shipping_address: details.deliveryMethod === "home_delivery" ? details.shippingAddress : null, shipping_recipient_name: details.deliveryMethod === "home_delivery" ? details.shippingRecipientName : null, shipping_phone: details.deliveryMethod === "home_delivery" ? details.normalizedShippingPhone : null, bank_account_id: details.bankAccountId, coupon_code: document.querySelector("#checkout-coupon-code")?.value.trim() || null, points_to_redeem: Number(document.querySelector("#checkout-points")?.value || 0) })
+    body: JSON.stringify({ items: itemsForOrder.map((item) => ({ variant_id: item.id, quantity: item.quantity })), pickup_plan: pickupPlan, delivery_method: details.deliveryMethod, payment_method: details.paymentMethod, shipping_address: details.deliveryMethod === "home_delivery" ? details.shippingAddress : null, shipping_recipient_name: needsRecipient ? details.shippingRecipientName : null, shipping_phone: needsRecipient ? details.normalizedShippingPhone : null, pickup_store_city: store?.city ?? null, pickup_store_district: store?.district ?? null, pickup_store_name: store?.name ?? null, pickup_store_code: store?.code ?? null, bank_account_id: details.bankAccountId, coupon_code: document.querySelector("#checkout-coupon-code")?.value.trim() || null, points_to_redeem: Number(document.querySelector("#checkout-points")?.value || 0) })
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || result.message || "訂單建立失敗");
+  if (store) rememberCvsStore(store);
   await loadPoints({ force: true }).catch(() => {});
   cart.splice(0, cart.length, ...cart.filter((item) => !itemsForOrder.includes(item)));
   saveCart(); await syncMemberCartNow(); renderCart(); activeCheckoutItems = null; activeCheckoutScope = null; closeDialog(document.querySelector("#checkout-dialog"));

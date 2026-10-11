@@ -3,6 +3,8 @@ import { escapeHtml, isPreorderItem, money } from "./product-format.js";
 import { auth, customerServiceLineUrl, deliveryMethodLabels, deliveryMethodNotes, formatDate } from "./app-core.js";
 import { checkoutCartItems, selectedDeliveryMethod, selectedPaymentMethod } from "./cart.js";
 import { activeCheckoutScope, showCheckoutError } from "./checkout-flow.js";
+import { cvsFeeHint, cvsShippingFee } from "./cvs-delivery.js";
+import { cvsStoreDetails, cvsStoreProblem, ensureCvsStoreFields, toggleCvsStoreFields } from "./checkout-cvs-store.js";
 
 export let bankAccounts = [];
 
@@ -22,16 +24,19 @@ export function renderCheckoutSummary() {
   const couponCode = document.querySelector("#checkout-coupon-code")?.value.trim() || "";
   const settings = auth.points?.settings;
   const pointDiscount = settings ? Math.min(points * settings.point_value, preorderCheckout ? depositTotal : total) : 0;
-  const estimatedTotal = Math.max(depositTotal - pointDiscount, 0);
   const couponRow = `<div class="checkout-summary-row"><span>優惠券</span><strong>${couponCode ? "待系統確認" : "未使用"}</strong></div>`;
   const couponNote = couponCode ? `<p class="checkout-summary-note checkout-coupon-note"><strong>優惠碼已輸入</strong>：${escapeHtml(couponCode)} 的折抵會依商品、會員資格、有效期限與併用規則於建立訂單時驗證；預估總額尚未先扣除。</p>` : "";
-  const deliveryNote = deliveryMethod === "seller_delivery" && checkoutItems.every(isPreorderItem)
-    ? "預購先建立本站訂單並支付訂金；到貨後客服通知，再開立賣貨便供尾款取貨。運費由 7-11 於取貨時收取。"
-    : deliveryMethodNotes[deliveryMethod];
+  const cvs = deliveryMethod === "cvs_delivery";
+  const shippingFee = cvs ? cvsShippingFee(total) : 0;
+  // 現貨交貨便運費併入本次匯款；預購運費到貨後與尾款一起收，不加進訂金
+  const payableShipping = cvs && !preorderCheckout ? shippingFee : 0;
+  const deliveryNote = cvs ? cvsFeeHint(total, preorderCheckout) : deliveryMethodNotes[deliveryMethod];
+  const shippingRow = cvs ? `<div class="checkout-summary-row"><span>${preorderCheckout ? "運費（到貨後與尾款一併收取）" : "運費"}</span><strong>${shippingFee ? money(shippingFee) : "免運"}</strong></div>` : "";
+  const estimatedTotal = Math.max(depositTotal - pointDiscount, 0) + payableShipping;
   const itemRows = checkoutItems.map((item) => `<div class="checkout-summary-row checkout-summary-item"><span>${escapeHtml(item.name)} × ${item.quantity}</span><strong>${money(item.price * item.quantity)}</strong></div>`).join("");
   const depositRow = preorderCheckout ? `<div class="checkout-summary-row"><span>預購訂金 50%</span><strong>${money(depositTotal)}</strong></div>` : "";
   const pointRow = `<div class="checkout-summary-row checkout-summary-discount"><span>點數預估折抵</span><strong>${pointDiscount ? `-${money(pointDiscount)}` : money(0)}</strong></div>`;
-  document.querySelector("#checkout-order-summary").innerHTML = `<div class="checkout-summary-head"><span aria-hidden="true">金額</span><div><h4>結算金額</h4><p>建立訂單後，系統回傳最終優惠與付款金額。</p></div></div><div class="checkout-summary-lines">${itemRows}<div class="checkout-summary-row"><span>商品總額</span><strong>${money(total)}</strong></div>${depositRow}${couponRow}${pointRow}<div class="checkout-summary-row checkout-summary-payable"><span>本次預估應付</span><strong>${money(estimatedTotal)}</strong></div></div>${couponNote}<p class="checkout-summary-note"><strong>${escapeHtml(deliveryMethodLabels[deliveryMethod])}</strong>：${escapeHtml(deliveryNote)}</p>`;
+  document.querySelector("#checkout-order-summary").innerHTML = `<div class="checkout-summary-head"><span aria-hidden="true">金額</span><div><h4>結算金額</h4><p>建立訂單後，系統回傳最終優惠與付款金額。</p></div></div><div class="checkout-summary-lines">${itemRows}<div class="checkout-summary-row"><span>商品總額</span><strong>${money(total)}</strong></div>${depositRow}${couponRow}${pointRow}${shippingRow}<div class="checkout-summary-row checkout-summary-payable"><span>本次預估應付</span><strong>${money(estimatedTotal)}</strong></div></div>${couponNote}<p class="checkout-summary-note"><strong>${escapeHtml(deliveryMethodLabels[deliveryMethod])}</strong>：${escapeHtml(deliveryNote)}</p>`;
   const payable = document.querySelector("#checkout-review-payable");
   if (payable) payable.textContent = money(estimatedTotal);
   const totalNote = document.querySelector("#checkout-review-total-note");
@@ -41,7 +46,7 @@ export function renderCheckoutSummary() {
 function ensureShippingRecipientFields() {
   const addressLabel = document.querySelector("#checkout-address-label");
   if (!addressLabel || document.querySelector("#checkout-recipient-name-label")) return;
-  addressLabel.insertAdjacentHTML("beforebegin", '<label id="checkout-recipient-name-label" class="hidden" data-checkout-detail>宅配收件人姓名 <input id="checkout-recipient-name" maxlength="60" autocomplete="name" placeholder="請填寫收件人姓名" /></label><label id="checkout-recipient-phone-label" class="hidden" data-checkout-detail>宅配收件人電話 <input id="checkout-recipient-phone" type="tel" inputmode="numeric" maxlength="14" autocomplete="tel" placeholder="09xx-xxx-xxx" /></label>');
+  addressLabel.insertAdjacentHTML("beforebegin", '<label id="checkout-recipient-name-label" class="hidden" data-checkout-detail><span data-recipient-text="name">收件人姓名</span> <input id="checkout-recipient-name" maxlength="60" autocomplete="name" placeholder="預設為訂購人，可修改" /><small id="checkout-recipient-name-hint" class="field-hint hidden">姓名須與取件證件相同</small></label><label id="checkout-recipient-phone-label" class="hidden" data-checkout-detail><span data-recipient-text="phone">收件人手機</span> <input id="checkout-recipient-phone" type="tel" inputmode="numeric" maxlength="14" autocomplete="tel" placeholder="09xx-xxx-xxx" /></label>');
   if (auth.profile?.full_name) document.querySelector("#checkout-recipient-name").value = auth.profile.full_name;
   if (auth.profile?.phone) document.querySelector("#checkout-recipient-phone").value = auth.profile.phone;
 }
@@ -117,12 +122,14 @@ function checkoutDetails() {
     shippingRecipientName,
     shippingPhone,
     normalizedShippingPhone: shippingPhone.replace(/[\s-]/g, ""),
+    pickupStore: deliveryMethod === "cvs_delivery" ? cvsStoreDetails() : null,
     bankAccountId
   };
 }
 
 export function validateCheckoutDetails() {
   ensureShippingRecipientFields();
+  ensureCvsStoreFields();
   ensureCheckoutFieldErrors();
   clearCheckoutFieldErrors();
   const details = checkoutDetails();
@@ -131,8 +138,11 @@ export function validateCheckoutDetails() {
   if (details.paymentMethod === "store_payment") checkoutValidationError("#payment-method-fieldset", "本站到店取貨與宅配訂單僅接受匯款／轉帳");
   if (details.paymentMethod === "bank_transfer" && !details.bankAccountId) checkoutValidationError("#checkout-bank-fieldset", "請選擇收款帳戶");
   if (details.deliveryMethod === "home_delivery" && !details.shippingAddress) checkoutValidationError("#checkout-address", "宅配請填寫收件地址");
-  if (details.deliveryMethod === "home_delivery" && !details.shippingRecipientName) checkoutValidationError("#checkout-recipient-name", "宅配請填寫收件人姓名");
-  if (details.deliveryMethod === "home_delivery" && !/^09\d{8}$/.test(details.normalizedShippingPhone)) checkoutValidationError("#checkout-recipient-phone", "宅配請填寫有效的收件人手機號碼");
+  const needsRecipient = ["home_delivery", "cvs_delivery"].includes(details.deliveryMethod);
+  if (needsRecipient && !details.shippingRecipientName) checkoutValidationError("#checkout-recipient-name", "請填寫收件人（取件人）姓名");
+  if (needsRecipient && !/^09\d{8}$/.test(details.normalizedShippingPhone)) checkoutValidationError("#checkout-recipient-phone", "請填寫有效的收件人（取件人）手機號碼");
+  const storeProblem = details.pickupStore && cvsStoreProblem(details.pickupStore);
+  if (storeProblem) checkoutValidationError(...storeProblem);
   return details;
 }
 
@@ -199,21 +209,10 @@ export function ensurePaymentMethodUI() {
   if (paymentForm && !document.querySelector("#payment-store-note")) paymentForm.insertAdjacentHTML("beforeend", '<p id="payment-store-note" class="dialog-copy hidden">此訂單選擇到店支付，不需要回報匯款末五碼；請依通知時間到店付款取貨。</p>');
 }
 
-export function syncCheckoutSellerOption() {
-  const fieldset = document.querySelector("#checkout-form .delivery-methods");
-  if (!fieldset) return;
-  let option = document.querySelector("#checkout-seller-delivery-option");
-  if (!option) {
-    fieldset.insertAdjacentHTML("beforeend", '<label id="checkout-seller-delivery-option" class="radio delivery-option hidden"><input type="radio" name="delivery_method" value="seller_delivery" /> <span><strong>賣貨便</strong><small>預購商品先建立本站訂單；到貨後由客服通知並開立賣貨便，運費由 7-11 取貨時收取。</small></span></label>');
-    option = document.querySelector("#checkout-seller-delivery-option");
-  }
-  option?.classList.toggle("hidden", activeCheckoutScope !== "preorder");
-}
-
 export function syncDeliveryFields() {
   ensureShippingRecipientFields();
+  ensureCvsStoreFields();
   ensureCheckoutFieldErrors();
-  syncCheckoutSellerOption();
   const method = selectedDeliveryMethod();
   const deliveryName = document.querySelector("#checkout-delivery-name");
   const deliveryNote = document.querySelector("#checkout-delivery-note");
@@ -232,21 +231,28 @@ export function syncDeliveryFields() {
   const recipientPhoneLabel = document.querySelector("#checkout-recipient-phone-label");
   const recipientPhoneInput = document.querySelector("#checkout-recipient-phone");
   const isHome = method === "home_delivery";
+  const isCvs = method === "cvs_delivery";
+  const needsRecipient = isHome || isCvs;
   if (addressLabel) {
     addressLabel.classList.toggle("hidden", !isHome);
     addressLabel.setAttribute("aria-hidden", String(!isHome));
   }
   if (addressInput) addressInput.required = isHome;
   if (recipientLabel) {
-    recipientLabel.classList.toggle("hidden", !isHome);
-    recipientLabel.setAttribute("aria-hidden", String(!isHome));
+    recipientLabel.classList.toggle("hidden", !needsRecipient);
+    recipientLabel.setAttribute("aria-hidden", String(!needsRecipient));
   }
-  if (recipientInput) recipientInput.required = isHome;
+  if (recipientInput) recipientInput.required = needsRecipient;
   if (recipientPhoneLabel) {
-    recipientPhoneLabel.classList.toggle("hidden", !isHome);
-    recipientPhoneLabel.setAttribute("aria-hidden", String(!isHome));
+    recipientPhoneLabel.classList.toggle("hidden", !needsRecipient);
+    recipientPhoneLabel.setAttribute("aria-hidden", String(!needsRecipient));
   }
-  if (recipientPhoneInput) recipientPhoneInput.required = isHome;
+  if (recipientPhoneInput) recipientPhoneInput.required = needsRecipient;
+  const recipientRole = isCvs ? "取件人" : "收件人";
+  document.querySelector("[data-recipient-text='name']")?.replaceChildren(`${recipientRole}姓名`);
+  document.querySelector("[data-recipient-text='phone']")?.replaceChildren(`${recipientRole}手機`);
+  document.querySelector("#checkout-recipient-name-hint")?.classList.toggle("hidden", !isCvs);
+  toggleCvsStoreFields(isCvs);
   syncPaymentFields();
   renderCheckoutSummary();
 }
