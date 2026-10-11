@@ -100,3 +100,12 @@ test("the cart baseline is frozen before shopping opens and released after the m
   assert.ok(freeze > boot.indexOf("loadLocalCart()") && freeze < boot.indexOf("finishAuthBoot()"), "frozen before shoppers can add items");
   assert.ok(boot.indexOf("releaseBootCartBaseline()") > boot.indexOf("await loadMember()"), "released after the member cart merge");
 });
+
+test("the boot cart baseline shrinks with removals and is dropped once the member cart merges", async () => {
+  const { shrinkBaseToCart } = await import("../../public/cart-merge.js");
+  assert.deepEqual(shrinkBaseToCart([{ variant_id: "a", quantity: 2 }, { variant_id: "b", quantity: 1 }], [{ id: "a", quantity: 1 }]), [{ variant_id: "a", quantity: 1 }]);
+  const cartSource = await readFile(new URL("../../public/cart.js", import.meta.url), "utf8");
+  assert.match(cartSource, /if \(bootCartBaseline && !storedCartStale\) bootCartBaseline = shrinkBaseToCart\(bootCartBaseline, cartPayload\(cart\)\);/);
+  const merged = cartSource.slice(cartSource.indexOf("cartSyncUserId = auth.user.id;"));
+  assert.ok(merged.indexOf("releaseBootCartBaseline()") > 0 && merged.indexOf("releaseBootCartBaseline()") < merged.indexOf("catch (error)"), "released right after a successful merge");
+});

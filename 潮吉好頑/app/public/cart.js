@@ -5,7 +5,7 @@ import { auth, showToast, syncPageScrollLock } from "./app-core.js";
 import { catalogLoaded, products } from "./storefront-catalog.js";
 import { activeCheckoutItems, activeCheckoutScope, openCheckout } from "./checkout-flow.js";
 import { cvsFeeHint, cvsFeeRule } from "./cvs-delivery.js";
-import { markCartGuestStart, planLoginCart, readCartOwner, readStoredCartItems, shrinkCartGuestBase, writeCartOwner } from "./cart-merge.js";
+import { markCartGuestStart, planLoginCart, readCartOwner, readStoredCartItems, shrinkBaseToCart, shrinkCartGuestBase, writeCartOwner } from "./cart-merge.js";
 
 export const cart = [];
 const DELIVERY_METHODS = ["store_pickup", "cvs_delivery", "home_delivery"];
@@ -145,6 +145,8 @@ function persistCartLocally() {
   try { sessionStorage.setItem("cj-cart", JSON.stringify(cart)); storedCartStale = false; } catch { storedCartStale = true; }
   // 基準只跟著成功保存的購物車調整，避免與儲存中的舊內容不一致
   if (!auth.user && !storedCartStale) shrinkCartGuestBase(cartPayload(cart));
+  // 背景登入期間移除或減少的品項，開機基準也跟著下修
+  if (bootCartBaseline && !storedCartStale) bootCartBaseline = shrinkBaseToCart(bootCartBaseline, cartPayload(cart));
 }
 function stableCartHash(items = cart) {
   const entries = (Array.isArray(items) ? items : []).map((item) => {
@@ -312,6 +314,8 @@ async function runLoadMemberCart({ silent = false } = {}) {
     cart.splice(0, cart.length, ...[...merged.values()].slice(0, 50));
     cartSyncUserId = auth.user.id;
     memberCartLoadFailed = false;
+    // 已和會員購物車合併：開機基準不再代表目前內容，之後清除登入改用合併後的購物車
+    releaseBootCartBaseline();
     lastSyncedCartHash = remoteCartHash;
     writeCartOwner(auth.user.id, remoteItems);
     saveCart({ sync: false });

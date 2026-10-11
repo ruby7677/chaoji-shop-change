@@ -82,13 +82,18 @@ export function planLoginCart({ owner, userId, localItems, remoteItems }) {
   return sameItems(local, owner.items) ? { local: [], remote } : { local, remote: [] };
 }
 
+/** 基準的每個品項不超過目前購物車的數量（減少或移除後下修，之後再加入的才算新增）。 */
+export function shrinkBaseToCart(base, items) {
+  const current = new Map(normalizeCartItems(items).map((item) => [item.variant_id, item.quantity]));
+  return normalizeCartItems(base)
+    .map((item) => ({ variant_id: item.variant_id, quantity: Math.min(item.quantity, current.get(item.variant_id) || 0) }))
+    .filter((item) => item.quantity > 0);
+}
+
 /** 未登入時減少或移除品項：繼承自前一位會員的基準跟著下修，之後再加入的才算訪客新增。 */
 export function shrinkCartGuestBase(items) {
   const owner = readCartOwner();
   if (!owner?.guestBase) return;
-  const current = new Map(normalizeCartItems(items).map((item) => [item.variant_id, item.quantity]));
-  const guestBase = normalizeCartItems(owner.guestBase)
-    .map((item) => ({ variant_id: item.variant_id, quantity: Math.min(item.quantity, current.get(item.variant_id) || 0) }))
-    .filter((item) => item.quantity > 0);
+  const guestBase = shrinkBaseToCart(owner.guestBase, items);
   try { sessionStorage.setItem(OWNER_KEY, JSON.stringify({ ...owner, guestBase })); } catch { /* restricted storage */ }
 }
