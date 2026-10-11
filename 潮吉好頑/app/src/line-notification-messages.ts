@@ -30,7 +30,7 @@ export const NOTIFICATION_COPY = {
       arrivedHome: "商品已到貨，私訊小幫手確認尾款及運費",
       shippedSeller: "已出貨，請留意到貨的簡訊通知",
       shippedHome: "已出貨，請留意貨運的電話／簡訊通知",
-      cvsStockConfirmed: "已確認訂單，待出貨",
+      cvsStockConfirmed: "已確認訂單(付款完成)，待出貨",
       arrivedCvs: "商品已到貨，私訊小幫手確認尾款及運費",
       shippedCvs: "已出貨，請留意到貨的簡訊通知",
       completedPickup: "已完成取貨"
@@ -193,7 +193,7 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
       `${copy.labels.payment}：${copy.payment.bank}`
     ];
     if (isPreorder) lines.push("", copy.delivery.preorderNoticeHeading, copy.delivery.preorderNoticeLine, copy.delivery.preorderNoticeCancel);
-    return message(copy.status.created, lines);
+    return message(copy.status.createdPayment, lines);
   }
 
   if (data.eventType === "created") {
@@ -205,7 +205,7 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
       `${copy.labels.payment}：${isSeller && !isPreorder ? copy.payment.seller : copy.payment.bank}`
     ];
     if (isPreorder) lines.push("", copy.delivery.preorderNoticeHeading, copy.delivery.preorderNoticeLine, copy.delivery.preorderNoticeCancel);
-    return message((isSeller || isHome) && !isPreorder ? copy.status.created : copy.status.createdPayment, lines);
+    return message(isSeller && !isPreorder ? copy.status.created : copy.status.createdPayment, lines);
   }
 
   if (data.eventType === "payment_reported") {

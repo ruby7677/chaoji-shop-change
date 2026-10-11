@@ -136,11 +136,11 @@ const telegram = (data) => messages.buildTelegramOrderNotificationMessage(messag
 
 test("cvs created, confirmed and shipped notifications follow the owner's template", () => {
   assert.equal(telegram({ ...cvsBase, eventType: "created", orderStatus: "pending_payment" }), [
-    "【潮吉好頑選物】", "訂單編號：CJ-261010-232833-CDC8", "訂單狀態：待確認中", "會員名稱：建育", "",
+    "【潮吉好頑選物】", "訂單編號：CJ-261010-232833-CDC8", "訂單狀態：待確認付款", "會員名稱：建育", "",
     "商品：SAMSAM達摩套娃不倒翁盲盒 ×1", "商品金額：NT$260", "運費：NT$60", "總金額：NT$320", "付款方式：匯款／轉帳"
   ].join("\n"));
   assert.equal(telegram({ ...cvsBase, eventType: "status_changed", orderStatus: "confirmed" }), [
-    "【潮吉好頑選物】", "訂單編號：CJ-261010-232833-CDC8", "訂單狀態：已確認訂單，待出貨", "會員名稱：建育", "",
+    "【潮吉好頑選物】", "訂單編號：CJ-261010-232833-CDC8", "訂單狀態：已確認訂單(付款完成)，待出貨", "會員名稱：建育", "",
     "商品：SAMSAM達摩套娃不倒翁盲盒 ×1", "取貨方式：7-11店到店(交貨便)"
   ].join("\n"));
   assert.equal(telegram({ ...cvsBase, eventType: "status_changed", orderStatus: "completed" }), [

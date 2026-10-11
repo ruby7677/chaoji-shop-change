@@ -107,3 +107,9 @@ test("the LINE card shows the instruction status instead of the generic status l
   assert.match(body, /私訊小幫手約時間到店取貨/);
   assert.doesNotMatch(body, /"text":"已確認"/);
 });
+test("cvs and home delivery orders ask for payment confirmation when created", () => {
+  for (const deliveryLine of ["宅配", "7-11店到店(交貨便)"]) {
+    const text = messages.buildOrderNotificationMessage({ ...orderData, deliveryLine, eventType: "created", orderStatus: "pending_payment", productAmount: 1230 });
+    assert.match(text, /訂單狀態：待確認付款/, deliveryLine);
+  }
+});
