@@ -38,6 +38,7 @@ function showLoadError() {
 async function fillDistricts(selected = "") {
   const city = $("#checkout-cvs-city").value;
   const entry = (await loadCityIndex()).find(([name]) => name === city);
+  if ($("#checkout-cvs-city").value !== city) return; // 等待期間已改選其他縣市
   setOptions($("#checkout-cvs-district"), (entry?.[2] || []).map((name) => [name, name]), city ? "請選擇鄉鎮區" : "請先選擇縣市");
   if (entry?.[2].includes(selected)) $("#checkout-cvs-district").value = selected;
   await fillStores();
@@ -49,6 +50,8 @@ async function fillStores(selectedCode = "") {
   const select = $("#checkout-cvs-store");
   const entry = (await loadCityIndex()).find(([name]) => name === city);
   const stores = entry && district ? (await loadCityStores(entry[1]))[district] || [] : [];
+  // 較慢的舊請求晚到時不可覆寫目前選擇，否則縣市／區與門市會不一致
+  if ($("#checkout-cvs-city").value !== city || $("#checkout-cvs-district").value !== district) return;
   setOptions(select, stores.map(([code, name]) => [code, `${name}（${code}）`]), district ? "請選擇取件門市" : "請先選擇鄉鎮區");
   stores.forEach(([, , address], index) => { select.options[index + 1].dataset.address = address || ""; });
   if (stores.length) select.insertAdjacentHTML("beforeend", `<option value="${MANUAL}">找不到門市，手動填寫</option>`);

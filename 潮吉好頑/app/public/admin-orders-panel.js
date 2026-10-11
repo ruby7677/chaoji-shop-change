@@ -65,7 +65,7 @@ export function renderAdminOrders() {
     const preorderStorePickup = order.delivery_method === "store_pickup" && hasPreorder;
     const transitions = availableTransitions(order);
     const options = transitions.map((item) => {
-      const label = cvsTransitionLabel(order, item.value, hasPreorder) || item.value === "confirmed" && order.delivery_method === "seller_delivery" && !order.bank_account_id
+      const label = cvsTransitionLabel(order, item.value, hasPreorder) || (item.value === "confirmed" && order.delivery_method === "seller_delivery" && !order.bank_account_id
         ? "確認賣貨便訂單並扣除庫存"
         : item.value === "confirmed" && order.delivery_method === "seller_delivery"
           ? "確認預購訂金並扣除庫存"
@@ -81,7 +81,7 @@ export function renderAdminOrders() {
           ? "確認已出貨、通知會員並完成訂單"
         : item.value === "completed" && order.delivery_method === "home_delivery"
           ? "確認寄送完成並結束訂單"
-        : item.label;
+        : item.label);
       return `<option value="${item.value}">${escapeHtml(label)}</option>`;
     }).join("");
     // 不預選任何動作：避免只剩取消時，高風險動作直接成為預設值

@@ -176,8 +176,12 @@ begin
   end;
   v_amount := v_product_amount + v_shipping_fee;
   -- 預購訂金只算商品；運費與尾款到貨後一起收。現貨建單即付清商品與運費。
-  v_deposit := least(greatest(v_product_deposit - v_coupon_discount - v_point_discount, 0), v_product_amount)
-    + case when v_has_preorder then 0 else v_shipping_fee end;
+  -- 現貨交貨便一律全額（不看規格的訂金比例）：出貨即完成，後台沒有另收尾款的步驟。
+  v_deposit := case
+    when p_delivery_method = 'cvs_delivery' and not v_has_preorder then v_amount
+    else least(greatest(v_product_deposit - v_coupon_discount - v_point_discount, 0), v_product_amount)
+      + case when v_has_preorder then 0 else v_shipping_fee end
+  end;
   v_payment_deadline := now() + case when v_has_preorder then interval '2 hours' else interval '24 hours' end;
 
   perform set_config('app.verified_discount', 'on', true);

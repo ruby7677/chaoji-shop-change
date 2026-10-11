@@ -121,6 +121,19 @@ select tests.assert(tests.point_balance(tests.id('member_a')) = (select floor(10
                     'earned points exclude the shipping fee');
 rollback;
 
+-- 現貨交貨便不看規格訂金比例：即使設定 50%，建單應付仍是商品加運費全額。
+begin;
+select tests.seed();
+update public.product_variants set deposit_rate = 0.5 where id = tests.id('variant_stock');
+select tests.login(tests.id('member_a'));
+create temp table t_order on commit drop as select public.create_delivery_order(
+    tests.order_items(tests.id('variant_stock'), 1), 'together', 'cvs_delivery', null, 0, tests.id('bank'), null, null,
+    '王小明', '0912345678', '臺南市', '中西區', '民生門市', '123456') as id;
+select tests.logout();
+select tests.assert((select deposit_due = amount_due and amount_due = 1060 from public.orders where id = (select id from t_order)),
+                    'in-stock cvs ignores a partial deposit rate and collects the full amount');
+rollback;
+
 -- 寄件編號：只有管理 RPC（service_role）可寫、只限交貨便、格式檢查；會員不可改門市與寄件編號欄位。
 begin;
 select tests.seed();
