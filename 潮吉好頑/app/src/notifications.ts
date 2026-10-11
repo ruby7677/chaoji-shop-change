@@ -1,5 +1,5 @@
 // 訂單事件、低庫存、生日券通知與每小時排程補送；實際發送與重試狀態機在 notification-delivery.ts。
-import { type LinePushMessage, type OrderNotificationEventType, buildBackupFailureMessage, buildBirthdayCouponMessage, buildLineBirthdayFlexMessage, buildLineOrderFlexMessage, buildLowStockMessage, buildOrderNotificationMessage, buildTelegramOrderNotificationMessage, buildTelegramTestMessage, routeOrderNotificationRecipients } from "./line-notification-messages";
+import { NOTIFICATION_COPY, type LinePushMessage, type OrderNotificationEventType, buildBackupFailureMessage, buildBirthdayCouponMessage, buildLineBirthdayFlexMessage, buildLineOrderFlexMessage, buildLowStockMessage, buildOrderNotificationMessage, buildTelegramOrderNotificationMessage, buildTelegramTestMessage, routeOrderNotificationRecipients } from "./line-notification-messages";
 import { type DeliveryResult, deliverLineNotification, deliverTelegramNotification, deliverTelegramNotificationOrDirect } from "./notification-delivery";
 import { requireAdmin } from "./auth";
 import { type Env } from "./env";
@@ -63,7 +63,7 @@ export async function testTelegramNotification(request: Request, env: Env): Prom
 async function loadOrderNotification(env: Env, orderId: string) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set("select", "id,order_number,status,delivery_method,bank_account_id,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,paid_amount,refunded_amount,final_payment_last_five,final_payment_confirmed_at,updated_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,profiles!orders_member_id_fkey(full_name,line_user_id,is_admin),order_items(product_name,variant_name,quantity,kind)");
+  url.searchParams.set("select", "id,order_number,status,delivery_method,bank_account_id,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,pickup_store_city,pickup_store_district,pickup_store_name,pickup_store_code,shipping_fee_notified_at,paid_amount,refunded_amount,final_payment_last_five,final_payment_confirmed_at,updated_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,profiles!orders_member_id_fkey(full_name,line_user_id,is_admin),order_items(product_name,variant_name,quantity,kind)");
   url.searchParams.set("id", `eq.${orderId}`);
   let response: Response;
   // 這裡沒有上層 try/catch（呼叫端以 ctx.waitUntil 執行），逾時或網路錯誤需自行吞掉，
@@ -72,7 +72,7 @@ async function loadOrderNotification(env: Env, orderId: string) {
   catch { return null; }
   if (!response.ok) return null;
   const rows = await response.json() as unknown[];
-  return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; shipping_address?: string | null; shipping_recipient_name?: string | null; shipping_phone?: string | null; shipping_fee_notified_at?: string | null; paid_amount?: number; refunded_amount?: number | null; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string; is_admin?: boolean }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number; kind?: string }> };
+  return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; shipping_address?: string | null; shipping_recipient_name?: string | null; shipping_phone?: string | null; pickup_store_city?: string | null; pickup_store_district?: string | null; pickup_store_name?: string | null; pickup_store_code?: string | null; shipping_fee_notified_at?: string | null; paid_amount?: number; refunded_amount?: number | null; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string; is_admin?: boolean }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number; kind?: string }> };
 }
 
 /** Resolves true once every recipient's notification is sent or owned by the delivery state machine. */
@@ -82,7 +82,7 @@ export async function notifyOrderEvent(env: Env, orderId: string, eventType: Ord
   if (!order) return false;
   const items = (order.order_items || []).map((item) => `${item.product_name}${item.variant_name === "單一規格" ? "" : ` · ${item.variant_name}`} ×${item.quantity}`).join("、");
   const hasPreorder = (order.order_items || []).some((item) => item.kind === "preorder");
-  const deliveryLabels: Record<string, string> = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配" };
+  const deliveryLabels: Record<string, string> = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配", cvs_delivery: NOTIFICATION_COPY.order.delivery.cvs };
   const deliveryLine = deliveryLabels[order.delivery_method || "store_pickup"] || "到店取貨";
   const paymentLine = order.delivery_method === "seller_delivery" ? "賣貨便付款（外部）" : order.bank_account_id ? "匯款／轉帳" : "到店支付";
   const orderMessageData = {
@@ -102,7 +102,11 @@ export async function notifyOrderEvent(env: Env, orderId: string, eventType: Ord
     finalPaymentConfirmed: Boolean(order.final_payment_confirmed_at),
     shippingRecipientName: order.shipping_recipient_name,
     shippingPhone: order.shipping_phone,
-    shippingAddress: order.shipping_address
+    shippingAddress: order.shipping_address,
+    productAmount: Math.max(order.subtotal - order.coupon_discount - order.point_discount, 0),
+    pickupStore: order.delivery_method === "cvs_delivery" && order.pickup_store_name
+      ? `${order.pickup_store_city || ""}${order.pickup_store_district || ""} ${order.pickup_store_name}（${order.pickup_store_code || ""}）`
+      : null
   };
   const message = buildOrderNotificationMessage(orderMessageData);
   if (!message) return true;

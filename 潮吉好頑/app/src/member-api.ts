@@ -45,7 +45,7 @@ export async function listBankAccounts(request: Request, env: Env): Promise<Resp
 
 // 會員訂單以會員自己的 JWT 讀取，由 RLS（members view own orders／order items）限定本人；
 // member_id 條件保留作第二層防護。收款帳戶是店家資料、會員不能直接讀表，另以 service role 依 id 補上。
-const MEMBER_ORDER_SELECT = "id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,payment_last_five,bank_account_id,created_at,order_items(product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)";
+const MEMBER_ORDER_SELECT = "id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,pickup_store_city,pickup_store_district,pickup_store_name,pickup_store_code,shipment_tracking_number,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,payment_last_five,bank_account_id,created_at,order_items(product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)";
 
 type MemberOrderRow = { bank_account_id?: string | null; bank_accounts?: unknown };
 type BankAccountRow = { id: string; label: string; bank_name: string; account_name: string; account_number: string };
@@ -230,7 +230,7 @@ export async function createOrder(request: Request, env: Env): Promise<Response>
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "資料庫尚未設定" }, { status: 503 });
   const contentLength = Number(request.headers.get("Content-Length") || 0);
   if (Number.isFinite(contentLength) && contentLength > MAX_JSON_REQUEST_BYTES) return json({ error: databaseErrors.REQUEST_BODY_TOO_LARGE }, { status: 413 });
-  let body: { items?: Array<{ variant_id: string; quantity: number }>; pickup_plan?: "together" | "split"; delivery_method?: "store_pickup" | "seller_delivery" | "home_delivery"; payment_method?: "bank_transfer" | "store_payment"; shipping_address?: string; shipping_recipient_name?: string; shipping_phone?: string; coupon_code?: string; points_to_redeem?: number; bank_account_id?: string; payment_last_five?: string };
+  let body: { items?: Array<{ variant_id: string; quantity: number }>; pickup_plan?: "together" | "split"; delivery_method?: "store_pickup" | "home_delivery" | "cvs_delivery"; payment_method?: "bank_transfer"; shipping_address?: string; shipping_recipient_name?: string; shipping_phone?: string; pickup_store_city?: string; pickup_store_district?: string; pickup_store_name?: string; pickup_store_code?: string; coupon_code?: string; points_to_redeem?: number; bank_account_id?: string; payment_last_five?: string };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   if (!Array.isArray(body.items) || body.items.length === 0) return json({ error: "購物車不可為空" }, { status: 400 });
   if (body.pickup_plan && body.pickup_plan !== "together") return json({ error: "現貨與預購需分開結帳，不提供單筆分批取貨" }, { status: 400 });
@@ -243,19 +243,31 @@ export async function createOrder(request: Request, env: Env): Promise<Response>
     variantIds.add(item.variant_id.toLowerCase());
     return false;
   })) return json({ error: duplicateVariant ? databaseErrors.DUPLICATE_ORDER_ITEM : "商品數量錯誤" }, { status: 400 });
-  const deliveryMethod = body.delivery_method ?? "store_pickup";
-  const paymentMethod = body.payment_method ?? (deliveryMethod === "seller_delivery" ? "store_payment" : "bank_transfer");
-  if (!['bank_transfer', 'store_payment'].includes(paymentMethod)) return json({ error: "付款方式不正確" }, { status: 400 });
-  if (paymentMethod === "store_payment" && deliveryMethod !== "seller_delivery") return json({ error: databaseErrors.STORE_PAYMENT_BANK_TRANSFER_ONLY }, { status: 400 });
-  if (deliveryMethod === "seller_delivery" && paymentMethod === "store_payment" && body.bank_account_id) return json({ error: "賣貨便外部付款訂單不可指定本站收款帳戶" }, { status: 400 });
-  if (paymentMethod === "bank_transfer" && !body.bank_account_id) return json({ error: "請選擇收款帳戶" }, { status: 400 });
+  const deliveryMethod: string = body.delivery_method ?? "store_pickup";
+  // 賣貨便已停用（202610110001）：所有新訂單一律匯款／轉帳。
+  if (deliveryMethod === "seller_delivery") return json({ error: databaseErrors.SELLER_DELIVERY_RETIRED }, { status: 400 });
+  if (!["store_pickup", "home_delivery", "cvs_delivery"].includes(deliveryMethod)) return json({ error: databaseErrors.INVALID_DELIVERY_METHOD }, { status: 400 });
+  if ((body.payment_method ?? "bank_transfer") !== "bank_transfer") return json({ error: databaseErrors.STORE_PAYMENT_BANK_TRANSFER_ONLY }, { status: 400 });
+  if (!body.bank_account_id) return json({ error: "請選擇收款帳戶" }, { status: 400 });
   if (!Number.isInteger(body.points_to_redeem ?? 0) || (body.points_to_redeem ?? 0) < 0) return json({ error: "點數使用數量不正確" }, { status: 400 });
-  const shippingRecipientName = body.shipping_recipient_name?.trim() || null;
-  const shippingPhone = body.shipping_phone?.replace(/[\s-]/g, "") || null;
-  if (deliveryMethod === "home_delivery") {
-    if (!shippingRecipientName) return json({ error: "宅配請填寫收件人姓名" }, { status: 400 });
-    if (!shippingPhone || !/^09\d{8}$/.test(shippingPhone)) return json({ error: "宅配請填寫有效的收件人手機號碼" }, { status: 400 });
-    if (!body.shipping_address?.trim()) return json({ error: "宅配請填寫收件地址" }, { status: 400 });
+  const needsRecipient = deliveryMethod === "home_delivery" || deliveryMethod === "cvs_delivery";
+  const shippingRecipientName = needsRecipient ? body.shipping_recipient_name?.trim() || null : null;
+  const shippingPhone = needsRecipient ? body.shipping_phone?.replace(/[\s-]/g, "") || null : null;
+  const cvs = deliveryMethod === "cvs_delivery";
+  const pickupStore = {
+    city: cvs ? body.pickup_store_city?.trim() || null : null,
+    district: cvs ? body.pickup_store_district?.trim() || null : null,
+    name: cvs ? body.pickup_store_name?.trim() || null : null,
+    code: cvs ? body.pickup_store_code?.replace(/\s/g, "") || null : null
+  };
+  if (needsRecipient) {
+    if (!shippingRecipientName) return json({ error: databaseErrors.SHIPPING_RECIPIENT_REQUIRED }, { status: 400 });
+    if (!shippingPhone || !/^09\d{8}$/.test(shippingPhone)) return json({ error: databaseErrors.SHIPPING_PHONE_REQUIRED }, { status: 400 });
+  }
+  if (deliveryMethod === "home_delivery" && !body.shipping_address?.trim()) return json({ error: databaseErrors.SHIPPING_ADDRESS_REQUIRED }, { status: 400 });
+  if (cvs) {
+    if (!pickupStore.city || !pickupStore.district || !pickupStore.name) return json({ error: databaseErrors.CVS_PICKUP_STORE_REQUIRED }, { status: 400 });
+    if (!pickupStore.code || !/^\d{6}$/.test(pickupStore.code)) return json({ error: databaseErrors.CVS_PICKUP_STORE_CODE_INVALID }, { status: 400 });
   }
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/create_delivery_order`, {
     method: "POST",
@@ -268,9 +280,13 @@ export async function createOrder(request: Request, env: Env): Promise<Response>
       p_points_to_redeem: body.points_to_redeem ?? 0,
       p_bank_account_id: body.bank_account_id ?? null,
       p_payment_last_five: body.payment_last_five ?? null,
-      p_shipping_address: body.shipping_address?.trim() || null,
+      p_shipping_address: deliveryMethod === "home_delivery" ? body.shipping_address?.trim() || null : null,
       p_shipping_recipient_name: shippingRecipientName,
-      p_shipping_phone: shippingPhone
+      p_shipping_phone: shippingPhone,
+      p_pickup_store_city: pickupStore.city,
+      p_pickup_store_district: pickupStore.district,
+      p_pickup_store_name: pickupStore.name,
+      p_pickup_store_code: pickupStore.code
     })
   });
   if (!response.ok) return databaseError(response);

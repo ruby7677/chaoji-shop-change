@@ -1,5 +1,5 @@
 // 三個先前沒有測試覆蓋的速率限制點（建立訂單、回報匯款、一個後台路由），以及
-// 到店取貨／宅配選擇外部付款時的 STORE_PAYMENT_BANK_TRANSFER_ONLY 訊息。
+// 選擇外部付款（賣貨便停用後已無此方式）時的 STORE_PAYMENT_BANK_TRANSFER_ONLY 訊息。
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { baseEnv, ctx, deniedRateLimit, jsonResponse, loadWorker, stubFetch } from "./harness.mjs";
@@ -78,5 +78,5 @@ test("store_payment for store_pickup/home_delivery is rejected with the bank-tra
   }), baseEnv, ctx());
   assert.equal(response.status, 400);
   const body = await response.json();
-  assert.equal(body.error, "本站到店取貨與宅配訂單僅接受匯款／轉帳，請改選匯款付款");
+  assert.equal(body.error, "本站訂單僅接受匯款／轉帳，請改選匯款付款");
 });

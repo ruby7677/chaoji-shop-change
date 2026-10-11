@@ -28,6 +28,9 @@ export const NOTIFICATION_COPY = {
       arrivedHome: "商品已到貨，私訊小幫手確認尾款及運費",
       shippedSeller: "已出貨，請留意到貨的簡訊通知",
       shippedHome: "已出貨，請留意貨運的電話／簡訊通知",
+      cvsStockConfirmed: "已確認訂單，待出貨",
+      arrivedCvs: "商品已到貨，私訊小幫手確認尾款及運費",
+      shippedCvs: "已出貨，請留意到貨的簡訊通知",
       completedPickup: "已完成取貨"
     },
     labels: {
@@ -37,6 +40,8 @@ export const NOTIFICATION_COPY = {
       items: "商品",
       delivery: "取貨方式",
       shipping: "運費",
+      productAmount: "商品金額",
+      pickupStore: "取件門市",
       payment: "付款方式",
       deliveryNote: "配送說明",
       total: "總金額",
@@ -61,6 +66,8 @@ export const NOTIFICATION_COPY = {
       sellerReported: "賣貨便取貨付尾款",
       sellerShipped: "7-11賣貨便",
       home: "宅配寄送",
+      cvs: "7-11店到店(交貨便)",
+      freeShipping: "免運",
       preorderNoticeHeading: "預購商品注意事項：",
       preorderNoticeLine: "預購商品報價有時效性，請於訂單成立後2小時內完成付訂",
       preorderNoticeCancel: "否則訂單將自動取消",
@@ -118,6 +125,10 @@ export type OrderMessageData = {
   shippingRecipientName?: string | null;
   shippingPhone?: string | null;
   shippingAddress?: string | null;
+  /** 商品金額（優惠券與點數折抵後，不含運費） */
+  productAmount?: number;
+  /** 交貨便取件門市，例：臺南市中西區 民生門市（123456） */
+  pickupStore?: string | null;
 };
 
 /**
@@ -144,8 +155,10 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
   const title = `【${data.storeName}${copy.titleSuffix}】`;
   const isSeller = data.deliveryLine === "賣貨便";
   const isHome = data.deliveryLine === "宅配";
+  const isCvs = data.deliveryLine === copy.delivery.cvs;
   const isPreorder = data.hasPreorder;
   const productLine = `${copy.labels.items}：${data.items || "-"}`;
+  const cvsDeliveryLine = `${copy.labels.delivery}：${copy.delivery.cvs}`;
   const header = (status: string) => [
     title,
     `${copy.labels.order}：${data.orderNumber}`,
@@ -157,6 +170,7 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
   // completed 才代表實際取貨／寄送結案。宅配即使先前已確認尾款與運費，
   // 也必須等管理員執行「確認寄送完成並結束訂單」後才發最後出貨通知。
   if (data.eventType === "status_changed" && data.orderStatus === "completed") {
+    if (isCvs) return message(copy.status.shippedCvs, [productLine, cvsDeliveryLine]);
     if (isSeller) {
       return message(copy.status.shippedSeller, [productLine, `${copy.labels.delivery}：${copy.delivery.sellerShipped}`]);
     }
@@ -165,6 +179,19 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
     }
     if (data.deliveryLine !== "到店取貨") return null;
     return message(copy.status.completedPickup, [productLine, `${copy.labels.delivery}：${data.deliveryLine}`]);
+  }
+
+  if (data.eventType === "created" && isCvs) {
+    const lines = [
+      productLine,
+      `${copy.labels.productAmount}：${money(data.productAmount ?? data.amountDue - data.shippingFee)}`,
+      `${copy.labels.shipping}：${data.shippingFee > 0 ? money(data.shippingFee) : copy.delivery.freeShipping}`,
+      `${copy.labels.total}：${money(data.amountDue)}`,
+      ...(isPreorder ? [`${copy.labels.deposit}：${money(data.depositDue)}`] : []),
+      `${copy.labels.payment}：${copy.payment.bank}`
+    ];
+    if (isPreorder) lines.push("", copy.delivery.preorderNoticeHeading, copy.delivery.preorderNoticeLine, copy.delivery.preorderNoticeCancel);
+    return message(copy.status.created, lines);
   }
 
   if (data.eventType === "created") {
@@ -180,7 +207,9 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
   }
 
   if (data.eventType === "payment_reported") {
-    const delivery = isSeller
+    const delivery = isCvs
+      ? copy.delivery.cvs
+      : isSeller
       ? copy.delivery.sellerReported
       : isHome
         ? copy.delivery.home
@@ -197,6 +226,11 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
   const isArrival = data.eventType === "fulfillment_updated"
     || (data.eventType === "status_changed" && ["partially_ready", "ready_for_pickup"].includes(data.orderStatus));
   if (isArrival) {
+    if (isCvs) {
+      // 交貨便只有預購會標記到貨；儲存尾款不代表寄出，出貨通知在完成時發送。
+      if (data.eventType === "fulfillment_updated" || !isPreorder) return null;
+      return message(copy.status.arrivedCvs, [productLine]);
+    }
     if (isSeller) {
       if (isPreorder) return message(copy.status.arrivedSellerPreorder, [productLine]);
       if (data.eventType === "status_changed" && data.orderStatus === "ready_for_pickup") {
@@ -215,6 +249,7 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
   }
 
   if (data.eventType === "status_changed" && data.orderStatus === "confirmed") {
+    if (isCvs) return isPreorder ? message(copy.status.remoteConfirmed, [productLine]) : message(copy.status.cvsStockConfirmed, [productLine, cvsDeliveryLine]);
     if (isSeller) return message(isPreorder ? copy.status.remoteConfirmed : copy.status.sellerStockConfirmed, [productLine]);
     if (isHome) return message(isPreorder ? copy.status.remoteConfirmed : copy.status.homeStockConfirmed, [productLine]);
     if (isPreorder) return message(copy.status.remoteConfirmed, [productLine]);
@@ -257,6 +292,7 @@ function orderFlexTitle(data: OrderMessageData) {
   if (data.eventType === "payment_reported") return "匯款回報已送出";
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "賣貨便") return "賣貨便出貨通知";
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "宅配") return "宅配出貨通知";
+  if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === NOTIFICATION_COPY.order.delivery.cvs) return "7-11 店到店出貨通知";
   if (data.eventType === "fulfillment_updated") return "訂單進度更新";
   return "訂單狀態更新";
 }
@@ -282,6 +318,9 @@ function orderFlexSummary(data: OrderMessageData) {
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "宅配") {
     return "商品已寄出，請留意貨運的電話／簡訊通知。";
   }
+  if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === NOTIFICATION_COPY.order.delivery.cvs) {
+    return "商品已寄出，請留意 7-ELEVEN 到貨的簡訊通知。";
+  }
   if (data.eventType === "status_changed" && data.orderStatus === "cancelled") {
     return "您的訂單已取消，如有疑問請直接回覆官方帳號。";
   }
@@ -304,6 +343,7 @@ function orderFlexFooter(ordersUrl?: string | null) {
 export function buildLineOrderFlexMessage(data: OrderMessageData, altText: string, ordersUrl?: string | null): LinePushMessage {
   const isSeller = data.deliveryLine === "賣貨便";
   const isHome = data.deliveryLine === "宅配";
+  const isCvs = data.deliveryLine === NOTIFICATION_COPY.order.delivery.cvs;
   const itemSummary = data.items.slice(0, 500);
   const contents: Array<Record<string, unknown>> = [
     flexRow(NOTIFICATION_COPY.order.labels.order, data.orderNumber),
@@ -312,7 +352,12 @@ export function buildLineOrderFlexMessage(data: OrderMessageData, altText: strin
     flexRow(NOTIFICATION_COPY.order.labels.payment, data.paymentLine)
   ];
 
-  if (data.eventType === "created") {
+  if (data.eventType === "created" && isCvs) {
+    contents.push(flexRow(NOTIFICATION_COPY.order.labels.productAmount, money(data.productAmount ?? data.amountDue - data.shippingFee)));
+    contents.push(flexRow(NOTIFICATION_COPY.order.labels.shipping, data.shippingFee > 0 ? money(data.shippingFee) : NOTIFICATION_COPY.order.delivery.freeShipping));
+    contents.push(flexRow(NOTIFICATION_COPY.order.labels.total, money(data.amountDue)));
+    if (data.hasPreorder) contents.push(flexRow(NOTIFICATION_COPY.order.labels.deposit, money(data.depositDue)));
+  } else if (data.eventType === "created") {
     contents.push(flexRow(NOTIFICATION_COPY.order.labels.total, money(data.amountDue)));
     if (!isSeller || data.hasPreorder) {
       contents.push(flexRow(NOTIFICATION_COPY.order.labels.deposit, money(data.depositDue)));
@@ -338,6 +383,7 @@ export function buildLineOrderFlexMessage(data: OrderMessageData, altText: strin
     if (recipient) contents.push(flexRow(NOTIFICATION_COPY.order.labels.recipient, recipient));
     if (data.shippingAddress) contents.push(flexRow(NOTIFICATION_COPY.order.labels.address, data.shippingAddress.slice(0, 160)));
   }
+  if (data.pickupStore) contents.push(flexRow(NOTIFICATION_COPY.order.labels.pickupStore, data.pickupStore.slice(0, 160)));
 
   const safeAltText = altText.slice(0, 1500);
   return {

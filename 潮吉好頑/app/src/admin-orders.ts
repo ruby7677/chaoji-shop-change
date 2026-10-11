@@ -1,7 +1,7 @@
 // 後台訂單操作：狀態轉換（含取消退款金額）、宅配尾款／運費。
 import { invalidateCatalogCache } from "./catalog";
 import { requireAdmin } from "./auth";
-import { databaseError } from "./database-errors";
+import { databaseError, databaseErrors } from "./database-errors";
 import { type Env } from "./env";
 import { fetchWithTimeout, json, serviceHeaders } from "./http";
 
@@ -10,8 +10,10 @@ const adminOrderStatuses = ["pending_payment", "pending_review", "confirmed", "p
 export async function transitionAdminOrder(request: Request, env: Env, orderId: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
   if (admin instanceof Response) return admin;
-  let body: { target_status?: string; note?: string; refund_amount?: number | null };
+  let body: { target_status?: string; note?: string; refund_amount?: number | null; shipment_tracking_number?: string | null };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
+  const trackingNumber = typeof body.shipment_tracking_number === "string" ? body.shipment_tracking_number.replace(/\s/g, "") : null;
+  if (trackingNumber && !/^[A-Za-z0-9-]{1,40}$/.test(trackingNumber)) return json({ error: databaseErrors.INVALID_TRACKING_NUMBER }, { status: 400 });
   const targetStatus = body.target_status;
   // 退款金額只在取消時送出；最終上限與「未付款必為 0」由 admin_transition_order 檢查
   const refundAmount = body.refund_amount ?? null;
@@ -33,12 +35,24 @@ export async function transitionAdminOrder(request: Request, env: Env, orderId: 
     if (targetStatus === "partially_ready" && (!preorderStorePickup || order.pickup_plan !== "split")) {
       return json({ error: "只有預購到店且設定分批取貨的訂單可標記部分可取貨" }, { status: 400 });
     }
-    if (targetStatus === "ready_for_pickup" && !preorderStorePickup && !["seller_delivery", "home_delivery"].includes(order.delivery_method || "")) {
+    if (targetStatus === "ready_for_pickup" && !preorderStorePickup && !["seller_delivery", "home_delivery", "cvs_delivery"].includes(order.delivery_method || "")) {
       return json({ error: "現貨到店取貨確認付款後可直接完成取貨，無需標記可取貨" }, { status: 400 });
+    }
+    if (targetStatus === "ready_for_pickup" && order.delivery_method === "cvs_delivery" && !hasPreorder) {
+      return json({ error: "現貨 7-11 店到店確認付款後直接標記已出貨（完成），無需更新到貨狀態" }, { status: 400 });
     }
     if (targetStatus === "ready_for_pickup" && order.delivery_method === "home_delivery" && !hasPreorder) {
       return json({ error: "現貨宅配付款確認後直接填寫尾款與運費，無需更新備貨狀態" }, { status: 400 });
     }
+  }
+  // 交貨便出貨時一併記錄寄件編號；先寫編號，狀態轉換失敗時編號仍保留，可直接重試。
+  if (trackingNumber) {
+    const trackingResponse = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_set_order_shipment_tracking`, {
+      method: "POST",
+      headers: serviceHeaders(env),
+      body: JSON.stringify({ p_actor_id: admin.user.id, p_order_id: orderId, p_tracking_number: trackingNumber })
+    });
+    if (!trackingResponse.ok) return databaseError(trackingResponse);
   }
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_transition_order`, {
     method: "POST",
@@ -59,9 +73,9 @@ export async function updateAdminOrderFulfillment(request: Request, env: Env, or
   if (!Number.isInteger(body.shipping_fee) || (body.shipping_fee as number) < 0) return json({ error: "實際運費必須是 0 或正整數" }, { status: 400 });
   if (body.final_payment_last_five && !/^\d{5}$/.test(body.final_payment_last_five)) return json({ error: "尾款匯款末五碼須為 5 位數字" }, { status: 400 });
   if ((body.note || "").length > 1000) return json({ error: "管理備註不可超過 1000 字" }, { status: 400 });
-  const orderLookup = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/orders?select=status,delivery_method,order_items(kind)&id=eq.${orderId}&limit=1`, { headers: serviceHeaders(env) });
+  const orderLookup = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/orders?select=status,delivery_method,shipping_fee,order_items(kind)&id=eq.${orderId}&limit=1`, { headers: serviceHeaders(env) });
   if (!orderLookup.ok) return json({ error: "訂單資料暫時無法讀取" }, { status: 503 });
-  const orderRows = await orderLookup.json() as Array<{ status?: string; delivery_method?: string; order_items?: Array<{ kind?: string }> }>;
+  const orderRows = await orderLookup.json() as Array<{ status?: string; delivery_method?: string; shipping_fee?: number; order_items?: Array<{ kind?: string }> }>;
   if (!orderRows.length) return json({ error: "找不到訂單" }, { status: 404 });
   const order = orderRows[0];
   const sellerDelivery = order.delivery_method === "seller_delivery";
@@ -74,6 +88,7 @@ export async function updateAdminOrderFulfillment(request: Request, env: Env, or
   }
   if (sellerDelivery && body.shipping_fee !== 0) return json({ error: "賣貨便運費由 7-11 向客戶收取，不計入訂單" }, { status: 400 });
   if (sellerDelivery && body.final_payment_confirmed === true) return json({ error: "賣貨便付款由外部平台處理，不需在本站確認尾款" }, { status: 400 });
+  if (order.delivery_method === "cvs_delivery" && body.shipping_fee !== (order.shipping_fee ?? 0)) return json({ error: databaseErrors.CVS_SHIPPING_FEE_FIXED }, { status: 400 });
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_order_fulfillment`, {
     method: "POST",
     headers: serviceHeaders(env),
