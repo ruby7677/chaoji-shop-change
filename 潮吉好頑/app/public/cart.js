@@ -2,7 +2,7 @@
 import { escapeHtml, isPreorderItem, money } from "./product-format.js";
 import { planBuyNowQuantity, variantMaxQuantity } from "./cart-quantity.js";
 import { auth, showToast, syncPageScrollLock } from "./app-core.js";
-import { products } from "./storefront-catalog.js";
+import { catalogLoaded, products } from "./storefront-catalog.js";
 import { activeCheckoutItems, activeCheckoutScope, openCheckout } from "./checkout-flow.js";
 import { cvsFeeHint, cvsFeeRule } from "./cvs-delivery.js";
 import { markCartGuestStart, planLoginCart, readCartOwner, readStoredCartItems, shrinkCartGuestBase, writeCartOwner } from "./cart-merge.js";
@@ -234,6 +234,8 @@ export function saveCart(options = {}) {
   if (options.sync !== false) scheduleMemberCartSync();
 }
 export function loadLocalCart() {
+  // 型錄沒載入成功時保留 sessionStorage 原樣，不用空型錄過濾（重新載入後仍可還原）
+  if (!catalogLoaded) return;
   try {
     const savedCart = JSON.parse(sessionStorage.getItem("cj-cart") || "[]");
     if (Array.isArray(savedCart)) {
@@ -247,6 +249,8 @@ export function loadLocalCart() {
   } catch { try { sessionStorage.removeItem("cj-cart"); } catch { /* ignore restricted storage */ } }
 }
 export async function loadMemberCart() {
+  // 型錄沒載入成功時不合併：所有商品都對不到，會把雲端購物車同步成空的
+  if (!catalogLoaded) return;
   if (!auth.accessToken || !auth.user || !auth.config?.authEnabled || cartSyncUserId === auth.user.id) return;
   try {
     const response = await fetch("/api/cart", { headers: { Authorization: `Bearer ${auth.accessToken}` } });

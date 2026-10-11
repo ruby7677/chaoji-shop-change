@@ -7,15 +7,15 @@ import { selectHeroSlides } from "./hero-slides.js";
 import { showToast } from "./app-core.js";
 import { productPage } from "./app.js";
 
-export let products = [
-  { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", icon: "🌀", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" },
-  { id: "ux20", category: "UX系列", name: "UX20 榮耀戰神 亞洲版", price: 1350, stock: 23, type: "現貨", icon: "⚔️", link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" }
-];
+export let products = [];
+// 型錄是否成功載入：失敗時不顯示假商品，購物車也不可用空型錄過濾後覆寫（cart.js 依此略過還原與同步）
+export let catalogLoaded = false;
 
 const grid = document.querySelector("#product-grid");
+grid?.addEventListener("click", (event) => {
+  if (event.target.closest("[data-catalog-retry]")) location.reload();
+});
 export const search = document.querySelector("#product-search");
-
-const HERO_IMAGE_DECODE_TIMEOUT_MS = 1200;
 
 let heroCarousel = null;
 export function renderHeroSpotlight() {
@@ -110,7 +110,9 @@ export function renderProducts({ revealFrom = 0 } = {}) {
   const keyword = search.value.trim().toLowerCase();
   const matches = products.filter((product) => (activeCategory === "all" || product.category === activeCategory || product.type === activeCategory) && `${product.category}${product.name}`.toLowerCase().includes(keyword));
   const shown = matches.slice(0, visibleLimit(`${activeCategory}|${keyword}`));
-  grid.innerHTML = shown.length ? shown.map(productCardMarkup).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
+  grid.innerHTML = !catalogLoaded
+    ? "<div class=\"empty-state\"><p>商品載入失敗，請檢查網路後重新載入。</p><button class=\"secondary-button\" type=\"button\" data-catalog-retry>重新載入</button></div>"
+    : shown.length ? shown.map(productCardMarkup).join("") : "<p class=\"empty-state\">目前沒有符合的商品。</p>";
   // 剛載入的那批卡片淡入
   if (revealFrom > 0) {
     const revealed = [...grid.children].slice(revealFrom);
@@ -130,52 +132,17 @@ export function openProductDetail(id) {
   productPage.open(product.product_id, product.id);
 }
 
+// 回傳是否成功；失敗（網路、伺服器錯誤）不丟錯，由 renderProducts 顯示重新載入提示
 export async function loadProducts() {
   try {
     const response = await fetch("/api/catalog");
-    if (!response.ok) return;
+    if (!response.ok) return false;
     const payload = await response.json();
-    if (Array.isArray(payload.products) && payload.products.length) products = payload.products.map((product) => ({ ...product, link: product.seller_link, icon: product.category?.startsWith("BX") ? "🌀" : "⚔️" }));
+    if (!Array.isArray(payload.products)) return false;
+    products = payload.products.map((product) => ({ ...product, link: product.seller_link, icon: product.category?.startsWith("BX") ? "🌀" : "⚔️" }));
+    catalogLoaded = true;
+    return true;
   } catch {
-    // 在純靜態預覽時保留示範資料。
+    return false;
   }
-}
-
-export function waitForHeroImageDecode(timeoutMs = HERO_IMAGE_DECODE_TIMEOUT_MS) {
-  const image = document.querySelector("#hero-product-spotlight img");
-  if (!image || !image.getAttribute("src")) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    let settled = false;
-    let timeoutId = null;
-    let onLoad = null;
-    let onError = null;
-    const finish = (decoded) => {
-      if (settled) return;
-      settled = true;
-      if (timeoutId) window.clearTimeout(timeoutId);
-      if (onLoad) image.removeEventListener("load", onLoad);
-      if (onError) image.removeEventListener("error", onError);
-      resolve(decoded);
-    };
-    timeoutId = window.setTimeout(() => finish(false), timeoutMs);
-    if (typeof image.decode === "function") {
-      // Prefer the browser's decode result when available. A load event can
-      // fire before pixels are ready on mobile WebViews, so it must not win
-      // over decode success, failure, or the timeout.
-      try {
-        image.decode().then(() => finish(true)).catch(() => finish(false));
-      } catch {
-        finish(false);
-      }
-      return;
-    }
-    onLoad = () => finish(true);
-    onError = () => finish(false);
-    if (image.complete) {
-      finish(image.naturalWidth > 0);
-      return;
-    }
-    image.addEventListener("load", onLoad, { once: true });
-    image.addEventListener("error", onError, { once: true });
-  });
 }
