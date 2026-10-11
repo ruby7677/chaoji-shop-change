@@ -6,7 +6,6 @@ import { auth } from "./app-core.js";
 import { forgetCartSyncUser } from "./cart.js";
 import { clearMemberStateCache } from "./member-benefits.js";
 import { captureAuthReturn } from "./auth-return-state.js";
-import { beginLineLogin } from "./member-profile.js";
 import { RESTORE_RETRY_DELAY_MS, isRetryableRestoreStatus } from "./liff-restore-policy.js";
 
 export let liffSessionMatches = false;
@@ -20,8 +19,6 @@ let liffBridgeResult = false;
 export let liffOAuthCallbackSeen = false;
 let liffAutoLoginAttemptAt = 0;
 export let liffPrimaryRedirectPending = false;
-// 恢復登入因暫時性故障失敗（重試後仍失敗）時為 true：這次開啟不自動改走 OAuth
-let liffRestoreUnavailable = false;
 
 function stripLiffCallbackMarker() {
   const url = new URL(location.href);
@@ -240,7 +237,6 @@ export async function restorePersistentLiffSession() {
     await new Promise((resolve) => setTimeout(resolve, RESTORE_RETRY_DELAY_MS));
     attempt = await requestPersistentRestore();
   }
-  liffRestoreUnavailable = attempt.outcome === "retry";
   if (attempt.outcome !== "restored") return false;
   const { result } = attempt;
   auth.accessToken = result.access_token;
@@ -367,16 +363,10 @@ async function runInitializeLiffBridge(initialState = null) {
     }
     if (auth.accessToken) {
       try { sessionStorage.removeItem(LIFF_AUTO_LOGIN_KEY); } catch { /* restricted storage */ }
-      return false;
     }
-    if (!state.isInClient) return false;
-    if (liffOAuthCallbackSeen || recentLiffAutoLoginAttempt()) return false;
-    // 暫時性故障：保留保存的登入，讓會員稍後重開或手動登入，不自動整頁跳往 OAuth
-    if (liffRestoreUnavailable) {
-      console.warn("LIFF session restore temporarily unavailable; skipping automatic LINE login.");
-      return false;
-    }
-    return beginLineLogin({ automatic: true });
+    // 型錄優先：沒有可恢復的登入時不自動整頁跳 OAuth，維持訪客身分；
+    // 按登入、結帳或我的訂單時才由 beginLineLogin() 前往 LINE 授權
+    return false;
   } catch (error) {
     console.warn("LIFF initialization failed; falling back to web login.", error);
     return false;

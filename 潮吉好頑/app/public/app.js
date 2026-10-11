@@ -11,6 +11,7 @@ import { checkLineFriendship, handleLineFriendRequest, showLineFriendDialog } fr
 import { currentOrders, openOrders, showPaymentDialog, submitPayment } from "./member-orders.js";
 import { loadProducts, openProductDetail, products, renderHeroSpotlight, renderProducts, search, selectCategory } from "./storefront-catalog.js";
 import { markBoot, reportBootTiming } from "./boot-timing.js";
+import { markAuthSettled, whenAuthReady } from "./auth-ready.js";
 import { failAuthBoot, finishAuthBoot, startAuthBoot } from "./auth-boot.js";
 import { restoreAuthReturnState } from "./auth-return-state.js";
 import { activeCheckoutScope, openCheckout, showCheckoutError, submitOrder } from "./checkout-flow.js";
@@ -44,7 +45,7 @@ document.addEventListener("click", (event) => {
     if (couponButton.dataset.action === "remove") { removeCheckoutCoupon(); renderCheckoutSummary(); }
     else applyCheckoutCoupon().then(renderCheckoutSummary);
   }
-  if (event.target.closest("[data-demo='login']")) auth.user ? showProfileDialog(false) : beginLineLogin();
+  if (event.target.closest("[data-demo='login']")) whenAuthReady().then(() => (auth.user ? showProfileDialog(false) : beginLineLogin()));
   if (event.target.closest("[data-profile-close]")) closeDialog(document.querySelector("#profile-dialog"));
   if (event.target.closest("[data-orders-open]")) openOrders();
   if (event.target.closest("[data-orders-close]")) closeDialog(document.querySelector("#orders-dialog"));
@@ -191,22 +192,27 @@ async function bootstrapAuth() {
     markBoot("LIFF 初始化");
     if (liffStage.primary) return;
     if (liffPrimaryRedirect) captureAuthSession();
-    const liffRedirecting = liffLaunchIntent && liffStage.initialized && liffStage.state?.isInClient
-      ? await initializeLiffBridge(liffStage.state)
-      : false;
-    if (liffRedirecting) return;
-    markBoot("LINE 登入恢復");
+    const inLineClient = Boolean(liffStage.state?.isInClient);
+    const liffBridge = liffLaunchIntent && liffStage.initialized && inLineClient
+      ? initializeLiffBridge(liffStage.state)
+      : Promise.resolve(false);
+    // 型錄優先：LINE 登入在背景恢復，需要會員的入口（登入、結帳、我的訂單）會等 whenAuthReady；
+    // 橋接不會自動整頁跳 OAuth，沒有可恢復登入的客人維持訪客身分。
     await catalogLoading;
-    // 購物車只存商品 id，要等正式型錄載入後才能對回商品；先還原會被內建示範資料全部濾掉。
+    // 購物車只存商品 id，要等正式型錄載入後才能對回商品；型錄失敗時 loadLocalCart 會略過，保留原本的購物車。
     loadLocalCart();
     renderInitialPageOnce();
     // 主圖不再擋開機畫面：商品頁先出現，主圖（fetchpriority=high）自行載入
     finishAuthBoot();
     markBoot("畫面顯示");
+    await liffBridge;
+    markBoot("LINE 登入恢復（背景）");
     // Member/session restoration continues after the public catalog is usable,
     // so a slow auth request cannot keep ordinary browsers behind the boot UI.
-    if (!liffStage.state?.isInClient) await ensureWebSession();
+    if (!inLineClient) await ensureWebSession();
     await loadMember();
+    // 回到登入前的結帳等畫面會呼叫 openCheckout（會等 whenAuthReady），必須先標記完成
+    markAuthSettled();
     await restoreAuthReturnState();
     openAdminFromRoute();
     markBoot("會員資料");
@@ -219,6 +225,7 @@ startAuthBoot();
 try {
   await bootstrapAuth();
 } catch (error) {
+  markAuthSettled();
   console.error("App bootstrap failed.", error);
   if (liffPrimaryRedirectPending || hasLiffPrimaryRedirectParams() || new URL(location.href).searchParams.has(LIFF_AUTO_CALLBACK_PARAM)) {
     failAuthBoot("LINE 登入頁面準備失敗，請點擊重試");

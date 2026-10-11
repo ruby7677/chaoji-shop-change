@@ -6,6 +6,7 @@ import { loadPoints, requireLineFriendshipForCheckout } from "./member-benefits.
 import { showPaymentDialog } from "./member-orders.js";
 import { rememberCvsStore } from "./checkout-cvs-store.js";
 import { ensureCheckoutCouponApplied, resetCheckoutCoupon } from "./checkout-coupon.js";
+import { whenAuthReady } from "./auth-ready.js";
 import { beginLineLogin, profileIsComplete, saveProfile, showProfileDialog } from "./member-profile.js";
 
 export let activeCheckoutScope = null;
@@ -24,6 +25,7 @@ export async function openCheckout(scope = null) {
   if (!scopedItems.length) return showToast("請先加入商品");
   activeCheckoutScope = resolvedScope;
   activeCheckoutItems = scopedItems.slice();
+  await whenAuthReady();
   if (!auth.accessToken || !auth.user) return beginLineLogin();
   if (!profileIsComplete()) return showProfileDialog(true);
   if (!await requireLineFriendshipForCheckout()) return;

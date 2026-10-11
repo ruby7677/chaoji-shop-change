@@ -21,7 +21,7 @@ test("the catalog request starts before config and LIFF login, and the hero imag
   const catalogStart = boot.indexOf("loadProducts()");
   assert.ok(catalogStart > 0 && catalogStart < boot.indexOf("await loadRuntimeConfig()"), "catalog starts before config");
   assert.ok(catalogStart < boot.indexOf("await initializeLiffStage"), "catalog starts before LIFF init");
-  assert.ok(boot.indexOf("await catalogLoading") > boot.indexOf("initializeLiffBridge"), "rendering still waits for the LIFF bridge");
+  assert.ok(boot.indexOf("await catalogLoading") > boot.indexOf("initializeLiffBridge"), "the LIFF bridge starts before rendering");
   assert.ok(!source.includes("waitForHeroImageDecode"), "hero decode wait removed");
 });
 
@@ -33,5 +33,23 @@ test("a failed catalog shows a reload prompt instead of demo products and leaves
   for (const fn of ["export function loadLocalCart()", "export async function loadMemberCart()"]) {
     const body = cartSource.slice(cartSource.indexOf(fn), cartSource.indexOf(fn) + 300);
     assert.match(body, /if \(!catalogLoaded\) return;/, fn);
+  }
+});
+
+test("LINE login restores in the background after the page shows, without an automatic OAuth redirect", async () => {
+  assert.ok(boot.indexOf("await liffBridge") > boot.indexOf("finishAuthBoot()"), "login restore no longer blocks the boot screen");
+  assert.ok(boot.indexOf("initializeLiffBridge(") < boot.indexOf("await catalogLoading"), "the bridge still starts right after liff.init");
+  assert.ok(boot.indexOf("markAuthSettled()") > boot.indexOf("await loadMember()"), "auth settles after the member loads");
+  assert.ok(boot.indexOf("markAuthSettled()") < boot.indexOf("await restoreAuthReturnState()"), "auth settles before a resumed checkout waits on it");
+  assert.match(source.slice(source.indexOf("await bootstrapAuth();")), /catch \(error\) \{\s*markAuthSettled\(\);/, "a failed boot never leaves buttons waiting");
+  const liffSession = await readFile(new URL("../../public/liff-session.js", import.meta.url), "utf8");
+  assert.ok(!liffSession.includes("beginLineLogin({ automatic: true })"), "the bridge never starts OAuth on its own");
+});
+test("login, checkout and my-orders wait for the background login before deciding the member is logged out", async () => {
+  assert.match(source, /whenAuthReady\(\)\.then\(\(\) => \(auth\.user \? showProfileDialog\(false\) : beginLineLogin\(\)\)\)/);
+  for (const [file, fn] of [["checkout-flow.js", "export async function openCheckout"], ["member-orders.js", "export async function openOrders"]]) {
+    const text = await readFile(new URL(`../../public/${file}`, import.meta.url), "utf8");
+    const body = text.slice(text.indexOf(fn));
+    assert.ok(body.indexOf("await whenAuthReady()") > 0 && body.indexOf("await whenAuthReady()") < body.indexOf("beginLineLogin()"), file);
   }
 });

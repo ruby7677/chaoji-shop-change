@@ -2,6 +2,7 @@
 import { escapeHtml } from "./product-format.js";
 import { auth, closeDialog, showDialog, showToast } from "./app-core.js";
 import { ensurePaymentMethodUI } from "./checkout-form.js";
+import { whenAuthReady } from "./auth-ready.js";
 import { beginLineLogin } from "./member-profile.js";
 import { applyPaymentFormMode, orderCardMarkup, ordersEmptyMarkup, paymentOrderView, reportPayment } from "./order-views.js";
 
@@ -58,6 +59,7 @@ function renderOrders() {
 }
 
 export async function openOrders() {
+  await whenAuthReady();
   if (!auth.accessToken || !auth.user) return beginLineLogin();
   const dialog = document.querySelector("#orders-dialog");
   const container = document.querySelector("#orders-list");
