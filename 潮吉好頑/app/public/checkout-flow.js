@@ -19,13 +19,14 @@ export function selectCheckoutScope(scope) {
 }
 
 export async function openCheckout(scope = null) {
+  // 先等背景登入與會員購物車合併完成，再依合併後的購物車建立結帳快照（loadMemberCart 會換掉 cart 內的物件）
+  await whenAuthReady();
   const groups = cartGroups();
   const resolvedScope = scope || activeCheckoutScope || (groups.preorder.length ? "preorder" : "in_stock");
   const scopedItems = cartItemsForScope(resolvedScope);
   if (!scopedItems.length) return showToast("請先加入商品");
   activeCheckoutScope = resolvedScope;
   activeCheckoutItems = scopedItems.slice();
-  await whenAuthReady();
   if (!auth.accessToken || !auth.user) return beginLineLogin();
   if (!profileIsComplete()) return showProfileDialog(true);
   if (!await requireLineFriendshipForCheckout()) return;

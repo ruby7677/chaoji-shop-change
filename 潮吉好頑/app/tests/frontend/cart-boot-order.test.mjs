@@ -46,10 +46,30 @@ test("LINE login restores in the background after the page shows, without an aut
   assert.ok(!liffSession.includes("beginLineLogin({ automatic: true })"), "the bridge never starts OAuth on its own");
 });
 test("login, checkout and my-orders wait for the background login before deciding the member is logged out", async () => {
-  assert.match(source, /whenAuthReady\(\)\.then\(\(\) => \(auth\.user \? showProfileDialog\(false\) : beginLineLogin\(\)\)\)/);
+  const memberEntry = source.slice(source.indexOf("async function openMemberEntry"));
+  assert.ok(memberEntry.indexOf("if (memberEntryPending) return;") < memberEntry.indexOf("await whenAuthReady()"), "repeated taps while waiting start only one login");
+  assert.ok(memberEntry.indexOf("await whenAuthReady()") < memberEntry.indexOf("beginLineLogin()"), "the member button waits for the background login");
   for (const [file, fn] of [["checkout-flow.js", "export async function openCheckout"], ["member-orders.js", "export async function openOrders"]]) {
     const text = await readFile(new URL(`../../public/${file}`, import.meta.url), "utf8");
     const body = text.slice(text.indexOf(fn));
     assert.ok(body.indexOf("await whenAuthReady()") > 0 && body.indexOf("await whenAuthReady()") < body.indexOf("beginLineLogin()"), file);
   }
+});
+
+test("checkout snapshots the cart only after the background login and member cart merge finish", async () => {
+  const text = await readFile(new URL("../../public/checkout-flow.js", import.meta.url), "utf8");
+  const body = text.slice(text.indexOf("export async function openCheckout"));
+  assert.ok(body.indexOf("await whenAuthReady()") < body.indexOf("cartGroups()"), "wait before reading the cart");
+  assert.ok(body.indexOf("await whenAuthReady()") < body.indexOf("activeCheckoutItems = "), "wait before the snapshot");
+});
+
+test("member cart sync waits for the first merge, and LINE logins keep the LIFF callback marker", async () => {
+  const cartSource = await readFile(new URL("../../public/cart.js", import.meta.url), "utf8");
+  assert.match(cartSource, /cartSyncUserId === auth\.user\.id\);/);
+  for (const fn of ["function scheduleMemberCartSync()", "export async function syncMemberCartNow"]) {
+    const body = cartSource.slice(cartSource.indexOf(fn), cartSource.indexOf(fn) + 120);
+    assert.match(body, /if \(!memberCartReady\(\)\) return;/, fn);
+  }
+  const profile = await readFile(new URL("../../public/member-profile.js", import.meta.url), "utf8");
+  assert.match(profile, /if \(automatic \|\| liffState\.isInClient\) redirectUrl\.searchParams\.set\(LIFF_AUTO_CALLBACK_PARAM/);
 });

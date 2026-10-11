@@ -45,7 +45,7 @@ document.addEventListener("click", (event) => {
     if (couponButton.dataset.action === "remove") { removeCheckoutCoupon(); renderCheckoutSummary(); }
     else applyCheckoutCoupon().then(renderCheckoutSummary);
   }
-  if (event.target.closest("[data-demo='login']")) whenAuthReady().then(() => (auth.user ? showProfileDialog(false) : beginLineLogin()));
+  if (event.target.closest("[data-demo='login']")) openMemberEntry();
   if (event.target.closest("[data-profile-close]")) closeDialog(document.querySelector("#profile-dialog"));
   if (event.target.closest("[data-orders-open]")) openOrders();
   if (event.target.closest("[data-orders-close]")) closeDialog(document.querySelector("#orders-dialog"));
@@ -155,6 +155,18 @@ document.querySelector("#profile-dialog").addEventListener("cancel", (event) => 
 document.querySelectorAll("dialog").forEach((dialog) => {
   dialog.addEventListener("close", syncPageScrollLock);
 });
+
+// 會員按鈕：等背景登入完成再決定開會員資料或前往 LINE 登入；等待中連點只算一次，不重複發起 OAuth
+let memberEntryPending = false;
+async function openMemberEntry() {
+  if (memberEntryPending) return;
+  memberEntryPending = true;
+  await whenAuthReady();
+  if (auth.user) showProfileDialog(false);
+  // 已開始前往 LINE 授權頁時維持鎖定，避免頁面離開前再點一次
+  else if (beginLineLogin()) return;
+  memberEntryPending = false;
+}
 
 function renderInitialPageOnce() {
   if (initialPageRendered) return;

@@ -149,8 +149,12 @@ function queueMemberCartSnapshot(items = cart) {
   pendingCartHash = stableCartHash(pendingCartSnapshot);
   return pendingCartHash;
 }
+// 會員購物車第一次載入合併完成（cartSyncUserId 已設定）前不同步：避免背景登入期間加入商品，先用本機購物車覆寫尚未合併的雲端購物車
+function memberCartReady() {
+  return Boolean(auth.accessToken && auth.user && auth.config?.authEnabled && cartSyncUserId === auth.user.id);
+}
 function scheduleMemberCartSync() {
-  if (!auth.accessToken || !auth.user || !auth.config?.authEnabled) return;
+  if (!memberCartReady()) return;
   cartSyncRevision += 1;
   const hash = queueMemberCartSnapshot(cart);
   if (!cartSyncInFlight && hash === lastSyncedCartHash) {
@@ -217,7 +221,7 @@ async function syncMemberCartToServer(revision = cartSyncRevision) {
   catch (error) { showToast(error.message || "會員購物車同步失敗，稍後會再試", "warning"); }
 }
 export async function syncMemberCartNow({ silent = false } = {}) {
-  if (!auth.accessToken || !auth.user || !auth.config?.authEnabled) return;
+  if (!memberCartReady()) return;
   if (cartSyncTimer) { window.clearTimeout(cartSyncTimer); cartSyncTimer = null; }
   cartSyncRevision += 1;
   queueMemberCartSnapshot(cart);

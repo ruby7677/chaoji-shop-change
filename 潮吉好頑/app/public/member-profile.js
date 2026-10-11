@@ -1,5 +1,6 @@
 // 會員：載入會員與個人資料、LINE 身分同步、會員資料表單與 LINE 登入入口。
 import { watchSessionExpiry } from "./auth-expiry.js";
+import { liffState } from "./liff-auth.js";
 import { auth, closeDialog, showDialog, showToast } from "./app-core.js";
 import { cartSyncUserId, loadMemberCart, resetMemberCartSyncState, saveCart } from "./cart.js";
 import { clearMemberStateCache, lineFriendshipCache, loadPoints, memberPointsCache, renderMemberPoints } from "./member-benefits.js";
@@ -137,7 +138,9 @@ export function beginLineLogin({ automatic = false } = {}) {
   saveAuthReturnState();
   saveCart();
   const redirectUrl = new URL(location.origin + location.pathname);
-  if (automatic) redirectUrl.searchParams.set(LIFF_AUTO_CALLBACK_PARAM, String(Date.now()));
+  // LINE 內的登入（自動或手動）都帶 LIFF 回呼標記：WebView 回跳可能沒有原本的 sessionStorage，
+  // 少了標記會被當成一般瀏覽器，不會保存 LIFF 登入，之後從 LINE 開獨立訂單頁就無法恢復
+  if (automatic || liffState.isInClient) redirectUrl.searchParams.set(LIFF_AUTO_CALLBACK_PARAM, String(Date.now()));
   const url = new URL(`${auth.config.supabaseUrl}/auth/v1/authorize`);
   url.searchParams.set("provider", auth.config.lineProvider);
   url.searchParams.set("redirect_to", redirectUrl.toString());
