@@ -34,7 +34,7 @@ dialog#admin-dialog .admin-content>.dialog-close{position:sticky!important;top:-
 .payment-row.amount.payment-store-pickup-due strong{font-size:1.125rem}
 .bank-detail{font-size:.8125rem;line-height:1.65}
 .transfer-account-head{font-size:.8125rem}.transfer-account-bank{font-size:1.05rem}.transfer-account-number{font-size:1.55rem}.transfer-account-name{font-size:.8125rem}
-.transfer-account-card{font-size:.875rem;line-height:1.5}.transfer-card-title{font-size:1.05rem}.transfer-card-badge{font-size:.6875rem}.transfer-card-total{font-size:.875rem}.transfer-card-total strong{font-size:1.65rem}.transfer-account-row{font-size:.8125rem}.transfer-account-number-line>strong{font-size:1.45rem}.transfer-card-note{font-size:.75rem}
+.transfer-account-card{font-size:.875rem;line-height:1.5}.transfer-card-title{font-size:1.05rem}.transfer-card-badge{font-size:.6875rem}.transfer-card-total{font-size:.875rem}.transfer-card-total strong{font-size:1.65rem}.transfer-account-row{font-size:.8125rem}.transfer-account-row strong{font-size:.9375rem}.transfer-account-number-line>strong{font-size:1.45rem}.transfer-card-note{font-size:.75rem}
 .admin-points-excluded-field{display:grid!important;grid-template-columns:auto minmax(0,1fr);align-items:start;column-gap:8px;row-gap:3px}.admin-points-excluded-field small{grid-column:2;display:block;color:var(--admin-text-muted);font-size:12px;font-weight:400;line-height:1.45}
 .deadline{font-size:.8125rem;line-height:1.5}
 .order-card h3{font-size:1rem;line-height:1.3;font-weight:850}

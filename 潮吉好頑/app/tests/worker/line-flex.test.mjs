@@ -103,7 +103,7 @@ test("the LINE card shows the instruction status instead of the generic status l
   const data = { ...orderData, deliveryLine: "到店取貨", eventType: "status_changed", orderStatus: "confirmed", statusLabel: "已確認" };
   const card = messages.buildLineOrderFlexMessage(data, messages.buildOrderNotificationMessage(data));
   const body = JSON.stringify(card.contents.body);
-  assert.match(body, /已確認訂單付訂完成/);
+  assert.match(body, /已確認訂單\(付款完成\)/);
   assert.match(body, /私訊小幫手約時間到店取貨/);
   assert.doesNotMatch(body, /"text":"已確認"/);
 });
