@@ -7,7 +7,6 @@
 #admin-dialog.admin-app .stats .stat-card b { font-size: 30px; }
 #admin-dialog.admin-app .stats .stat-card:first-child { border-color: #141414; background: var(--admin-brand-sun); }
 #admin-dialog.admin-app .stats .stat-card:first-child small { color: #3a3630; }
-#admin-dialog.admin-app .stats .stat-card.stat-seller-pending { border-color: #f5d27a; background: #fff8e1; }
 
 /* ---------- 概況：待辦／低庫存／最新訂單 ---------- */
 #admin-dialog.admin-app .admin-dash { display: grid; gap: 16px; }
@@ -136,7 +135,6 @@
 
 /* 概況強調卡在數字為 0 時回到一般外觀（admin-app.js renderStatValues 加上 is-zero） */
 #admin-dialog.admin-app .stats .stat-card.is-zero:first-child,
-#admin-dialog.admin-app .stats .stat-card.stat-seller-pending.is-zero { border-color: var(--admin-border); background: #fff; }
 #admin-dialog.admin-app .stats .stat-card.is-zero:first-child small { color: var(--admin-text-muted); }
 #admin-dialog.admin-app .audit-log-card > div { flex: 1; min-width: 0; }
 

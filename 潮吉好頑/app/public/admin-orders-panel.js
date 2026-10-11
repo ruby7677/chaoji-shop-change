@@ -1,4 +1,5 @@
 // 後台訂單分頁：狀態篩選、訂單卡片、狀態轉換（含取消退款金額）與宅配尾款／運費。
+import { cvsBalanceLabel, cvsShippingInfo, cvsTransitionLabel, isCvsOrder, mountCvsFulfillment, mountTrackingField, readTrackingNumber } from "./admin-order-cvs.js";
 import { escapeHtml, money } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { adminOrderStatusLabel, deliveryMethodLabels, formatDateTime, orderIncludesPreorder, orderInventoryTypeLabel, showToast } from "./app-core.js";
@@ -10,7 +11,7 @@ import { availableTransitions, isDangerousTarget, parseRefundAmount, refundField
 
 
 const adminOrderStatusFilterGroups = [
-  { label: "待處理", options: [["seller_pending", "賣貨便待核對"], ["pending_payment", "待付款"], ["pending_review", "待確認款項"]] },
+  { label: "待處理", options: [["pending_payment", "待付款"], ["pending_review", "待確認款項"]] },
   { label: "處理中", options: [["confirmed", "已確認款項（依配送狀態）"], ["ready_for_pickup", "配送處理中（到貨／出貨／待尾款）"]] },
   { label: "結案", options: [["completed", "已完成訂單"], ["cancelled", "已取消"]] }
 ];
@@ -22,7 +23,6 @@ export function renderAdminOrderStatusFilter() {
   const counts = Object.fromEntries(adminOrderStatusFilterGroups.flatMap((group) => group.options).map(([value]) => [value, 0]));
   orders.forEach((order) => {
     if (Object.prototype.hasOwnProperty.call(counts, order.status)) counts[order.status] += 1;
-    if (order.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id) counts.seller_pending += 1;
   });
   const previous = select.value;
   const countLabel = (value) => counts[value] ? `（${counts[value]}）` : "";
@@ -47,8 +47,7 @@ export function renderAdminOrders() {
   const orders = (adminData.orders || []).filter((order) => {
     const member = relationOne(order.profiles);
     const searchable = `${order.order_number} ${member?.full_name || ""} ${member?.phone || ""} ${order.payment_last_five || ""}`.toLowerCase();
-    const isSellerPending = order.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id;
-    const matchesStatus = status === "all" || (status === "seller_pending" ? isSellerPending : order.status === status);
+    const matchesStatus = status === "all" || order.status === status;
     return matchesStatus && searchable.includes(keyword);
   }).sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
   if (!orders.length) {
@@ -66,7 +65,7 @@ export function renderAdminOrders() {
     const preorderStorePickup = order.delivery_method === "store_pickup" && hasPreorder;
     const transitions = availableTransitions(order);
     const options = transitions.map((item) => {
-      const label = item.value === "confirmed" && order.delivery_method === "seller_delivery" && !order.bank_account_id
+      const label = cvsTransitionLabel(order, item.value, hasPreorder) || item.value === "confirmed" && order.delivery_method === "seller_delivery" && !order.bank_account_id
         ? "確認賣貨便訂單並扣除庫存"
         : item.value === "confirmed" && order.delivery_method === "seller_delivery"
           ? "確認預購訂金並扣除庫存"
@@ -93,7 +92,7 @@ export function renderAdminOrders() {
     const pointDiscount = Number(order.point_discount || 0);
     const deliveryLabel = deliveryMethodLabels[order.delivery_method || "store_pickup"] || "到店取貨";
     const orderDeliveryLabel = `${orderInventoryTypeLabel(order)}．${deliveryLabel}`;
-    const shippingInfo = order.delivery_method === "home_delivery" ? `<p class="admin-order-note">收件人：${escapeHtml(order.shipping_recipient_name || "未填寫")}<br />電話：${escapeHtml(order.shipping_phone || "未填寫")}<br />地址：${escapeHtml(order.shipping_address || "未填寫")}</p>` : "";
+    const shippingInfo = isCvsOrder(order) ? cvsShippingInfo(order) : order.delivery_method === "home_delivery" ? `<p class="admin-order-note">收件人：${escapeHtml(order.shipping_recipient_name || "未填寫")}<br />電話：${escapeHtml(order.shipping_phone || "未填寫")}<br />地址：${escapeHtml(order.shipping_address || "未填寫")}</p>` : "";
     // 一鍵確認：店主最常做、也最重要的動作（確認收款／賣貨便訂單）獨立成主按鈕，不必先展開金額明細與下拉選單。
     const quick = isQuickConfirmable(order, transitions);
     const isSellerExternal = order.delivery_method === "seller_delivery" && !order.bank_account_id;
@@ -120,9 +119,10 @@ export function renderAdminOrders() {
     const hasPreorder = orderIncludesPreorder(order);
     paymentNode.innerHTML = `付款方式 <b>${order.bank_account_id ? "匯款／轉帳" : order.delivery_method === "seller_delivery" ? "賣貨便取貨付款（外部）" : "到店支付"}</b>`;
     const paymentGrid = card.querySelector(".admin-order-payment");
-    const shippingFeeLabel = order.delivery_method === "store_pickup" ? "免運" : order.delivery_method === "seller_delivery" ? "由 7-11 收取" : order.shipping_fee ? money(order.shipping_fee) : "待客服通知";
-    const balanceLabel = order.delivery_method === "store_pickup" ? "到店確認" : order.delivery_method === "seller_delivery" ? "依賣貨便訂單" : order.final_payment_confirmed_at ? "已確認" : "尚未確認";
-    if (paymentGrid) paymentGrid.insertAdjacentHTML("beforeend", `<span>${order.delivery_method === "seller_delivery" ? "賣貨便運費" : "實際運費"} <b>${shippingFeeLabel}</b></span><span>尾款／運費 <b>${balanceLabel}</b></span>`);
+    const shippingFeeLabel = order.delivery_method === "store_pickup" || (isCvsOrder(order) && !order.shipping_fee) ? "免運" : order.delivery_method === "seller_delivery" ? "由 7-11 收取" : order.shipping_fee ? money(order.shipping_fee) : "待客服通知";
+    const balanceLabel = isCvsOrder(order) ? cvsBalanceLabel(order, hasPreorder) : order.delivery_method === "store_pickup" ? "到店確認" : order.delivery_method === "seller_delivery" ? "依賣貨便訂單" : order.final_payment_confirmed_at ? "已確認" : "尚未確認";
+    if (paymentGrid) paymentGrid.insertAdjacentHTML("beforeend", `<span>${order.delivery_method === "seller_delivery" ? "賣貨便運費" : isCvsOrder(order) ? "店到店運費" : "實際運費"} <b>${shippingFeeLabel}</b></span><span>尾款／運費 <b>${balanceLabel}</b></span>`);
+    mountCvsFulfillment(card, order, hasPreorder, card.querySelector(":scope > .admin-order-more, :scope > .admin-order-action, :scope > .admin-order-history"));
     if (order.delivery_method === "home_delivery") {
       const currentStockHomePending = order.delivery_method === "home_delivery" && !hasPreorder && order.status === "pending_review";
       const canUpdateFulfillment = currentStockHomePending || ["partially_ready", "ready_for_pickup"].includes(order.status);
@@ -181,7 +181,9 @@ export function renderAdminOrders() {
     const refundLabel = form.querySelector(".admin-order-refund");
     const refundInput = refundLabel?.querySelector("input[name='refund_amount']");
     const formOrder = (adminData.orders || []).find((order) => order.id === form.dataset.adminOrderForm);
+    const syncTracking = mountTrackingField(form, formOrder);
     const syncRiskState = () => {
+      syncTracking(target.value);
       const dangerous = isDangerousTarget(target.value);
       // 取消已付款訂單：備註縮成一半，旁邊顯示退款金額（預填已收金額）
       const refund = refundFieldFor(formOrder, target.value);
@@ -208,8 +210,8 @@ export function renderAdminOrders() {
 
 // submitAdminOrderTransition 與 quickConfirmAdminOrder 共用：送出同一個 transition API 並刷新同一組畫面。
 // 後端行為不變，仍是 POST /api/admin/orders/:id/transition，body 為 { target_status, note }。
-async function postAdminOrderTransition(orderId, targetStatus, note, refundAmount = null) {
-  await adminFetch(`/api/admin/orders/${orderId}/transition`, { method: "POST", body: JSON.stringify({ target_status: targetStatus, note, ...(refundAmount === null ? {} : { refund_amount: refundAmount }) }) });
+async function postAdminOrderTransition(orderId, targetStatus, note, refundAmount = null, trackingNumber = null) {
+  await adminFetch(`/api/admin/orders/${orderId}/transition`, { method: "POST", body: JSON.stringify({ target_status: targetStatus, note, ...(refundAmount === null ? {} : { refund_amount: refundAmount }), ...(trackingNumber ? { shipment_tracking_number: trackingNumber } : {}) }) });
   await refreshAdminSections(["orders", "overview", "inventory", "products"]);
   switchAdminTab("orders");
   showToast("訂單狀態已更新", "success");
@@ -232,6 +234,7 @@ export async function submitAdminOrderTransition(event) {
   const currentOrder = (adminData.orders || []).find((order) => order.id === form.dataset.adminOrderForm);
   const refundField = refundFieldFor(currentOrder, targetStatus);
   const refundAmount = refundField ? parseRefundAmount(form.querySelector("input[name='refund_amount']")?.value, refundField.max) : null;
+  const trackingNumber = readTrackingNumber(form, targetStatus);
   let confirmed;
   if (targetStatus === "confirmed" && currentOrder) {
     // 確認款項：改用附金額、末五碼與收款帳戶的加強版確認框，取代看不出金額的通用文字
@@ -248,7 +251,7 @@ export async function submitAdminOrderTransition(event) {
   const button = form.querySelector("button[type='submit']");
   button.disabled = true;
   try {
-    await postAdminOrderTransition(form.dataset.adminOrderForm, targetStatus, note, refundAmount);
+    await postAdminOrderTransition(form.dataset.adminOrderForm, targetStatus, note, refundAmount, trackingNumber);
   } finally {
     button.disabled = false;
   }

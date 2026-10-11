@@ -86,7 +86,6 @@ footer button{border:0;background:transparent;text-decoration:underline;color:va
 .cart-group .cart-delivery-feedback{margin-top:8px}
 .cart-delivery-choice{border:0;border-top:1px solid var(--line);padding:16px 0 0;margin:16px 0 8px}.cart-delivery-choice legend{font-size:.8rem;margin-bottom:8px}.cart-delivery-option{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;border:1px solid var(--line);border-radius:8px;padding:10px;margin:7px 0;background:#fff}.cart-delivery-option:has(input:checked){border-color:var(--ink);background:#fff9df}.cart-delivery-option strong,.cart-delivery-option small{display:block}.cart-delivery-option strong{font-size:.82rem;line-height:1.35}.cart-delivery-option small{color:var(--muted);font-size:.75rem;font-weight:400;line-height:1.5;margin-top:3px}
 
-.stat-seller-pending{background:#fff9df;border-color:#d4b548}
 
 .cart-item h3{font-size:15px;margin:0 0 5px}
 .cart-item small{color:var(--muted)}

@@ -258,7 +258,6 @@ function productFormBody() {
     points_eligible: !document.querySelector("#admin-points-excluded")?.checked,
     deposit_rate: kind === "preorder" ? 0.5 : Number(document.querySelector("#admin-deposit-rate").value || 0) / 100,
     preorder_arrival: preorderArrivalValue(document.querySelector("#admin-arrival-from").value, document.querySelector("#admin-arrival-until").value),
-    seller_link: document.querySelector("#admin-seller-link").value,
     is_published: document.querySelector("#admin-published").checked
   };
 }
@@ -304,7 +303,6 @@ export async function submitNewVariant(event) {
     safety_stock: Number(document.querySelector("#admin-new-safety-stock").value || 0),
     deposit_rate: kind === "preorder" ? 0.5 : Number(document.querySelector("#admin-new-deposit-rate").value || 0) / 100,
     preorder_arrival: preorderArrivalValue(document.querySelector("#admin-new-arrival-from").value, document.querySelector("#admin-new-arrival-until").value),
-    seller_link: document.querySelector("#admin-new-seller-link").value,
     is_published: document.querySelector("#admin-new-published").checked
   };
   await adminFetch("/api/admin/variants", { method: "POST", body: JSON.stringify(body) });

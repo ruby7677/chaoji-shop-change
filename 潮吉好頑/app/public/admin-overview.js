@@ -18,12 +18,16 @@ let renderedOverview = null;
 let inFlight = null;
 
 const memberOf = (order) => (Array.isArray(order.profiles) ? order.profiles[0] : order.profiles) || {};
-const isSellerPending = (order) => order.delivery_method === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id;
+const hasPreorderItem = (order) => (order.order_items || []).some((item) => item.kind === "preorder");
+// 店到店待寄出：現貨確認付款後，或預購到貨且尾款已確認
+const isCvsReadyToShip = (order) => order.delivery_method === "cvs_delivery"
+  && ((order.status === "confirmed" && !hasPreorderItem(order)) || (order.status === "ready_for_pickup" && Boolean(order.final_payment_confirmed_at)));
 
 // 依緊急程度排序的待辦規則；只列出需要店長人工處理的狀態
 const TODO_RULES = [
   { match: (o) => o.status === "pending_review", icon: "bank", urgent: true, title: (o) => `確認款項 ${o.order_number}`, detail: (o) => `末五碼 ${o.payment_last_five || "未回報"}・應收 ${money(o.deposit_due || o.amount_due)}` },
-  { match: isSellerPending, icon: "bag", urgent: false, title: (o) => `核對賣貨便 ${o.order_number}`, detail: (o) => `訂單金額 ${money(o.amount_due)}` },
+  { match: isCvsReadyToShip, icon: "bag", urgent: false, title: (o) => `店到店待寄出 ${o.order_number}`, detail: (o) => `訂單金額 ${money(o.amount_due)}` },
+  { match: (o) => o.delivery_method === "cvs_delivery" && o.status === "ready_for_pickup" && !o.final_payment_confirmed_at, icon: "truck", urgent: false, title: (o) => `店到店尾款／運費 ${o.order_number}`, detail: (o) => `待收 ${money(Math.max(Number(o.amount_due || 0) - Number(o.paid_amount || 0), 0))}` },
   { match: (o) => o.delivery_method === "home_delivery" && o.status === "ready_for_pickup" && !o.final_payment_confirmed_at, icon: "truck", urgent: false, title: (o) => `宅配尾款／運費 ${o.order_number}`, detail: (o) => (o.shipping_fee ? `運費 ${money(o.shipping_fee)}，待確認入帳` : "尚未填寫實際運費") }
 ];
 

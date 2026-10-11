@@ -23,25 +23,25 @@
 **Goal**：`cvs_delivery` 可建單、運費正確、取件門市必填、賣貨便停止新建。
 **Success Criteria**：新 migration 從零套用通過；允許／拒絕案例測試通過。
 **Tests**：未滿／滿 6000 運費、預購訂金不含運費、缺門市欄位拒絕、店號格式拒絕、`seller_delivery` 新建拒絕、預購未確認尾款不可完成、交貨便運費不可改。
-**Status**：Not Started
+**Status**：Complete
 
 ## Stage 2：Worker
 **Goal**：建單 API、會員／後台訂單讀取、後台完成時寫入寄件編號、錯誤訊息。
 **Success Criteria**：`npm run typecheck`、`npm test` 通過。
 **Tests**：建單參數驗證、後台完成帶寄件編號、交貨便運費鎖定。
-**Status**：Not Started
+**Status**：Complete
 
 ## Stage 3：前台
 **Goal**：購物車與結帳第二步的交貨便選項及取件欄位、第三步運費列、訂單卡與付款明細顯示門市和寄件編號；移除賣貨便結帳。
 **Success Criteria**：手機／平板／桌機實測結帳流程；`npm run check:js` 通過。
 **Tests**：縣市／鄉鎮區連動、欄位驗證、運費與免運顯示。
-**Status**：Not Started
+**Status**：Complete
 
 ## Stage 4：後台、通知與文件
 **Goal**：後台訂單顯示門市、完成時填寄件編號；LINE／Telegram 三則文案；服務條款、隱私權、AGENTS.md。
 **Success Criteria**：通知文字離線測試符合業主範本。
 **Tests**：建立、確認、出貨三則訊息內容。
-**Status**：Not Started
+**Status**：Complete
 
 ## Stage 5：驗證與部署
 **Goal**：完整 gate、Codex 審查、正式 migration（需業主授權）、部署與 smoke test。

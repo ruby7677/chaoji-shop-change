@@ -23,7 +23,6 @@
 #admin-dialog .stats .stat-card:focus-visible{outline:2px solid var(--admin-focus);outline-offset:2px}
 #admin-dialog .stats .stat-card small{display:block;color:var(--admin-text-muted);font-size:12px;line-height:1.4}
 #admin-dialog .stats .stat-card b{display:block;margin-top:7px;color:var(--admin-text);font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}
-#admin-dialog .stats .stat-card.stat-seller-pending{border-color:#e0ca7a;background:var(--admin-warning-surface)}
 #admin-dialog .form-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;padding-top:15px;border-top:1px solid var(--admin-border)}
 #admin-dialog .primary-button,#admin-dialog .secondary-button{min-height:40px;border-radius:7px;padding:9px 14px;font-size:13px;font-weight:700;line-height:1.2;transition:background-color .18s ease,border-color .18s ease,color .18s ease}
 #admin-dialog .primary-button{border-color:var(--admin-sidebar);background:var(--admin-sidebar);color:#fff}

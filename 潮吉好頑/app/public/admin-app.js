@@ -369,7 +369,7 @@ export function applyAdminQuickFilter(filter) {
     switchAdminTab("members");
   } else {
     const statusFilter = document.querySelector("#admin-order-status-filter");
-    if (statusFilter) statusFilter.value = ["pending_review", "seller_pending", "ready_for_pickup"].includes(filter) ? filter : "all";
+    if (statusFilter) statusFilter.value = ["pending_review", "ready_for_pickup"].includes(filter) ? filter : "all";
     switchAdminTab("orders");
     reloadAdminList("orders", true);
   }

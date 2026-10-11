@@ -15,7 +15,7 @@ description: Trace or change 潮吉好頑 cart, order, notification and permissi
 
 | 任務 | 搜尋入口 | 需要追查的下游 |
 | --- | --- | --- |
-| 購物車／結帳 | `renderCart`、`openCheckout`、`openSellerDeliveryCheckout`、`submitOrder` | `/api/orders` → `createOrder` → `create_delivery_order` |
+| 購物車／結帳 | `renderCart`、`openCheckout`、`syncDeliveryFields`、`submitOrder` | `/api/orders` → `createOrder` → `create_delivery_order` |
 | 付款／庫存／狀態 | `submitPayment`、`submitAdminOrderTransition`、`submitAdminOrderFulfillment` | Worker handler → RPC／trigger → 庫存、點數與狀態歷程 |
 | LINE 通知 | `notifyOrderEvent`、`buildOrderNotificationMessage` | 路由何時觸發、收件人集合、event key、`notification_deliveries`（claim／complete RPC） |
 | 管理頁入口 | `ensureDiscountAdminUI`、`renderAdminData`、`switchAdminTab` | HTML 及 JS 動態插入內容；HTML 無 tab 不代表未實作 |

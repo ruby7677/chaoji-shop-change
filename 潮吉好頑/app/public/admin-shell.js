@@ -16,7 +16,7 @@ const NAV_GROUPS = [
 ];
 // 徽章只顯示「需要人工處理」的數量，來源為 admin_dashboard_stats
 const BADGES = {
-  orders: (stats) => Number(stats.pendingReview || 0) + Number(stats.sellerPending || 0) + Number(stats.preorderSellerPending || 0),
+  orders: (stats) => Number(stats.pendingReview || 0),
   inventory: (stats) => Number(stats.lowStock || 0)
 };
 

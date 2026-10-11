@@ -63,3 +63,15 @@ test("確認視窗列出退款金額", () => {
   const { details } = transitionConfirmation({ order_number: "CJ-2", status: "confirmed", amount_due: 1200 }, { targetStatus: "cancelled", optionLabel: "取消訂單", note: "客人取消", refundAmount: 1200 });
   assert.deepEqual(details.find(([label]) => label === "退款金額"), ["退款金額", "NT$1,200"]);
 });
+
+test("7-11 店到店：現貨確認後直接寄出，不提供到貨狀態", () => {
+  const values = availableTransitions({ status: "confirmed", delivery_method: "cvs_delivery", bank_account_id: "bank", order_items: [{ kind: "in_stock" }] }).map((item) => item.value);
+  assert.deepEqual(values, ["completed", "cancelled"]);
+});
+
+test("7-11 店到店：預購先更新到貨，尾款確認前不能寄出", () => {
+  const preorder = { delivery_method: "cvs_delivery", bank_account_id: "bank", order_items: [{ kind: "preorder" }] };
+  assert.deepEqual(availableTransitions({ ...preorder, status: "confirmed" }).map((item) => item.value), ["ready_for_pickup", "cancelled"]);
+  assert.deepEqual(availableTransitions({ ...preorder, status: "ready_for_pickup" }).map((item) => item.value), ["cancelled"]);
+  assert.deepEqual(availableTransitions({ ...preorder, status: "ready_for_pickup", final_payment_confirmed_at: "x" }).map((item) => item.value), ["completed", "cancelled"]);
+});

@@ -180,7 +180,6 @@ footer{padding:26px max(7vw,30px);border-color:var(--home-line);background:var(-
 .stats .stat-card{display:block;width:100%;border:1px solid var(--line);border-radius:8px;padding:13px;background:#fff;color:var(--home-ink);text-align:left;transition:border-color .2s ease,background .2s ease,transform .2s ease}
 .stats .stat-card:hover,.stats .stat-card:focus-visible{border-color:var(--home-ink);background:#fffdf5;transform:translateY(-2px)}
 .stats .stat-card:focus-visible{outline:2px solid var(--home-yellow);outline-offset:2px}
-.stats .stat-card.stat-seller-pending{background:#fff9df;border-color:#d4b548}
 .stats .stat-card small,.stats .stat-card b{display:block}
 .admin-low-stock{margin:18px 0 22px;padding:14px;border:1px solid #d4b548;border-radius:9px;background:#fff9df}
 .admin-low-stock-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}

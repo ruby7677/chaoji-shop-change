@@ -4,7 +4,6 @@
 export const ORDER_STATUS_GROUPS = [
   { key: "todo", label: "待處理", statuses: [
     ["pending_review", "待確認款項", (s) => s.pendingReview],
-    ["seller_pending", "賣貨便待核對", (s) => s.sellerPending],
     ["pending_payment", "待付款"]
   ] },
   { key: "active", label: "處理中", statuses: [

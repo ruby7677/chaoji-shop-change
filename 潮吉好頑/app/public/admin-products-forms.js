@@ -43,7 +43,7 @@ export function variantFormMarkup(variant, helpers) {
     + `<label>訂金比例（%）<input name="deposit_rate" type="number" min="0" max="100" value="${depositPercent(variant)}" /></label>`
     + arrivalFieldset(variant, helpers)
     + `<label>前台排序<input name="display_order" type="number" value="${variant.display_order}" /><small>數字越大越前面；新增時自動取目前最大值 + 1</small></label>`
-    + `<label class="wide">賣貨便連結<input name="seller_link" type="url" value="${escapeHtml(variant.seller_link || "")}" /></label>`
+    + `<input name="seller_link" type="hidden" value="${escapeHtml(variant.seller_link || "")}" />`
     + `<label class="check-field"><input name="is_published" type="checkbox" ${variant.is_published ? "checked" : ""} /> 上架此規格</label>`
     + '</div><button class="primary-button" type="submit">儲存規格</button></form>';
 }

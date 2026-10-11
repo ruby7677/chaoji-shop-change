@@ -20,10 +20,11 @@ export function availableTransitions(order) {
     (!item.splitOnly || order.pickup_plan === "split")
     && (!item.storePaymentOnly || !order.bank_account_id)
     && (item.value !== "partially_ready" || preorderStorePickup)
-    && (item.value !== "ready_for_pickup" || preorderStorePickup || order.delivery_method === "seller_delivery" || (order.delivery_method === "home_delivery" && hasPreorder))
+    && (item.value !== "ready_for_pickup" || preorderStorePickup || order.delivery_method === "seller_delivery" || (["home_delivery", "cvs_delivery"].includes(order.delivery_method) && hasPreorder))
     && !(item.value === "ready_for_pickup" && order.delivery_method === "seller_delivery" && !hasPreorder)
     && !(item.value === "cancelled" && order.delivery_method === "seller_delivery" && order.status === "ready_for_pickup")
     && (item.value !== "completed" || order.delivery_method !== "home_delivery" || Boolean(order.final_payment_confirmed_at))
+    && (item.value !== "completed" || order.delivery_method !== "cvs_delivery" || !hasPreorder || Boolean(order.final_payment_confirmed_at))
   );
 }
 
