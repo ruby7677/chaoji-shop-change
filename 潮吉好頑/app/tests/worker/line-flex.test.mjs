@@ -71,3 +71,39 @@ test("order Flex footer opens the orders page when it is configured, and keeps t
   const [hint] = messages.buildLineOrderFlexMessage(orderData, "alt").contents.footer.contents;
   assert.equal(hint.text, "請回到官方帳號查看完整訂單資訊。");
 });
+
+// 客戶 LINE 卡片必須包含 Telegram 文字的每一行內容（標題與會員名稱除外），例如「私訊小幫手…」與預購付訂期限。
+test("every line of the Telegram order text also appears in the customer LINE card", () => {
+  const deliveries = ["到店取貨", "宅配", "賣貨便", "7-11店到店(交貨便)"];
+  const events = [
+    ["created", "pending_payment"], ["payment_reported", "pending_review"], ["status_changed", "confirmed"],
+    ["status_changed", "ready_for_pickup"], ["status_changed", "completed"], ["status_changed", "cancelled"], ["fulfillment_updated", "ready_for_pickup"]
+  ];
+  let checked = 0;
+  for (const deliveryLine of deliveries) for (const hasPreorder of [false, true]) for (const [eventType, orderStatus] of events) {
+    const data = { ...orderData, deliveryLine, hasPreorder, eventType, orderStatus, statusLabel: "通用狀態", depositDue: 675, paidAmount: 675, productAmount: 1230, pickupStore: null };
+    const text = messages.buildOrderNotificationMessage(data);
+    if (!text) continue;
+    const card = messages.buildLineOrderFlexMessage(data, text);
+    const cardTexts = JSON.stringify(card.contents);
+    const telegram = messages.buildTelegramOrderNotificationMessage(text, "王小明").split("\n").slice(1).filter(Boolean);
+    for (const line of telegram) {
+      if (line.startsWith("會員名稱：")) continue;
+      const [label, ...rest] = line.split("：");
+      const value = rest.join("：");
+      const expected = value && label.length <= 12 ? (label === "訂單狀態" ? [value] : [label, value]) : [line];
+      for (const part of expected) assert.ok(cardTexts.includes(JSON.stringify(part)), `${deliveryLine}/${hasPreorder}/${eventType}/${orderStatus} 缺少「${part}」`);
+    }
+    checked += 1;
+  }
+  assert.ok(checked > 20);
+});
+
+test("the LINE card shows the instruction status instead of the generic status label", () => {
+  const data = { ...orderData, deliveryLine: "到店取貨", eventType: "status_changed", orderStatus: "confirmed", statusLabel: "已確認" };
+  const card = messages.buildLineOrderFlexMessage(data, messages.buildOrderNotificationMessage(data));
+  const body = JSON.stringify(card.contents.body);
+  assert.match(body, /已確認訂單付訂完成/);
+  assert.match(body, /私訊小幫手約時間到店取貨/);
+  assert.doesNotMatch(body, /"text":"已確認"/);
+});

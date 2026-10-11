@@ -6,6 +6,8 @@
  * ${...} 會由程式帶入訂單、會員或優惠券的即時資料，請保留這些欄位。
  */
 
+import { parseOrderNotificationText } from "./notification-text-rows";
+
 export const NOTIFICATION_COPY = {
   test: {
     title: "Telegram 管理員通知測試成功",
@@ -327,11 +329,6 @@ function orderFlexSummary(data: OrderMessageData) {
   return "訂單進度已更新，請留意後續通知。";
 }
 
-/**
- * Builds the customer-facing LINE card while keeping the existing plain text
- * message as altText. Telegram and other internal channels continue to use
- * buildOrderNotificationMessage() unchanged.
- */
 // 有訂單頁網址時，頁尾改成「查看訂單」按鈕（開啟獨立訂單頁）；沒有設定時維持提示文字
 function orderFlexFooter(ordersUrl?: string | null) {
   if (ordersUrl) {
@@ -340,51 +337,37 @@ function orderFlexFooter(ordersUrl?: string | null) {
   return [{ type: "text", text: "請回到官方帳號查看完整訂單資訊。", color: "#8A8A8A", size: "sm", align: "center", wrap: true }];
 }
 
+/** 客戶的 LINE 卡片；altText 是與 Telegram 相同的文字訊息，卡片內容也由它逐行產生。 */
 export function buildLineOrderFlexMessage(data: OrderMessageData, altText: string, ordersUrl?: string | null): LinePushMessage {
-  const isSeller = data.deliveryLine === "賣貨便";
-  const isHome = data.deliveryLine === "宅配";
-  const isCvs = data.deliveryLine === NOTIFICATION_COPY.order.delivery.cvs;
-  const itemSummary = data.items.slice(0, 500);
+  const labels = NOTIFICATION_COPY.order.labels;
+  // 卡片內容逐行取自與 Telegram 相同的文字訊息（altText），確保「私訊小幫手…」等指示與付款提醒不被省略
+  const parsed = parseOrderNotificationText(altText, labels.status, [labels.order, labels.member]);
+  const shownLabels = new Set(parsed.rows.map((row) => row.label));
   const contents: Array<Record<string, unknown>> = [
-    flexRow(NOTIFICATION_COPY.order.labels.order, data.orderNumber),
-    flexRow(NOTIFICATION_COPY.order.labels.items, itemSummary),
-    flexRow(NOTIFICATION_COPY.order.labels.delivery, data.deliveryLine),
-    flexRow(NOTIFICATION_COPY.order.labels.payment, data.paymentLine)
+    flexRow(labels.order, data.orderNumber),
+    ...parsed.rows.map((row) => flexRow(row.label, row.label === labels.items ? row.value.slice(0, 500) : row.value))
   ];
+  if (!shownLabels.has(labels.items)) contents.push(flexRow(labels.items, data.items.slice(0, 500)));
+  if (!shownLabels.has(labels.delivery)) contents.push(flexRow(labels.delivery, data.deliveryLine));
+  if (!shownLabels.has(labels.payment)) contents.push(flexRow(labels.payment, data.paymentLine));
 
-  if (data.eventType === "created" && isCvs) {
-    contents.push(flexRow(NOTIFICATION_COPY.order.labels.productAmount, money(data.productAmount ?? data.amountDue - data.shippingFee)));
-    contents.push(flexRow(NOTIFICATION_COPY.order.labels.shipping, data.shippingFee > 0 ? money(data.shippingFee) : NOTIFICATION_COPY.order.delivery.freeShipping));
-    contents.push(flexRow(NOTIFICATION_COPY.order.labels.total, money(data.amountDue)));
-    if (data.hasPreorder) contents.push(flexRow(NOTIFICATION_COPY.order.labels.deposit, money(data.depositDue)));
-  } else if (data.eventType === "created") {
-    contents.push(flexRow(NOTIFICATION_COPY.order.labels.total, money(data.amountDue)));
-    if (!isSeller || data.hasPreorder) {
-      contents.push(flexRow(NOTIFICATION_COPY.order.labels.deposit, money(data.depositDue)));
-    }
-    if (isHome) {
-      const shippingValue = data.shippingFee > 0
-        ? money(data.shippingFee)
-        : data.hasPreorder
-          ? NOTIFICATION_COPY.order.delivery.homeShippingPending
-          : NOTIFICATION_COPY.order.delivery.homeShippingPendingStock;
-      contents.push(flexRow(NOTIFICATION_COPY.order.labels.shipping, shippingValue));
-    }
-  }
-
+  // 以下是 LINE 卡片額外補充給客戶的資料（Telegram 文字沒有），只增不減
   // 確認付款只收訂金（預購）時，列出還要付的尾款；全額付清或賣貨便外部收款不顯示
   const remaining = Number(data.amountDue || 0) - Number(data.paidAmount || 0);
   if (data.eventType === "status_changed" && data.orderStatus === "confirmed" && Number(data.paidAmount || 0) > 0 && remaining > 0) {
-    contents.push(flexRow(NOTIFICATION_COPY.order.labels.remaining, money(remaining)));
+    contents.push(flexRow(labels.remaining, money(remaining)));
   }
-
   if (data.shippingRecipientName || data.shippingPhone || data.shippingAddress) {
     const recipient = [data.shippingRecipientName, data.shippingPhone].filter(Boolean).join("／").slice(0, 120);
-    if (recipient) contents.push(flexRow(NOTIFICATION_COPY.order.labels.recipient, recipient));
-    if (data.shippingAddress) contents.push(flexRow(NOTIFICATION_COPY.order.labels.address, data.shippingAddress.slice(0, 160)));
+    if (recipient) contents.push(flexRow(labels.recipient, recipient));
+    if (data.shippingAddress) contents.push(flexRow(labels.address, data.shippingAddress.slice(0, 160)));
   }
-  if (data.pickupStore) contents.push(flexRow(NOTIFICATION_COPY.order.labels.pickupStore, data.pickupStore.slice(0, 160)));
-
+  if (data.pickupStore && !shownLabels.has(labels.pickupStore)) contents.push(flexRow(labels.pickupStore, data.pickupStore.slice(0, 160)));
+  if (parsed.notes.length) {
+    contents.push({ type: "separator", margin: "lg", color: "#E5E5E5" });
+    parsed.notes.forEach((note, index) => contents.push({ type: "text", text: note, color: "#D92D20", size: "sm", weight: index === 0 ? "bold" : "regular", margin: index === 0 ? "md" : "none", wrap: true }));
+  }
+  const statusText = parsed.status || data.statusLabel || data.orderStatus;
   const safeAltText = altText.slice(0, 1500);
   return {
     type: "flex",
@@ -415,7 +398,7 @@ export function buildLineOrderFlexMessage(data: OrderMessageData, altText: strin
           { type: "text", text: orderFlexTitle(data), color: "#333333", size: "xl", weight: "bold", wrap: true },
           { type: "text", text: orderFlexSummary(data), color: "#555555", size: "md", margin: "md", wrap: true },
           { type: "separator", margin: "lg", color: "#E5E5E5" },
-          { type: "text", text: data.statusLabel || data.orderStatus, color: orderStatusColor(data.orderStatus), size: "md", weight: "bold", margin: "lg", wrap: true },
+          { type: "text", text: statusText, color: orderStatusColor(data.orderStatus), size: "md", weight: "bold", margin: "lg", wrap: true },
           ...contents
         ]
       },
