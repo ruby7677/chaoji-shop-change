@@ -23,7 +23,7 @@ function productNameMarkup(product) {
 }
 
 export function productCardMarkup(product) {
-  return `<article class="product-card" data-product-id="${escapeHtml(product.id)}"><div class="product-image">${productAvailabilityBadge(product)}${productPromotionBadge(product)}${productCardImageMarkup(product)}</div><div class="product-info"><div class="product-head"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${productNameMarkup(product)}</h3></div><div class="product-meta">${productTagMarkup(product)}<p class="stock">${escapeHtml(productAvailability(product))}</p>${preorderStockMarkup(product)}</div><div class="price${hasProductDiscount(product) ? " price-discounted" : ""}">${productPriceMarkup(product)}</div>${cardActionsMarkup(product)}</div></article>`;
+  return `<article class="product-card" data-product-id="${escapeHtml(product.id)}"><div class="product-image">${productAvailabilityBadge(product)}${productPromotionBadge(product)}${productCardImageMarkup(product)}</div><div class="product-info"><div class="product-head"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${productNameMarkup(product)}</h3></div><div class="product-meta">${productTagMarkup(product)}<p class="stock">${escapeHtml(productAvailability(product))}</p>${preorderStockMarkup(product)}</div><div class="price${hasProductDiscount(product) ? " price-discounted" : ""}">${productPriceMarkup(product)}${product.price_varies ? '<small class="price-from"> 起</small>' : ""}</div>${cardActionsMarkup(product)}</div></article>`;
 }
 
 // 「加入購物車」留在原頁繼續逛；「直接購買」加入後打開購物車（手機版只留加入購物車，直接購買改在商品頁，見 storefront-legibility.css）。
@@ -31,5 +31,7 @@ export function productCardMarkup(product) {
 function cardActionsMarkup(product) {
   const id = escapeHtml(product.id);
   const soldOut = Number(product.stock || 0) <= 0;
+  // 多規格商品（product-groups.js 合併的卡）：到商品頁選規格，不直接加入
+  if (product.variant_count > 1) return `<div class="card-actions"><button type="button" class="card-choose-variant" data-choose-variant="${id}">${soldOut ? "查看規格" : "選擇規格"}</button></div>`;
   return `<div class="card-actions"><button type="button" data-add="${id}" ${soldOut ? "disabled" : ""}>加入購物車</button><button type="button" class="detail-button buy-now-button" data-buy-now="${id}" ${soldOut ? "disabled" : ""}>${soldOut ? "已售完" : "直接購買"}</button></div>`;
 }

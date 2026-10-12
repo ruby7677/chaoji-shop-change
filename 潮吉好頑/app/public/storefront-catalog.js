@@ -1,6 +1,7 @@
 // 前台型錄：商品列表與搜尋、首頁 Hero 輪播、商品頁入口與載入型錄。
 import { escapeHtml, isPreorderItem, productAvailability, productMark, productPriceMarkup } from "./product-format.js";
 import { productCardMarkup } from "./product-card.js";
+import { groupProductCards } from "./product-groups.js";
 import { loadMoreMarkup, showMore, visibleLimit } from "./catalog-paging.js";
 import { mountHeroCarousel } from "./hero-carousel.js";
 import { selectHeroSlides } from "./hero-slides.js";
@@ -84,7 +85,8 @@ function renderCategoryFilters() {
   if (!values.includes(activeCategory)) activeCategory = "all";
   row.innerHTML = values.map((value) => {
     const label = value === "all" ? "全部" : value === PREORDER_FILTER ? PREORDER_FILTER : filterLabel(value);
-    const count = value === "all" ? products.length : value === PREORDER_FILTER ? products.filter(isPreorderItem).length : products.filter((product) => product.category === value).length;
+    // 數量以商品卡計（多規格商品算一件），與商品格一致
+    const count = groupProductCards(value === "all" ? products : value === PREORDER_FILTER ? products.filter(isPreorderItem) : products.filter((product) => product.category === value)).length;
     return `<button class="filter${value === activeCategory ? " active" : ""}" type="button" data-category="${escapeHtml(value)}" aria-pressed="${value === activeCategory}">${escapeHtml(label)}<span class="filter-count" aria-label="${count} 件商品">${count}</span></button>`;
   }).join("");
 }
@@ -108,7 +110,8 @@ function loadMoreSlot() {
 export function renderProducts({ revealFrom = 0 } = {}) {
   renderCategoryFilters();
   const keyword = search.value.trim().toLowerCase();
-  const matches = products.filter((product) => (activeCategory === "all" || product.category === activeCategory || product.type === activeCategory) && `${product.category}${product.name}`.toLowerCase().includes(keyword));
+  // 先依規格篩選，再把同商品的規格合併成一張卡（product-groups.js）
+  const matches = groupProductCards(products.filter((product) => (activeCategory === "all" || product.category === activeCategory || product.type === activeCategory) && `${product.category}${product.name}`.toLowerCase().includes(keyword)));
   const shown = matches.slice(0, visibleLimit(`${activeCategory}|${keyword}`));
   grid.innerHTML = !catalogLoaded
     ? "<div class=\"empty-state\"><p>商品載入失敗，請檢查網路後重新載入。</p><button class=\"secondary-button\" type=\"button\" data-catalog-retry>重新載入</button></div>"

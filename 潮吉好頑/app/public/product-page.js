@@ -2,6 +2,7 @@
 // 規格、價格、庫存沿用首頁型錄資料（與購物車同一份），詳細介紹與多圖另向 /api/products/:id 取得。
 import { escapeHtml, hasProductDiscount, isPreorderItem, preorderStockMarkup, productAvailability, productPriceMarkup, productTagMarkup } from "./product-format.js";
 import { productCardMarkup } from "./product-card.js";
+import { productCardFromVariants } from "./product-groups.js";
 import { variantMaxQuantity } from "./cart-quantity.js";
 import { formatProductDetails } from "./product-details-format.js";
 import { bindProductGallery, productGalleryMarkup } from "./product-gallery.js";
@@ -15,7 +16,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const RECOMMEND_COUNT = 4;
 const NOTICES = {
   preorder: ["訂金 50%，訂單成立後 2 小時內完成付訂，逾期自動取消。", "海外海運與集運依實際進度到貨，不保證固定天數；到貨後由客服通知尾款。"],
-  inStock: ["匯款訂單請於 24 小時內完成付款，逾期自動取消。", "可選到店取貨（台南民生路二段 93 號）、7-11店到店(交貨便)（運費 NT$60，滿 NT$6,000 免運）或宅配；宅配運費於到貨後由客服通知。"]
+  inStock: ["匯款訂單請於 24 小時內完成付款，逾期自動取消。", "可選到店取貨（台南民生路二段 93 號）、7-11店到店(交貨便)（運費 NT$60，滿 NT$6,000 免運）或宅配；宅配下單後待小幫手確認運費並通知，商品＋運費再一併匯款。"]
 };
 
 function purchaseLimit(variant) {
@@ -84,8 +85,9 @@ export function createProductPage(deps) {
 
   function variantMarkup(variant) {
     if (state.variants.length < 2) return `<p class="pp-variant"><span>規格</span>${escapeHtml(variant.variant_name || "單一規格")}</p>`;
-    const options = state.variants.map((item) => `<option value="${escapeHtml(item.id)}" ${item.id === variant.id ? "selected" : ""}>${escapeHtml(item.variant_name || item.name)}${Number(item.stock) > 0 ? "" : "（無庫存）"}</option>`).join("");
-    return `<label class="pp-field" for="pp-variant">規格<select id="pp-variant">${options}</select></label>`;
+    // 單選按鈕（原生 radio：方向鍵切換、報讀器讀得到「已選取」）；無庫存規格仍可點選查看，購買鈕會停用
+    const options = state.variants.map((item) => `<label class="pp-option${Number(item.stock) > 0 ? "" : " is-sold-out"}"><input type="radio" name="pp-variant" value="${escapeHtml(item.id)}" ${item.id === variant.id ? "checked" : ""} /><span>${escapeHtml(item.variant_name || item.name)}</span>${Number(item.stock) > 0 ? "" : "<small>無庫存</small>"}</label>`).join("");
+    return `<fieldset class="pp-field pp-options"><legend>規格</legend><div class="pp-option-list">${options}</div></fieldset>`;
   }
 
   function renderBuy() {
@@ -127,8 +129,8 @@ export function createProductPage(deps) {
       groups.get(variant.product_id).push(variant);
     }
     const picks = [...groups.values()]
-      .map((variants) => variants.find((variant) => Number(variant.stock) > 0))
-      .filter(Boolean)
+      .map(productCardFromVariants)
+      .filter((card) => Number(card.stock) > 0)
       .map((variant) => ({ variant, score: (variant.category === current.category ? 2 : 0) + (variant.type === current.type ? 1 : 0) }))
       .sort((a, b) => b.score - a.score || Number(b.variant.display_order || 0) - Number(a.variant.display_order || 0))
       .slice(0, RECOMMEND_COUNT)
@@ -257,11 +259,13 @@ export function createProductPage(deps) {
     if (event.target.matches("#pp-quantity") && state) state.quantity = Number(event.target.value) || 1;
   });
   page.addEventListener("change", (event) => {
-    if (!event.target.matches("#pp-variant") || !state) return;
+    if (!event.target.matches('input[name="pp-variant"]') || !state) return;
     state.variantId = event.target.value;
     state.quantity = 1;
     history.replaceState(history.state, "", `/products/${encodeURIComponent(state.productId)}?v=${encodeURIComponent(state.variantId)}`);
     renderBuy();
+    // 購買欄整段重畫：把焦點還給剛選的規格，鍵盤使用者可繼續用方向鍵切換
+    page.querySelector('input[name="pp-variant"]:checked')?.focus({ preventScroll: true });
   });
 
   // 商品頁中點首頁錨點（頁首選單、麵包屑、購物須知）要先回首頁再捲動到區塊。
@@ -277,7 +281,7 @@ export function createProductPage(deps) {
     }
     // 商品卡的圖片與名稱也能進入商品頁。名稱連結的一般點擊改走站內切換；
     // Ctrl／Cmd／Shift／中鍵點擊交給瀏覽器另開分頁。
-    const cardTarget = event.target.closest(".product-card .product-image, .product-card h3");
+    const cardTarget = event.target.closest(".product-card .product-image, .product-card h3, .product-card [data-choose-variant]");
     if (cardTarget && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0)) return;
     const variantId = cardTarget?.closest(".product-card")?.dataset.productId;
     const variant = variantId && deps.getProducts().find((item) => item.id === variantId);

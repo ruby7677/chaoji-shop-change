@@ -305,16 +305,25 @@ export async function submitNewVariant(event) {
     preorder_arrival: preorderArrivalValue(document.querySelector("#admin-new-arrival-from").value, document.querySelector("#admin-new-arrival-until").value),
     is_published: document.querySelector("#admin-new-published").checked
   };
-  await adminFetch("/api/admin/variants", { method: "POST", body: JSON.stringify(body) });
-  invalidateAdminManagementOptions();
-  event.currentTarget.reset();
-  document.querySelector("#admin-new-safety-stock").value = "0";
-  const newCompareAtPriceInput = document.querySelector("#admin-new-compare-at-price");
-  if (newCompareAtPriceInput) newCompareAtPriceInput.value = "";
-  document.querySelector("#admin-new-deposit-rate").value = "0";
-  await refreshAdminSections(["products", "inventory", "overview"]);
-  switchAdminTab("products");
-  showToast("商品規格已新增", "success");
+  // event.currentTarget 在第一個 await 之後就變成 null：先保存表單，並在送出期間停用按鈕避免重複建立
+  const form = event.currentTarget;
+  const submitButton = form.querySelector("button[type='submit']");
+  const originalLabel = submitButton?.textContent || "新增規格";
+  if (submitButton) { submitButton.disabled = true; submitButton.textContent = "新增規格中…"; }
+  try {
+    await adminFetch("/api/admin/variants", { method: "POST", body: JSON.stringify(body) });
+    invalidateAdminManagementOptions();
+    form.reset();
+    document.querySelector("#admin-new-safety-stock").value = "0";
+    const newCompareAtPriceInput = document.querySelector("#admin-new-compare-at-price");
+    if (newCompareAtPriceInput) newCompareAtPriceInput.value = "";
+    document.querySelector("#admin-new-deposit-rate").value = "0";
+    await refreshAdminSections(["products", "inventory", "overview"]);
+    switchAdminTab("products");
+    showToast("商品規格已新增", "success");
+  } finally {
+    if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; }
+  }
 }
 
 export async function submitDynamicAdminForm(event) {
