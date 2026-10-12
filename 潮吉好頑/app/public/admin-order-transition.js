@@ -2,6 +2,7 @@
 // 不碰 DOM，方便測試（訂單卡與批次操作共用）；確認款項（confirmed）仍由 admin-order-payment.js 的 paymentConfirmation 處理。
 import { money } from "./product-format.js";
 import { orderIncludesPreorder } from "./app-core.js";
+import { homePaidInFull } from "./home-fee-state.js";
 
 // 各狀態可前往的下一步（與 SQL admin_transition_order 的允許轉換對應；最終仍以 SQL 檢查為準）
 const ORDER_TRANSITIONS = {
@@ -23,7 +24,7 @@ export function availableTransitions(order) {
     && (item.value !== "ready_for_pickup" || preorderStorePickup || order.delivery_method === "seller_delivery" || (["home_delivery", "cvs_delivery"].includes(order.delivery_method) && hasPreorder))
     && !(item.value === "ready_for_pickup" && order.delivery_method === "seller_delivery" && !hasPreorder)
     && !(item.value === "cancelled" && order.delivery_method === "seller_delivery" && order.status === "ready_for_pickup")
-    && (item.value !== "completed" || order.delivery_method !== "home_delivery" || Boolean(order.final_payment_confirmed_at))
+    && (item.value !== "completed" || order.delivery_method !== "home_delivery" || homePaidInFull(order))
     && (item.value !== "completed" || order.delivery_method !== "cvs_delivery" || !hasPreorder || Boolean(order.final_payment_confirmed_at))
     // 預購到店取貨：先「更新到貨狀態」通知客戶來取，完成取貨只在已通知到貨後出現，避免兩個選項並列誤選
     && (item.value !== "completed" || !preorderStorePickup || order.status === "ready_for_pickup")

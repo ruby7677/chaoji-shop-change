@@ -7,7 +7,8 @@ import { loadProducts, renderProducts } from "./storefront-catalog.js";
 import { adminData, adminFetch, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
 import { confirmationAmount, isQuickConfirmable, moneySummary, paymentConfirmation } from "./admin-order-payment.js";
 import { initOrderBatch, orderSelectMarkup, syncOrderBatch } from "./admin-order-batch.js";
-import { mountStockHomeFeeForm } from "./admin-home-fee.js";
+import { mountStockHomeFeeForm, mountStockHomeFeePaidNote } from "./admin-home-fee.js";
+import { homePaidInFull, stockHomeFeePrepaid } from "./home-fee-state.js";
 import { availableTransitions, isDangerousTarget, parseRefundAmount, refundFieldFor, riskOnlyEntryLabel, transitionConfirmation, transitionSubmitLabel } from "./admin-order-transition.js";
 
 
@@ -121,7 +122,7 @@ export function renderAdminOrders() {
     paymentNode.innerHTML = `付款方式 <b>${order.bank_account_id ? "匯款／轉帳" : order.delivery_method === "seller_delivery" ? "賣貨便取貨付款（外部）" : "到店支付"}</b>`;
     const paymentGrid = card.querySelector(".admin-order-payment");
     const shippingFeeLabel = order.delivery_method === "store_pickup" || (isCvsOrder(order) && !order.shipping_fee) ? "免運" : order.delivery_method === "seller_delivery" ? "由 7-11 收取" : order.shipping_fee ? money(order.shipping_fee) : "待客服通知";
-    const balanceLabel = isCvsOrder(order) ? cvsBalanceLabel(order, hasPreorder) : order.delivery_method === "store_pickup" ? "到店確認" : order.delivery_method === "seller_delivery" ? "依賣貨便訂單" : order.final_payment_confirmed_at ? "已確認" : "尚未確認";
+    const balanceLabel = isCvsOrder(order) ? cvsBalanceLabel(order, hasPreorder) : order.delivery_method === "store_pickup" ? "到店確認" : order.delivery_method === "seller_delivery" ? "依賣貨便訂單" : homePaidInFull(order) ? "已確認" : "尚未確認";
     if (paymentGrid) paymentGrid.insertAdjacentHTML("beforeend", `<span>${order.delivery_method === "seller_delivery" ? "賣貨便運費" : isCvsOrder(order) ? "店到店運費" : "實際運費"} <b>${shippingFeeLabel}</b></span><span>尾款／運費 <b>${balanceLabel}</b></span>`);
     mountCvsFulfillment(card, order, hasPreorder, card.querySelector(":scope > .admin-order-more, :scope > .admin-order-action, :scope > .admin-order-history"));
     if (order.delivery_method === "home_delivery") {
@@ -135,6 +136,9 @@ export function renderAdminOrders() {
       // 現貨宅配待付款：先確認運費並通知客人，客人收到通知才匯款
       if (!hasPreorder && order.status === "pending_payment") {
         mountStockHomeFeeForm(card, order, insertBefore);
+      } else if (currentStockHomePending && stockHomeFeePrepaid(order, hasPreorder)) {
+        // 運費在付款前已確認：客人匯的就是含運總額，確認款項後可直接出貨，不再顯示運費／末五碼表單
+        mountStockHomeFeePaidNote(card, order, insertBefore);
       } else if (canUpdateFulfillment) {
         const form = document.createElement("form");
         form.className = "admin-fulfillment-form";

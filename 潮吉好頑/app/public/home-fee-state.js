@@ -20,3 +20,15 @@ export function preorderHomeBalanceDue(order, hasPreorder) {
 export function awaitingStockHomeFee(order, hasPreorder) {
   return isStockHomeOrder(order, hasPreorder) && order.status === "pending_payment" && !homeFeeConfirmed(order);
 }
+
+/** 現貨宅配付款前已確認運費（本次應付＝含運總額）：客人照這個金額匯款，回報後運費鎖定（對應 SQL SHIPPING_FEE_LOCKED） */
+export function stockHomeFeePrepaid(order, hasPreorder) {
+  return isStockHomeOrder(order, hasPreorder) && Boolean(order.shipping_fee_notified_at)
+    && Number(order.deposit_due || 0) >= Number(order.amount_due || 0);
+}
+
+/** 宅配可出貨：已確認尾款，或運費已確認且已收金額達應付總額（對應 SQL admin_transition_order） */
+export function homePaidInFull(order) {
+  return Boolean(order?.final_payment_confirmed_at)
+    || (Boolean(order?.shipping_fee_notified_at) && Number(order?.paid_amount || 0) >= Number(order?.amount_due || 0));
+}

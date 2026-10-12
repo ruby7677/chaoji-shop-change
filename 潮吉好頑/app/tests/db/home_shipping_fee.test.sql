@@ -34,6 +34,73 @@ select tests.transition((select id from t_order), 'confirmed');
 select tests.logout();
 select tests.assert((select status = 'confirmed' and paid_amount = 1150 from public.orders where id = (select id from t_order)),
                     'confirming the reported payment records goods plus shipping as paid');
+select tests.as_service();
+select tests.expect_error(format($$select public.admin_update_order_fulfillment(tests.id('admin'), %L, 200, false, null, null)$$, (select id from t_order)),
+                          'SHIPPING_FEE_LOCKED', 'the fee the member already paid cannot be changed afterwards');
+select tests.transition((select id from t_order), 'completed');
+select tests.logout();
+select tests.assert((select status = 'completed' and paid_amount = 1150 and final_payment_confirmed_at is null
+                       from public.orders where id = (select id from t_order)),
+                    'an in-stock home order paid with its fee ships without a second payment confirmation');
+rollback;
+
+-- 回報匯款後（待確認款項）運費也已鎖定，客人是照通知的含運金額匯款。
+begin;
+select tests.seed();
+select tests.login(tests.id('member_a'));
+create temp table t_order on commit drop as select public.create_delivery_order(
+    tests.order_items(tests.id('variant_stock'), 1), 'together', 'home_delivery', null, 0, tests.id('bank'), null,
+    '臺南市中西區民生路二段 93 號', '王小明', '0912345678') as id;
+grant select on t_order to public;
+select tests.logout();
+select tests.as_service();
+select public.admin_update_order_fulfillment(tests.id('admin'), (select id from t_order), 150, false, null, null);
+select tests.logout();
+select tests.login(tests.id('member_a'));
+select public.submit_order_payment((select id from t_order), tests.id('bank'), '12345');
+select tests.as_service();
+select tests.expect_error(format($$select public.admin_update_order_fulfillment(tests.id('admin'), %L, 200, false, null, null)$$, (select id from t_order)),
+                          'SHIPPING_FEE_LOCKED', 'the fee cannot change while the reported payment is being checked');
+select tests.logout();
+rollback;
+
+-- 付款後才補運費（本次應付不含運）：確認款項後仍須確認尾款與運費才能出貨。
+begin;
+select tests.seed();
+select tests.login(tests.id('member_a'));
+create temp table t_order on commit drop as select public.create_delivery_order(
+    tests.order_items(tests.id('variant_stock'), 1), 'together', 'home_delivery', null, 0, tests.id('bank'), null,
+    '臺南市中西區民生路二段 93 號', '王小明', '0912345678') as id;
+grant select on t_order to public;
+select public.submit_order_payment((select id from t_order), tests.id('bank'), '12345');
+select tests.as_service();
+select tests.transition((select id from t_order), 'confirmed');
+select public.admin_update_order_fulfillment(tests.id('admin'), (select id from t_order), 150, false, null, null);
+select tests.expect_error(format($$select tests.transition(%L, 'completed')$$, (select id from t_order)),
+                          'FINAL_PAYMENT_REQUIRED', 'a fee added after payment must be collected before shipping');
+select public.admin_update_order_fulfillment(tests.id('admin'), (select id from t_order), 150, true, '54321', null);
+select tests.transition((select id from t_order), 'completed');
+select tests.logout();
+select tests.assert((select status = 'completed' and paid_amount = 1150 from public.orders where id = (select id from t_order)),
+                    'after confirming the balance the order ships with goods plus shipping paid');
+rollback;
+
+-- 預購宅配確認時只收訂金：沒有確認尾款不可出貨。
+begin;
+select tests.seed();
+select tests.login(tests.id('member_a'));
+create temp table t_order on commit drop as select public.create_delivery_order(
+    tests.order_items(tests.id('variant_pre'), 1), 'together', 'home_delivery', null, 0, tests.id('bank'), null,
+    '臺南市中西區民生路二段 93 號', '王小明', '0912345678') as id;
+grant select on t_order to public;
+select public.submit_order_payment((select id from t_order), tests.id('bank'), '12345');
+select tests.as_service();
+select tests.transition((select id from t_order), 'confirmed');
+select tests.transition((select id from t_order), 'ready_for_pickup');
+select public.admin_update_order_fulfillment(tests.id('admin'), (select id from t_order), 150, false, null, null);
+select tests.expect_error(format($$select tests.transition(%L, 'completed')$$, (select id from t_order)),
+                          'FINAL_PAYMENT_REQUIRED', 'a preorder home order cannot ship on its deposit alone');
+select tests.logout();
 rollback;
 
 -- 免運（運費 0）也算已確認；不縮短較晚的期限。

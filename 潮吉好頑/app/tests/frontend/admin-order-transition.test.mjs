@@ -76,6 +76,15 @@ test("7-11 店到店：預購先更新到貨，尾款確認前不能寄出", () 
   assert.deepEqual(availableTransitions({ ...preorder, status: "ready_for_pickup", final_payment_confirmed_at: "x" }).map((item) => item.value), ["completed", "cancelled"]);
 });
 
+test("現貨宅配：付款前已確認運費，確認款項後可直接出貨", () => {
+  const paid = { status: "confirmed", delivery_method: "home_delivery", bank_account_id: "bank", order_items: [{ kind: "in_stock" }], shipping_fee: 80, shipping_fee_notified_at: "2026-10-12T10:00:00Z", amount_due: 1080, deposit_due: 1080, paid_amount: 1080 };
+  assert.deepEqual(availableTransitions(paid).map((item) => item.value), ["completed", "cancelled"]);
+  // 付款後才補運費：已收金額不含運，要先確認尾款與運費
+  const feeAfterPayment = { ...paid, deposit_due: 1000, paid_amount: 1000 };
+  assert.deepEqual(availableTransitions(feeAfterPayment).map((item) => item.value), ["cancelled"]);
+  assert.deepEqual(availableTransitions({ ...feeAfterPayment, final_payment_confirmed_at: "x" }).map((item) => item.value), ["completed", "cancelled"]);
+});
+
 test("預購到店取貨：通知到貨前不提供完成取貨，到貨後才出現", () => {
   const preorderPickup = { delivery_method: "store_pickup", bank_account_id: "bank", order_items: [{ kind: "preorder" }] };
   for (const status of ["confirmed", "partially_ready"]) {

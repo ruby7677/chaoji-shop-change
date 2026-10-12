@@ -1,7 +1,7 @@
 // 現貨宅配「待小幫手確認運費」：運費確認前不給匯款帳號、不能回報末五碼；確認後顯示含運應付與匯款按鈕。
 import test from "node:test";
 import assert from "node:assert/strict";
-import { awaitingStockHomeFee, homeFeeConfirmed } from "../../public/home-fee-state.js";
+import { awaitingStockHomeFee, homeFeeConfirmed, homePaidInFull, stockHomeFeePrepaid } from "../../public/home-fee-state.js";
 import { orderCardMarkup, paymentOrderView } from "../../public/order-views.js";
 
 const account = { bank_name: "台北富邦(012)", account_name: "曾**", account_number: "81680005517989" };
@@ -19,6 +19,16 @@ test("運費確認狀態：0 元免運只要有確認時間也算已確認；預
   assert.equal(homeFeeConfirmed({ shipping_fee: 0, shipping_fee_notified_at: "2026-10-12T11:00:00Z" }), true);
   assert.equal(awaitingStockHomeFee(unpaid, true), false);
   assert.equal(awaitingStockHomeFee({ ...unpaid, status: "pending_review" }, false), false);
+});
+
+test("運費付款前已確認：回報後運費鎖定、確認款項即付清；付款後才補運費的舊流程不鎖定", () => {
+  const reported = { ...feeConfirmed, status: "pending_review" };
+  assert.equal(stockHomeFeePrepaid(reported, false), true);
+  assert.equal(stockHomeFeePrepaid({ ...reported, deposit_due: 6500 }, false), false);
+  assert.equal(stockHomeFeePrepaid(reported, true), false, "preorders keep the balance flow");
+  assert.equal(homePaidInFull({ ...feeConfirmed, status: "confirmed", paid_amount: 6650 }), true);
+  assert.equal(homePaidInFull({ ...feeConfirmed, status: "confirmed", paid_amount: 6500 }), false);
+  assert.equal(homePaidInFull({ ...unpaid, paid_amount: 6500 }), false, "an unconfirmed fee does not count");
 });
 
 test("建單後運費未確認：不顯示匯款帳號，改成等待提醒與查看訂單模式", () => {
