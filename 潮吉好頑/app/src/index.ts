@@ -99,8 +99,12 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   const orderFulfillmentMatch = url.pathname.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/fulfillment$/i);
   if (request.method === "PATCH" && orderFulfillmentMatch) {
     const response = await updateAdminOrderFulfillment(request, env, orderFulfillmentMatch[1]);
-    if (response.ok) ctx.waitUntil(notifyOrderEvent(env, orderFulfillmentMatch[1], "fulfillment_updated"));
-    return response;
+    if (!response.ok) return response;
+    // 宅配運費／尾款通知是客人匯款的依據：等通知送出或交給重試機制後才回應，
+    // 沒成功時告訴管理員重按一次（每次儲存都是新的通知事件）
+    const notificationQueued = await notifyOrderEvent(env, orderFulfillmentMatch[1], "fulfillment_updated").catch(() => false);
+    const body = await response.json() as Record<string, unknown>;
+    return json({ ...body, notification_queued: notificationQueued });
   }
   if (request.method === "PUT" && url.pathname === "/api/admin/point-settings") return updatePointSettings(request, env);
   if (request.method === "POST" && url.pathname === "/api/admin/coupons") return saveCoupon(request, env, null);

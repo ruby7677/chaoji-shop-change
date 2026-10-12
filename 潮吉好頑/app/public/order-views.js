@@ -73,7 +73,7 @@ export function paymentOrderView(order) {
   const shippingFeeRow = deliveryMethod !== "store_pickup" ? `<div class="payment-row"><span>${sellerDelivery ? "賣貨便運費" : cvsDelivery ? "運費" : "實際運費"}</span><strong>${sellerDelivery ? "由 7-11 向客戶收取" : cvsDelivery ? cvsFeeText(order, hasPreorder) : homeFeeText(order, stockHome)}</strong></div>` : "";
   const balanceLabel = cvsDelivery ? "尾款（含運費）" : deliveryMethod === "store_pickup" || deliveryMethod === "home_delivery" || sellerDelivery ? "尾款" : "尾款／運費";
   const balanceRow = balance ? `<div class="payment-row"><span>${balanceLabel}</span><strong>${money(balance)}</strong></div>` : "";
-  const amountDueRow = `<div class="payment-row amount${deliveryMethod === "store_pickup" ? " payment-store-pickup-due" : ""}"><span>本次應付</span><strong>${awaitingFee ? "待運費確認後通知" : money(order.deposit_due)}</strong></div>`;
+  const amountDueRow = `<div class="payment-row amount${deliveryMethod === "store_pickup" ? " payment-store-pickup-due" : ""}"><span>本次應付</span><strong>${awaitingFee ? "待運費確認後通知" : money(balanceDue ? Math.max(order.amount_due - order.deposit_due, 0) : order.deposit_due)}</strong></div>`;
   // 運費列緊接在訂單總額下方，再接本次應付
   const paymentRows = `${amountDueRow}${balanceRow}`;
   const bankDetailClass = !storePayment && !sellerDelivery && (account || awaitingFee) ? " transfer-bank-detail" : "";
@@ -136,7 +136,7 @@ export function orderCardMarkup(order) {
   // 現貨店到店建單時已含運費，沒有尾款
   const showBalance = deliveryMethod !== "store_pickup" && !(cvsDelivery && !hasPreorder);
   const totalRow = `<div class="payment-row"><span>訂單總額</span><strong>${money(order.amount_due)}</strong></div>`;
-  const amountDueRow = `<div class="payment-row"><span>本次應付</span><strong>${awaitingFee ? "待運費確認後通知" : money(order.deposit_due)}</strong></div>`;
+  const amountDueRow = `<div class="payment-row"><span>本次應付</span><strong>${awaitingFee ? "待運費確認後通知" : money(balanceDue ? Math.max(order.amount_due - order.deposit_due, 0) : order.deposit_due)}</strong></div>`;
   const balanceRow = showBalance ? `<div class="payment-row"><span>${balanceLabel}</span><strong>${balanceNotice}</strong></div>` : "";
   // 現貨宅配依「訂單總額 → 尾款／運費 → 本次應付」排列；運費確認前不能回報匯款
   const amountRows = stockHome ? `${totalRow}${balanceRow}${amountDueRow}` : `${totalRow}${amountDueRow}${balanceRow}`;

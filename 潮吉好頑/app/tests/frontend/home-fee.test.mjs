@@ -57,6 +57,8 @@ test("預購宅配到貨、尾款與運費已確認：可查看尾款匯款帳�
   assert.equal(mode, "balance");
   assert.match(html, /待付尾款（含運費）<\/span><strong>NT\$3,400/);
   assert.match(html, /81680005517989/);
+  assert.match(html, /本次應付<\/span><strong>NT\$3,400/, "amount due matches the transfer card");
   assert.match(orderCardMarkup(arrived), /data-order-payment="order-1">查看尾款匯款帳號/);
+  assert.match(orderCardMarkup(arrived), /本次應付<\/span><strong>NT\$3,400/);
   assert.doesNotMatch(orderCardMarkup({ ...arrived, final_payment_confirmed_at: "2026-10-13T00:00:00Z" }), /data-order-payment/);
 });

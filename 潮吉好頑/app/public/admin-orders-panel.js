@@ -295,10 +295,11 @@ export async function submitAdminOrderFulfillment(event) {
   const button = form.querySelector("button[type='submit']");
   if (button instanceof HTMLButtonElement) button.disabled = true;
   try {
-    await adminFetch(`/api/admin/orders/${form.dataset.adminFulfillmentForm}/fulfillment`, { method: "PATCH", body: JSON.stringify({ shipping_fee: shippingFee, final_payment_confirmed: confirmed, final_payment_last_five: finalFive || null, note: noteField.value.trim() }) });
+    const result = await adminFetch(`/api/admin/orders/${form.dataset.adminFulfillmentForm}/fulfillment`, { method: "PATCH", body: JSON.stringify({ shipping_fee: shippingFee, final_payment_confirmed: confirmed, final_payment_last_five: finalFive || null, note: noteField.value.trim() }) });
     await refreshAdminSections(["orders", "overview"]);
     switchAdminTab("orders");
-    showToast(feeOnly ? "運費已確認，已通知客人匯款" : "尾款與實際運費已更新", "success");
+    if (result?.notification_queued === false) showToast("金額已儲存，但 LINE 通知沒有送出；請再按一次儲存重新通知，或直接聯絡客人", "warning");
+    else showToast(feeOnly ? "運費已確認，已通知客人匯款" : "尾款與實際運費已更新", "success");
   } finally {
     if (button instanceof HTMLButtonElement) button.disabled = false;
   }

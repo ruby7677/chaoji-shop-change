@@ -13,12 +13,14 @@ const ORDER_ID = "cccccccc-0000-4000-8000-0000000000d3";
 let restoreFetch = () => {};
 afterEach(() => restoreFetch());
 
-function fakeAdmin(order) {
+function fakeAdmin(order, { notificationLookupFails = false } = {}) {
   const calls = [];
   restoreFetch = stubFetch((url, _init, body) => {
     if (url.pathname === "/auth/v1/user") return jsonResponse({ id: ADMIN_ID, identities: [{ provider: "custom:line-web", identity_data: { sub: LINE_ID } }] });
     if (url.pathname === "/rest/v1/profiles") return jsonResponse([{ is_admin: true, line_user_id: LINE_ID }]);
     if (url.pathname.startsWith("/rest/v1/rpc/")) { calls.push([url.pathname.slice(13), body]); return jsonResponse({ id: ORDER_ID }); }
+    // 通知用的訂單查詢（含會員資料）可模擬失敗
+    if (url.pathname === "/rest/v1/orders" && notificationLookupFails && url.searchParams.get("select")?.includes("profiles")) return new Response("busy", { status: 503 });
     if (url.pathname === "/rest/v1/orders") return jsonResponse([order]);
     return jsonResponse([]);
   });
@@ -110,4 +112,13 @@ test("saving the balance and fee after a preorder home arrival notifies the amou
   const card = JSON.stringify(messages.buildLineOrderFlexMessage(data, text, "https://liff.line.me/orders"));
   assert.match(card, /尾款及運費已確認，請完成匯款/);
   assert.equal(messages.buildOrderNotificationMessage({ ...data, finalPaymentConfirmed: true }), null, "no reminder once the balance is confirmed");
+});
+test("the admin is told when the fee notice could not be queued", async () => {
+  fakeAdmin(unpaidStockHome, { notificationLookupFails: true });
+  const failed = await saveFee({ shipping_fee: 150 });
+  assert.equal(failed.status, 200);
+  assert.equal((await failed.json()).notification_queued, false);
+  fakeAdmin(unpaidStockHome);
+  const queued = await saveFee({ shipping_fee: 150 });
+  assert.equal((await queued.json()).notification_queued, true);
 });
