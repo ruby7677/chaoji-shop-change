@@ -72,7 +72,7 @@
 | --- | --- | --- |
 | 回饋點數 | `public.point_ledger`＋`point_settings.point_value`（每點折抵金額可調） | 儲值金另開帳本，不能沿用 |
 | 管理員調點 | `admin_adjust_member_points` 已 `revoke … from public, anon, authenticated` 並只 grant `service_role`（`202609220005`） | 新的錢包／抽獎 RPC 比照此權限模式 |
-| 庫存保留 | `inventory_reservations(variant_id, order_id 可為 null, quantity check > 0, expires_at, released_at)`；可售量＝`stock_on_hand − 未釋放且未到期的保留` | 要讓抽獎保留量計入可售量；**共用此表或另建表於 Stage 1 審查後決定**。已抽查 3 處更新（`202609100001` 逾期清理、`202609100003`、`202609140001`）皆以 `order_id` 限定；其餘未查（§8 Stage 1） |
+| 庫存保留 | `inventory_reservations(variant_id, order_id 可為 null, quantity check > 0, expires_at, released_at)`；可售量＝`stock_on_hand − 未釋放且未到期的保留` | Stage 1 已決定共用此表（新增 `lottery_id`），所有可售量計算自動扣抽獎保留；審查結果見 §8 Stage 1 |
 | 優惠券 | `coupons`＋`coupon_products`＋`coupon_members`，**不能綁分類**；`orders.coupon_id` 單一欄位（一張訂單一張券）；折抵額＝`least(券面額, 適用商品小計)` | 盲盒券需新增 `coupon_categories` 並同步修改 `create_delivery_order` 與 `preview_checkout_coupon` |
 | 店到店運費 | `private.cvs_shipping_fee(p_subtotal integer)`，含滿額免運門檻 | 獎品出貨以小計 0 呼叫 |
 | 訂單 | `orders`（status enum 含 pending_payment … completed）＋`order_items` | 獎品出貨建議不併入訂單（§4.5） |
@@ -184,7 +184,7 @@ public.member_prizes
 1. 檢查：草稿狀態、小賞總數＝N−1、大獎至少一個規格、保底顏色屬於大獎選項且可售量 ≥ 1、各小賞規格「可售量 ≥ 設定數量」（同一規格同時是小賞與保底顏色時合併計算）。
 2. `seed := gen_random_bytes(32)` 存 `private.lottery_secrets`。
 3. 依 §4.3 產生 `lottery_cells`（號碼排列＋小賞分配）。
-4. 為每款小賞與保底顏色（1 台）建立庫存保留（表的選擇見 Stage 1；若共用 `inventory_reservations`，新增 `lottery_id` 並加約束 `(order_id is null) <> (lottery_id is null)`）。保底保留在大獎開出後轉為該大獎獎品所有，直到兌獎選色或出貨才處理；活動結束時不釋放未兌換大獎的保底保留。
+4. 為每款小賞與保底顏色（1 台）建立庫存保留（共用 `inventory_reservations`，新增 `lottery_id` 並加約束 `(order_id is null) <> (lottery_id is null)`，見 Stage 1 ②）。保底保留在大獎開出後轉為該大獎獎品所有，直到兌獎選色或出貨才處理；活動結束時不釋放未兌換大獎的保底保留。
 5. 寫入 `manifest`、`commitment`、`status='on_sale'`、`opened_at`；寫 `audit_logs`（含發布時間）。
 
 ### 4.2 開抽 `lottery_draw(member_id, lottery_id, cells int[], request_id)`
@@ -357,9 +357,34 @@ public.member_prizes
 
 ### Stage 1：既有系統基線審查（唯讀）
 **Goal**：用實際 SQL／RPC／Worker 原始碼確認整合點，決定庫存保留與出貨模型。
-**Success Criteria**：在本節記錄結論——①所有讀寫 `inventory_reservations` 的函式、cron、view、後台畫面（已抽查 3 處以 `order_id` 限定；待查：`admin_catalog_management`、`admin_order_completion`、`store_payment`、`cvs_delivery`、`backup_snapshot`、`storefront_product_details`、低庫存提醒、後台庫存畫面、Worker 端讀取）在 `order_id is null` 時的行為；②共用或另建保留表；③出貨沿用 `orders` 或 `prize_shipments`；④`coupon_categories` 需修改的 SQL 與 Worker 位置；⑤`audit_logs` 寫入方式；⑥CI database job 可用。
-**Tests**：無程式變更。
-**Status**：Not Started
+**Success Criteria**：在本節記錄結論——①所有讀寫 `inventory_reservations` 的函式、cron、view、後台畫面在 `order_id is null` 時的行為；②共用或另建保留表；③出貨沿用 `orders` 或 `prize_shipments`；④`coupon_categories` 需修改的 SQL 與 Worker 位置；⑤`audit_logs` 寫入方式；⑥CI database job 可用。
+**Tests**：無程式變更；基線 `npm run check:js`、`npm run typecheck`、`npm test`（370／370）於 `feat/lottery` 起點全部通過（2026-10-12）。
+**Status**：Complete（2026-10-12）
+
+**Stage 1 審查結論**（方法：以腳本取出每個函式 overload 在 migrations 中最後一次的定義，再逐一閱讀；`create_pending_order`、`create_discounted_order` 已於 `202609250003` drop，不計）：
+
+① `inventory_reservations` 的實際使用者：
+
+| 物件（生效定義所在 migration） | 行為 | `order_id is null`（抽獎保留）時 |
+| --- | --- | --- |
+| `private.storefront_available_stock`（`202609140002`）→ `storefront_variants` view | 依 `variant_id` 加總未釋放且未到期的保留 | 正確計入，前台可售量自動扣掉抽獎保留 ✅ |
+| `create_delivery_order`（`202610110001`） | 建單時同樣依 `variant_id` 加總保留檢查庫存；插入保留時帶 `order_id` | 正確計入，不會超賣 ✅ |
+| `admin_adjust_inventory`（`202609220005`） | 調整後庫存不得低於總保留量（`BELOW_RESERVED_STOCK`） | 管理員不能把庫存調到低於抽獎保留，符合需求 ✅ |
+| `cancel_expired_orders`（`202609140001`） | 只更新 `where order_id = v_order.id` | 不影響 ✅ |
+| `sync_order_reservation_lifecycle` 觸發器（`202609140001`） | INSERT 時以 `new.order_id` 查訂單覆寫 `expires_at`；訂單狀態變更時只更新該訂單的保留 | 查無訂單時保留原值，不影響 ✅ |
+| `backup_snapshot`（`202610100001`） | 整表 `to_jsonb` | 新欄位自動納入備份 ✅ |
+| RLS | `deny api roles`（`202609140003`） | 抽獎保留同樣不對 API 角色開放 ✅ |
+| Worker／前端 | 沒有直接讀寫此表；後台庫存與低庫存（`low_stock_variants`）只看 `stock_on_hand` | 後台顯示的是實際庫存，不扣保留；與現有訂單保留行為一致（見「發現」） |
+
+② **決定：共用 `inventory_reservations`**，新增 `lottery_id uuid null references lotteries(id)` 與約束 `(order_id is null) <> (lottery_id is null)`，抽獎保留 `expires_at='infinity'`。理由：所有可售量計算已依 `variant_id` 加總，另建表必須修改 `storefront_available_stock`、`create_delivery_order`、`admin_adjust_inventory` 三處交易函式，風險較高。
+
+③ **`prize_shipments` 無障礙**（Q7 維持）：可沿用訂單已有的欄位格式與約束——`delivery_method`（`store_pickup`／`home_delivery`／`cvs_delivery`）、`shipping_recipient_name`、`shipping_phone`、`shipping_address`、`pickup_store_city／district／name／code`（店號 6 碼）、`shipment_tracking_number`（`^[A-Za-z0-9-]{1,40}$`）；運費用 `private.cvs_shipping_fee(0)`。前端 `public/cvs-delivery.js`（運費常數、門市文字）與 `public/checkout-cvs-store.js` 的 `cvsStoreProblem()`（門市驗證）可重用；`ensureCvsStoreFields()` 綁定結帳表單 DOM，獎品出貨表單需另寫或先抽出共用元件（Stage 6 決定）。
+
+④ **`coupon_categories` 修改點**：優惠券適用商品判斷目前是「未設定任何 `coupon_products` → 全部商品適用；否則商品須在清單內」，位於 `create_delivery_order`（`202610110001`，第 142–143 行附近）與 `preview_checkout_coupon`（`202610110002`）。新規則：未設定任何商品**且**未設定任何分類 → 全部適用；否則商品在清單內**或**商品 `category_id` 在分類清單內。兩支函式須以新 migration 寫出完整 `create or replace`。Worker `src/coupon-preview.ts` 只轉呼叫 RPC，不需修改。另需確認 `member_available_coupons()`（會員「我的優惠券」）與後台優惠券列表如何顯示分類券（Stage 6）。
+
+⑤ **稽核與不可變帳本做法**：既有 `public.append_audit_log(actor, action, resource, target, before, after)`，管理 RPC 在同一交易內呼叫（`202609220005`）；`audit_logs.actor_id` 為 not null，系統排程（到期結束）不寫 audit log，改記在活動本身的 `closed_at`／`closed_reason`。`audit_logs` 已有不可變做法：revoke update／delete／truncate（含 service_role）＋`before update or delete` 觸發器拋 `AUDIT_LOG_IMMUTABLE`（`202609220004`）——`wallet_ledger` 照此實作。
+
+⑥ **測試環境**：本機沒有 PostgreSQL（無 `psql`／`pg_ctl`），`npm run test:db` 無法在本機執行；以 GitHub Actions `CI` 的 `database` job（PostgreSQL 16＋pg_cron，push 到任何分支、路徑含 `潮吉好頑/app/**` 即觸發）為準，並可下載 `effective-db-functions` artifact 核對生效函式定義。`checks` job 跑 typecheck、check:js、npm test、wrangler dry-run。
 
 ### Stage 2：儲值金帳戶、帳本與後台加值
 **Goal**：會員有獨立儲值金，管理員可加值／調整／沖正。
