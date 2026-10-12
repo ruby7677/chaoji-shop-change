@@ -25,7 +25,8 @@ create table if not exists public.wallet_ledger (
   request_id uuid unique,
   transfer_ref text check (transfer_ref is null or char_length(transfer_ref) between 1 and 60),
   reason text not null check (char_length(reason) between 1 and 200),
-  actor_id uuid references public.profiles(id) on delete set null,
+  -- restrict 而非 set null：set null 是 UPDATE，會被不可修改觸發器擋下；與 audit_logs.actor_id 相同。
+  actor_id uuid references public.profiles(id) on delete restrict,
   created_at timestamptz not null default now(),
   constraint wallet_ledger_reversal_link check ((kind = 'reversal') = (reversal_of is not null)),
   constraint wallet_ledger_topup_positive check (kind <> 'topup' or amount > 0),

@@ -1,5 +1,5 @@
 // 後台會員儲值金：會員卡內的餘額、加值／退款／調整表單與紀錄（含沖正）。
-// 每次送出帶 requestId，網路逾時後重送同一筆不會重複入帳；成功後才換新的 requestId。
+// 每次送出帶 requestId，網路逾時後重送同一筆不會重複入帳。
 import { escapeHtml, money } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { formatDateTime, showToast } from "./app-core.js";
@@ -9,8 +9,18 @@ const WALLET_KIND_LABELS = { topup: "儲值加值", adjust: "人工調整", refu
 const REVERSIBLE_KINDS = new Set(["topup", "adjust", "refund"]);
 const WALLET_HISTORY_LIMIT = 10;
 
+// 尚未確定結果的異動請求（會員 id → requestId）。存在模組而不是表單上：逾時後到重送之間，
+// 搜尋、換頁或其他分區刷新都會重畫會員卡，若跟著換新 requestId，重送就會重複入帳。
+const pendingAdjustmentRequests = new Map();
+
 function newRequestId() {
   return crypto.randomUUID();
+}
+
+// 4xx 代表伺服器已處理並拒絕（交易已回滾，或這個 requestId 已被其他內容用掉），下次送出改用新的 requestId；
+// 網路錯誤、逾時與 5xx 結果未知，保留原 requestId 讓重送可以安全比對。
+function settledWithoutCredit(error) {
+  return Number.isInteger(error?.status) && error.status >= 400 && error.status < 500;
 }
 
 function walletBalance(memberId) {
@@ -48,7 +58,7 @@ export function memberWalletSection(member) {
   const entries = walletEntries(member.id);
   const reversedIds = new Set(entries.map((entry) => entry.reversal_of).filter(Boolean));
   const history = entries.slice(0, WALLET_HISTORY_LIMIT).map((entry) => walletEntryItem(entry, reversedIds)).join("");
-  const form = `<form class="admin-point-adjust admin-wallet-form" data-admin-wallet-form="${escapeHtml(member.id)}" data-request-id="${newRequestId()}">`
+  const form = `<form class="admin-point-adjust admin-wallet-form" data-admin-wallet-form="${escapeHtml(member.id)}">`
     + `<label>異動類型<select name="kind" required><option value="topup">加值（確認匯款入帳）</option><option value="refund">退款（從餘額扣除）</option><option value="adjust">調整（正數增加、負數扣除）</option></select></label>`
     + `<label>金額（元）<input name="amount" required type="number" step="1" inputmode="numeric" placeholder="加值與退款填正數" /></label>`
     + `<label>原因（會員看得到）<input name="reason" required maxlength="200" placeholder="例：10/12 匯款儲值" /></label>`
@@ -85,14 +95,22 @@ export async function submitMemberWalletAdjustment(event) {
   const title = kind === "topup" ? `確定為會員加值 ${money(amount)}？` : kind === "refund" ? `確定從會員儲值金退款 ${money(-amount)}？` : `確定${amount > 0 ? "增加" : "扣除"}會員儲值金 ${money(Math.abs(amount))}？`;
   const message = `目前餘額 ${money(walletBalance(memberId))}，異動後 ${money(walletBalance(memberId) + amount)}。原因：${reason}`;
   if (!(await adminConfirm({ title, message, confirmLabel: "確定異動", danger: amount < 0, trigger: event.submitter }))) return;
+  const requestId = pendingAdjustmentRequests.get(memberId) || newRequestId();
+  pendingAdjustmentRequests.set(memberId, requestId);
   const submitButton = form.querySelector("[type='submit']");
   if (submitButton) submitButton.disabled = true;
   try {
-    const result = await adminFetch(`/api/admin/members/${memberId}/wallet`, {
-      method: "POST",
-      body: JSON.stringify({ kind, amount, reason, requestId: form.dataset.requestId, transferRef: transferRef || null })
-    });
-    form.dataset.requestId = newRequestId();
+    let result;
+    try {
+      result = await adminFetch(`/api/admin/members/${memberId}/wallet`, {
+        method: "POST",
+        body: JSON.stringify({ kind, amount, reason, requestId, transferRef: transferRef || null })
+      });
+    } catch (error) {
+      if (settledWithoutCredit(error)) pendingAdjustmentRequests.delete(memberId);
+      throw error;
+    }
+    pendingAdjustmentRequests.delete(memberId);
     await refreshAdminSections(["members"]);
     switchAdminTab("members");
     showToast(result.replayed ? "這筆異動先前已完成，未重複入帳" : `儲值金已更新，目前餘額 ${money(result.balance)}`, "success");

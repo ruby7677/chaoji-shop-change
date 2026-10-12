@@ -391,7 +391,7 @@ public.member_prizes
 **Goal**：會員有獨立儲值金，管理員可加值／調整／沖正。
 **Success Criteria**：後台加值後會員看到餘額與紀錄；餘額不可能為負；同一 `requestId` 不重複入帳；帳本不可修改；每筆有 audit log；`balance = sum(ledger)`。
 **Tests**：`tests/db/wallet.test.sql`（加值、扣到負數被拒、重送不重複入帳、沖正、update／delete 帳本被拒、一般會員不能寫入、不能讀別人的帳、authenticated 直接呼叫 RPC 被拒）；`tests/worker` 加值路由權限（未登入 401、會員 403、管理員 200）。
-**Status**：Complete（2026-10-12，未部署、未套用正式 DB）
+**Status**：In Progress（實作完成、CI run 38217770341 兩個 job 通過；等待 `/codex:review` 審查。未部署、未套用正式 DB）
 
 **Stage 2 實作紀錄**：
 - migration `202610121001_member_wallet.sql`：`wallet_accounts`／`wallet_ledger`、`admin_adjust_wallet`（kind 限 `topup` 正數／`refund` 負數／`adjust` 非 0，單筆上限 1,000,000）、`admin_reverse_wallet_entry`（只沖正上述三種；抽獎與運費的沖正留給 Stage 3／6）、`member_wallet_balance()`；`backup_snapshot()` 加入兩張表。會員只看得到 `id, kind, amount, balance_after, reason, created_at`，**原因文字會員看得到**，後台欄位已標示。
