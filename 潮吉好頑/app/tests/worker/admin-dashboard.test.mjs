@@ -63,6 +63,7 @@ test("todo orders are filtered by the database with the manual-work rules", asyn
   const filter = todoQuery.searchParams.get("or");
   for (const rule of [
     "status.eq.pending_review",
+    "and(delivery_method.eq.home_delivery,status.eq.pending_payment,shipping_fee_notified_at.is.null)",
     "and(delivery_method.eq.cvs_delivery,status.in.(confirmed,ready_for_pickup))",
     "and(delivery_method.eq.home_delivery,status.eq.ready_for_pickup,final_payment_confirmed_at.is.null)"
   ]) assert.ok(filter.includes(rule), `todo filter includes ${rule}`);

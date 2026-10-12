@@ -56,6 +56,8 @@ document.addEventListener("click", (event) => {
     return;
   }
   if (event.target.closest("[data-payment-close], [data-payment-later]")) closeDialog(document.querySelector("#payment-dialog"));
+  // 現貨宅配待確認運費：建單後的付款視窗改成帶客人到「我的訂單」
+  if (event.target.closest("[data-payment-orders]")) { closeDialog(document.querySelector("#payment-dialog")); openOrders(); }
   const lineFriendCheck = event.target.closest("[data-line-friend-check]");
   if (lineFriendCheck) {
     lineFriendCheck.disabled = true;

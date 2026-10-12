@@ -11,9 +11,9 @@ let activePaymentOrder = null;
 
 function renderPaymentOrder(order) {
   ensurePaymentMethodUI();
-  const { html, storePayment } = paymentOrderView(order);
+  const { html, mode } = paymentOrderView(order);
   document.querySelector("#payment-order-detail").innerHTML = html;
-  applyPaymentFormMode(storePayment);
+  applyPaymentFormMode(mode);
 }
 
 export function showPaymentDialog(order) {

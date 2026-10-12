@@ -1,6 +1,6 @@
 // 結帳表單：摘要、取貨／付款方式欄位、收件資料驗證、點數與優惠券、收款帳戶。
 import { escapeHtml, isPreorderItem, money } from "./product-format.js";
-import { auth, customerServiceLineUrl, deliveryMethodLabels, deliveryMethodNotes, formatDate } from "./app-core.js";
+import { auth, deliveryMethodLabels, deliveryMethodNotes, formatDate } from "./app-core.js";
 import { checkoutCartItems, selectedDeliveryMethod, selectedPaymentMethod } from "./cart.js";
 import { activeCheckoutScope, showCheckoutError } from "./checkout-flow.js";
 import { cvsFeeHint, cvsShippingFee } from "./cvs-delivery.js";
@@ -226,13 +226,7 @@ export function syncDeliveryFields() {
   const deliveryName = document.querySelector("#checkout-delivery-name");
   const deliveryNote = document.querySelector("#checkout-delivery-note");
   if (deliveryName) deliveryName.textContent = deliveryMethodLabels[method] || deliveryMethodLabels.store_pickup;
-  if (deliveryNote) {
-    if (method === "home_delivery") {
-      deliveryNote.innerHTML = `現貨宅配匯款時<a class="helper-contact-link checkout-home-fee-link" href="${customerServiceLineUrl}" target="_blank" rel="noopener noreferrer">先私訊小幫手確認運費再連同商品一併匯款</a>即可；預購商品到貨後通知，尾款與運費確認入帳後安排寄出。`;
-    } else {
-      deliveryNote.textContent = deliveryMethodNotes[method] || deliveryMethodNotes.store_pickup;
-    }
-  }
+  if (deliveryNote) deliveryNote.textContent = deliveryMethodNotes[method] || deliveryMethodNotes.store_pickup;
   const addressLabel = document.querySelector("#checkout-address-label");
   const addressInput = document.querySelector("#checkout-address");
   const recipientLabel = document.querySelector("#checkout-recipient-name-label");

@@ -99,7 +99,7 @@ function renderCartSplitGroups() {
     const options = [
       ["store_pickup", "到店取貨", "台南市中西區民生路二段 93 號"],
       ["cvs_delivery", "7-11店到店(交貨便)", cvsOptionNote(scope === "preorder")],
-      ["home_delivery", "宅配", "現貨備貨完成或預購商品到貨後，由客服通知實際運費。"]
+      ["home_delivery", "宅配", "現貨建單後待小幫手確認運費並以 LINE 通知；預購到貨後通知尾款與運費。"]
     ];
     return `<section class="cart-group" data-cart-group="${scope}"><header><div><span class="eyebrow">${scope === "in_stock" ? "READY" : "PREORDER"}</span><h3>${title}</h3></div><strong>${money(subtotal)}</strong></header><div class="cart-group-items">${group.map(cartItemMarkup).join("")}</div><fieldset class="cart-group-delivery"><legend>此組商品取貨方式</legend>${options.map(([value, label, note]) => `<label class="cart-delivery-option"><input type="radio" name="cart_group_delivery_method_${scope}" value="${value}" data-group-delivery="${scope}" ${method === value ? "checked" : ""} /> <span><strong>${label}</strong><small>${note}</small></span></label>`).join("")}</fieldset><p class="cart-delivery-feedback hidden" data-group-feedback="${scope}" role="status" aria-live="polite"></p><button class="primary-button cart-group-checkout" type="button" data-checkout-scope="${scope}">${scope === "in_stock" ? "結帳現貨商品" : "結帳預購商品"}</button></section>`;
   }).join("");

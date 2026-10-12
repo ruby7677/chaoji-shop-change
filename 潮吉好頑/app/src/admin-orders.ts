@@ -82,9 +82,13 @@ export async function updateAdminOrderFulfillment(request: Request, env: Env, or
   const homeDelivery = order.delivery_method === "home_delivery";
   const hasPreorder = (order.order_items || []).some((item) => item.kind === "preorder");
   const fulfillmentReady = ["partially_ready", "ready_for_pickup"].includes(order.status || "")
-    || (homeDelivery && !hasPreorder && ["pending_review", "confirmed"].includes(order.status || ""));
+    || (homeDelivery && !hasPreorder && ["pending_payment", "pending_review", "confirmed"].includes(order.status || ""));
   if (homeDelivery && !fulfillmentReady) {
-    return json({ error: hasPreorder ? "請先將預購宅配更新為到貨狀態，再儲存尾款與運費" : "請先確認現貨宅配付款，再儲存尾款與運費" }, { status: 400 });
+    return json({ error: hasPreorder ? "請先將預購宅配更新為到貨狀態，再儲存尾款與運費" : "此訂單目前不可修改運費" }, { status: 400 });
+  }
+  // 現貨宅配待付款：只確認運費（客人收到通知後才匯款），不能同時確認入帳
+  if (homeDelivery && order.status === "pending_payment" && body.final_payment_confirmed === true) {
+    return json({ error: databaseErrors.FINAL_PAYMENT_NOT_ALLOWED }, { status: 400 });
   }
   if (sellerDelivery && body.shipping_fee !== 0) return json({ error: "賣貨便運費由 7-11 向客戶收取，不計入訂單" }, { status: 400 });
   if (sellerDelivery && body.final_payment_confirmed === true) return json({ error: "賣貨便付款由外部平台處理，不需在本站確認尾款" }, { status: 400 });

@@ -106,6 +106,9 @@ export async function notifyOrderEvent(env: Env, orderId: string, eventType: Ord
     productAmount: Math.max(order.subtotal - order.coupon_discount - order.point_discount, 0),
     pickupStore: order.delivery_method === "cvs_delivery" && order.pickup_store_name
       ? `${order.pickup_store_city || ""}${order.pickup_store_district || ""} ${order.pickup_store_name}（${order.pickup_store_code || ""}）`
+      : null,
+    paymentDeadline: order.payment_deadline
+      ? new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(new Date(order.payment_deadline))
       : null
   };
   const message = buildOrderNotificationMessage(orderMessageData);

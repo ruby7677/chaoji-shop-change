@@ -7,6 +7,7 @@ import { loadProducts, renderProducts } from "./storefront-catalog.js";
 import { adminData, adminFetch, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
 import { confirmationAmount, isQuickConfirmable, moneySummary, paymentConfirmation } from "./admin-order-payment.js";
 import { initOrderBatch, orderSelectMarkup, syncOrderBatch } from "./admin-order-batch.js";
+import { mountStockHomeFeeForm } from "./admin-home-fee.js";
 import { availableTransitions, isDangerousTarget, parseRefundAmount, refundFieldFor, riskOnlyEntryLabel, transitionConfirmation, transitionSubmitLabel } from "./admin-order-transition.js";
 
 
@@ -131,7 +132,10 @@ export function renderAdminOrders() {
       // 一鍵確認卡片把 .admin-order-action 表單包進 <details class="admin-order-more">，不再是 card 的直接子節點；
       // insertBefore 要求錨點必須是直接子節點，改以 :scope 依序找可用的直接子錨點。
       const insertBefore = card.querySelector(":scope > .admin-order-more, :scope > .admin-order-action, :scope > .admin-order-history");
-      if (canUpdateFulfillment) {
+      // 現貨宅配待付款：先確認運費並通知客人，客人收到通知才匯款
+      if (!hasPreorder && order.status === "pending_payment") {
+        mountStockHomeFeeForm(card, order, insertBefore);
+      } else if (canUpdateFulfillment) {
         const form = document.createElement("form");
         form.className = "admin-fulfillment-form";
         form.dataset.adminFulfillmentForm = order.id;
@@ -275,14 +279,17 @@ export async function submitAdminOrderFulfillment(event) {
   const form = event.target;
   if (!(form instanceof HTMLFormElement)) throw new Error("尾款與運費表單資料無法讀取");
   const shippingField = form.elements.namedItem("shipping_fee");
+  // 現貨宅配待付款的表單只有運費與備註（入帳與末五碼等客人回報後再確認）
   const finalFiveField = form.elements.namedItem("final_payment_last_five");
   const confirmedField = form.elements.namedItem("final_payment_confirmed");
   const noteField = form.elements.namedItem("note");
-  if (!(shippingField instanceof HTMLInputElement) || !(finalFiveField instanceof HTMLInputElement) || !(confirmedField instanceof HTMLInputElement) || !(noteField instanceof HTMLTextAreaElement)) throw new Error("尾款與運費表單欄位不完整");
-  const shippingFee = Number(shippingField.value);
-  const finalFive = finalFiveField.value.trim();
-  const confirmed = confirmedField.checked;
+  const feeOnly = !finalFiveField && !confirmedField;
+  if (!(shippingField instanceof HTMLInputElement) || !(noteField instanceof HTMLTextAreaElement) || (!feeOnly && (!(finalFiveField instanceof HTMLInputElement) || !(confirmedField instanceof HTMLInputElement)))) throw new Error("尾款與運費表單欄位不完整");
+  const shippingFee = shippingField.value.trim() === "" ? Number.NaN : Number(shippingField.value);
+  const finalFive = feeOnly ? "" : finalFiveField.value.trim();
+  const confirmed = feeOnly ? false : confirmedField.checked;
   if (!Number.isInteger(shippingFee) || shippingFee < 0) throw new Error("實際運費必須是 0 或正整數");
+  if (feeOnly && !(await adminConfirm({ title: `確認運費 ${money(shippingFee)}？`, message: "送出後會以 LINE 通知客人商品＋運費總額，並重新計算 24 小時付款期限。", confirmLabel: "確認並通知", trigger: event.submitter }))) return;
   if (confirmed && !/^\d{5}$/.test(finalFive)) throw Object.assign(new Error("請填寫 5 位數尾款匯款末五碼"), { field: "final_payment_last_five" });
   if (confirmed && !(await adminConfirm({ title: "確認尾款與運費已入帳？", message: "確認後即可完成寄送訂單。", confirmLabel: "確認已入帳", trigger: event.submitter }))) return;
   const button = form.querySelector("button[type='submit']");
@@ -291,7 +298,7 @@ export async function submitAdminOrderFulfillment(event) {
     await adminFetch(`/api/admin/orders/${form.dataset.adminFulfillmentForm}/fulfillment`, { method: "PATCH", body: JSON.stringify({ shipping_fee: shippingFee, final_payment_confirmed: confirmed, final_payment_last_five: finalFive || null, note: noteField.value.trim() }) });
     await refreshAdminSections(["orders", "overview"]);
     switchAdminTab("orders");
-    showToast("尾款與實際運費已更新", "success");
+    showToast(feeOnly ? "運費已確認，已通知客人匯款" : "尾款與實際運費已更新", "success");
   } finally {
     if (button instanceof HTMLButtonElement) button.disabled = false;
   }

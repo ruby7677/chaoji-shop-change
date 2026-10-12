@@ -8,6 +8,8 @@
 
 import { parseOrderNotificationText } from "./notification-text-rows";
 
+export { buildLineBirthdayFlexMessage } from "./line-birthday-flex";
+
 export const NOTIFICATION_COPY = {
   test: {
     title: "Telegram 管理員通知測試成功",
@@ -27,7 +29,8 @@ export const NOTIFICATION_COPY = {
       homeStockConfirmed: "已確認訂單(付款完成)，現貨備貨中",
       arrivedStorePreorder: "商品已到貨，私訊小幫手約取貨時間",
       arrivedSellerPreorder: "商品已到貨，私訊小幫手開賣貨便",
-      arrivedHome: "商品已到貨，私訊小幫手確認尾款及運費",
+      arrivedHome: "商品已到貨，待小幫手確認尾款及運費後通知",
+      homeFeeConfirmed: "運費已確認，請完成匯款",
       shippedSeller: "已出貨，請留意到貨的簡訊通知",
       shippedHome: "已出貨，請留意貨運的電話／簡訊通知",
       cvsStockConfirmed: "已確認訂單(付款完成)，待出貨",
@@ -50,6 +53,7 @@ export const NOTIFICATION_COPY = {
       deposit: "訂金",
       balance: "尾款／運費",
       totalBalance: "總計尾款",
+      deadline: "付款期限",
       remaining: "待付尾款",
       recipient: "姓名",
       phone: "電話",
@@ -74,7 +78,7 @@ export const NOTIFICATION_COPY = {
       preorderNoticeLine: "預購商品報價有時效性，請於訂單成立後2小時內完成付訂",
       preorderNoticeCancel: "否則訂單將自動取消",
       homeShippingPending: "待到貨與尾款一併確認通知",
-      homeShippingPendingStock: "私訊小幫手確認"
+      homeShippingPendingStock: "待小幫手確認運費"
     }
   },
   lowStock: {
@@ -131,6 +135,8 @@ export type OrderMessageData = {
   productAmount?: number;
   /** 交貨便取件門市，例：臺南市中西區 民生門市（123456） */
   pickupStore?: string | null;
+  /** 付款期限（已格式化為台灣時間） */
+  paymentDeadline?: string | null;
 };
 
 /**
@@ -222,6 +228,19 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
     return message(isPreorder ? copy.status.preorderPaymentReported : copy.status.paymentReported, [productLine, `${copy.labels.delivery}：${delivery}`]);
   }
 
+  // 現貨宅配待付款：小幫手確認運費後通知客人含運總額，客人收到後才匯款
+  if (data.eventType === "fulfillment_updated" && isHome && !isPreorder && data.orderStatus === "pending_payment") {
+    // 卡片標題已是「運費已確認，請完成匯款」，狀態列維持「待確認付款」
+    return message(copy.status.createdPayment, [
+      productLine,
+      `${copy.labels.productAmount}：${money(data.productAmount ?? data.amountDue - data.shippingFee)}`,
+      `${copy.labels.shipping}：${data.shippingFee > 0 ? money(data.shippingFee) : copy.delivery.freeShipping}`,
+      `${copy.labels.total}：${money(data.amountDue)}`,
+      `${copy.labels.payment}：${copy.payment.bank}`,
+      ...(data.paymentDeadline ? [`${copy.labels.deadline}：${data.paymentDeadline}`] : [])
+    ]);
+  }
+
   if (data.eventType === "fulfillment_updated" && data.finalPaymentConfirmed && isSeller) {
     return message(copy.status.shippedSeller, [productLine, `${copy.labels.delivery}：${copy.delivery.sellerShipped}`]);
   }
@@ -296,6 +315,7 @@ function orderFlexTitle(data: OrderMessageData) {
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "賣貨便") return "賣貨便出貨通知";
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "宅配") return "宅配出貨通知";
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === NOTIFICATION_COPY.order.delivery.cvs) return "7-11 店到店出貨通知";
+  if (data.eventType === "fulfillment_updated" && data.deliveryLine === "宅配" && !data.hasPreorder && data.orderStatus === "pending_payment") return NOTIFICATION_COPY.order.status.homeFeeConfirmed;
   if (data.eventType === "fulfillment_updated") return "訂單進度更新";
   return "訂單狀態更新";
 }
@@ -306,8 +326,14 @@ function orderStatusColor(orderStatus: string) {
 }
 
 function orderFlexSummary(data: OrderMessageData) {
+  if (data.eventType === "created" && data.deliveryLine === "宅配" && !data.hasPreorder) {
+    return "提醒您已成功建立訂單，小幫手確認運費後會再通知您匯款金額，請先不要匯款。";
+  }
   if (data.eventType === "created") {
     return "提醒您已成功建立訂單，請依頁面提示完成付款或回報匯款末五碼。";
+  }
+  if (data.eventType === "fulfillment_updated" && data.deliveryLine === "宅配" && !data.hasPreorder && data.orderStatus === "pending_payment") {
+    return "請依通知金額於付款期限內完成匯款，並在「查看訂單」回報匯款帳號末五碼。";
   }
   if (data.eventType === "payment_reported") {
     return "已收到您的匯款回報，待管理員確認後會再通知您。";
@@ -413,68 +439,6 @@ export function buildLineOrderFlexMessage(data: OrderMessageData, altText: strin
   };
 }
 
-/** Customer-facing birthday coupon card. Keep the plain text as altText so
- * older LINE clients still receive the complete notification content. */
-export function buildLineBirthdayFlexMessage(
-  storeName: string,
-  coupon: { name: string; code: string; discountAmount: number },
-  altText: string
-): LinePushMessage {
-  const row = (label: string, value: string) => ({
-    type: "box",
-    layout: "horizontal",
-    spacing: "sm",
-    alignItems: "flex-start",
-    contents: [
-      { type: "text", text: label, color: "#8A8A8A", size: "sm", flex: 3, wrap: true },
-      { type: "text", text: value || "-", color: "#3D3D3D", size: "sm", weight: "bold", flex: 7, wrap: true }
-    ]
-  });
-  return {
-    type: "flex",
-    altText: altText.slice(0, 1500),
-    contents: {
-      type: "bubble",
-      size: "mega",
-      styles: {
-        header: { backgroundColor: "#06C755" },
-        body: { backgroundColor: "#FFFFFF" },
-        footer: { backgroundColor: "#F3F3F3" }
-      },
-      header: {
-        type: "box",
-        layout: "horizontal",
-        paddingAll: "18px",
-        contents: [
-          { type: "text", text: "官方帳號個人服務通知", color: "#FFFFFF", size: "lg", weight: "bold", flex: 1, wrap: true },
-          { type: "text", text: "🔔", color: "#FFFFFF", size: "lg", flex: 0, align: "end" }
-        ]
-      },
-      body: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "20px",
-        spacing: "md",
-        contents: [
-          { type: "text", text: "生日優惠通知", color: "#333333", size: "xl", weight: "bold", wrap: true },
-          { type: "text", text: `${storeName}祝您生日快樂！`, color: "#555555", size: "md", margin: "md", wrap: true },
-          { type: "separator", margin: "lg", color: "#E5E5E5" },
-          row("優惠券", coupon.name.slice(0, 120)),
-          row("優惠碼", coupon.code.slice(0, 80)),
-          row("折抵金額", money(coupon.discountAmount))
-        ]
-      },
-      footer: {
-        type: "box",
-        layout: "vertical",
-        paddingAll: "12px",
-        contents: [
-          { type: "text", text: "結帳時輸入優惠碼即可使用。", color: "#8A8A8A", size: "sm", align: "center", wrap: true }
-        ]
-      }
-    }
-  };
-}
 
 export function buildLowStockMessage(storeName: string, lines: string[]) {
   const copy = NOTIFICATION_COPY.lowStock;

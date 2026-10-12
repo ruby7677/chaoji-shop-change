@@ -42,6 +42,7 @@ export const databaseErrors: Record<string, string> = {
   FINAL_PAYMENT_REQUIRED: "請填寫尾款匯款末五碼並確認尾款與運費已入帳",
   FINAL_PAYMENT_NOT_ALLOWED: "訂單尚未進入可出貨或可取貨狀態",
   ORDER_FULFILLMENT_NOT_EDITABLE: "此訂單目前不可修改尾款或運費資訊",
+  PAYMENT_DEADLINE_PASSED: "此訂單已超過付款期限，保留量已失效，請取消訂單後請客人重新下單",
   INVALID_QUANTITY: "商品數量不正確",
   PRODUCT_NOT_FOUND: "商品已下架或不存在",
   PRODUCT_ARCHIVED: "此商品已刪除，無法再上架；請重新整理後台",

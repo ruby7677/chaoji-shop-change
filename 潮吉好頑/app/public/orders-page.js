@@ -122,9 +122,9 @@ async function loadOrders({ useCache = true } = {}) {
 
 function openPayment(order) {
   activeOrder = order;
-  const { html, storePayment } = paymentOrderView(order);
+  const { html, mode } = paymentOrderView(order);
   document.querySelector("#payment-order-detail").innerHTML = html;
-  applyPaymentFormMode(storePayment);
+  applyPaymentFormMode(mode);
   document.querySelector("#payment-last-five").value = "";
   document.querySelector("#payment-error").classList.add("hidden");
   showDialog(paymentDialog);
@@ -160,7 +160,7 @@ async function submitPayment(event) {
 document.addEventListener("click", (event) => {
   if (handleCopyBankAccount(event)) return;
   if (event.target.closest("[data-orders-refresh]")) return void loadOrders();
-  if (event.target.closest("[data-payment-close], [data-payment-later]")) return closeDialog(paymentDialog);
+  if (event.target.closest("[data-payment-close], [data-payment-later], [data-payment-orders]")) return closeDialog(paymentDialog);
   const paymentButton = event.target.closest("[data-order-payment]");
   if (paymentButton) {
     const order = orders.find((item) => item.id === paymentButton.dataset.orderPayment);

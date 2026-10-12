@@ -91,7 +91,7 @@ Cloudflare production deployment 必須由單一 deployment owner 統籌，並�
 - 付款期限依商品類型：預購訂單成立後 2 小時內完成付訂，現貨匯款訂單 24 小時內完成；逾期自動取消並釋放保留量。
 - 建單保留庫存，管理員確認款項才扣庫存；點數完成核銷入帳。維持交易與歷程完整性。
 - 賣貨便已停用（2026-10-11 起不可新建，舊訂單僅保留顯示），改為 7-11店到店(交貨便)：運費 NT$60、單筆商品小計（折扣前）滿 NT$6,000 免運，金額由 `private.cvs_shipping_fee` 決定、前台 `public/cvs-delivery.js` 同步；現貨運費併入建單應付，預購運費到貨後與尾款一起收；運費不計點數；出貨＝完成並發點數，寄件編號只顯示在後台與我的訂單、不放通知。門市清單 `public/cvs-stores/` 由 `node scripts/build-cvs-stores.mjs <711_stores.csv>` 產生。
-- 宅配結帳不預收未知運費，到貨後客服通知尾款與實際運費。
+- 宅配結帳不預收未知運費：現貨建單後管理員在「待付款」填運費並以 LINE 通知客人（本次應付改為含運、付款期限與保留量重給 24 小時；運費確認前前台不給匯款帳號），客人收到通知才匯款；預購到貨後再通知尾款與實際運費。
 - 本站到店取貨、店到店與宅配一律匯款／轉帳；舊賣貨便訂單的 `store_payment` 內部標記代表 7-11 外部收款，不能誤當成到店現金支付。
 - 會員回報匯款只透過 Telegram 通知管理員；管理員確認款項與到貨狀態依事件以 LINE 通知會員、以 Telegram 通知管理員。
 - 日期時間一律以台灣時間（Asia/Taipei，UTC+8）顯示、輸入與判斷「今天」：資料庫存 `timestamptz`，前端用 `app-core.js` 的 `formatDateTime`／`formatDate`／`taipeiDateTimeInput*`，Worker 用 `taipeiDate`，訂單編號由 `create_delivery_order` 的函式層級 `timezone` 設定產生；pg_cron 排程時間以 UTC 撰寫並註明台灣時間。
