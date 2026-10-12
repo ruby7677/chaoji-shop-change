@@ -212,10 +212,14 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
 
   if (data.eventType === "created") {
     const sellerStock = isSeller && !isPreorder;
+    // 現貨宅配建單時運費未定：只列商品金額，含運應付金額待小幫手確認運費後另行通知
+    const homeStock = isHome && !isPreorder;
     const lines = [
       productLine,
-      `${copy.labels.total}：${money(data.amountDue)}`,
-      ...(sellerStock ? [] : [`${copy.labels.deposit}：${money(data.depositDue)}`]),
+      homeStock
+        ? `${copy.labels.productAmount}：${money(data.productAmount ?? data.amountDue - data.shippingFee)}`
+        : `${copy.labels.total}：${money(data.amountDue)}`,
+      ...(sellerStock || homeStock ? [] : [`${copy.labels.deposit}：${money(data.depositDue)}`]),
       ...(isHome ? [`${copy.labels.shipping}：${isPreorder ? copy.delivery.homeShippingPending : copy.delivery.homeShippingPendingStock}`] : []),
       `${copy.labels.payment}：${sellerStock ? copy.payment.seller : copy.payment.bank}`
     ];

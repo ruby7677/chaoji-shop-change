@@ -102,6 +102,8 @@ test("the creation notice for in-stock home delivery tells the member to wait fo
   const data = { ...homeBase, shippingFee: 0, amountDue: 6500, depositDue: 6500, eventType: "created", orderStatus: "pending_payment" };
   const text = messages.buildOrderNotificationMessage(data);
   assert.match(text, /運費：待小幫手確認運費/);
+  assert.match(text, /商品金額：NT\$6,500/);
+  assert.doesNotMatch(text, /總金額|訂金/, "the fee is unknown, so no total or deposit is shown");
   assert.doesNotMatch(text, /私訊/);
   const card = JSON.stringify(messages.buildLineOrderFlexMessage(data, text, null));
   assert.match(card, /請先不要匯款/);
