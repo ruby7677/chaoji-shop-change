@@ -13,12 +13,15 @@ const ORDER_ID = "cccccccc-0000-4000-8000-0000000000d3";
 let restoreFetch = () => {};
 afterEach(() => restoreFetch());
 
-function fakeAdmin(order, { notificationLookupFails = false } = {}) {
+function fakeAdmin(order, { notificationLookupFails = false, lineStatus = 200 } = {}) {
   const calls = [];
   restoreFetch = stubFetch((url, _init, body) => {
     if (url.pathname === "/auth/v1/user") return jsonResponse({ id: ADMIN_ID, identities: [{ provider: "custom:line-web", identity_data: { sub: LINE_ID } }] });
     if (url.pathname === "/rest/v1/profiles") return jsonResponse([{ is_admin: true, line_user_id: LINE_ID }]);
+    if (url.pathname === "/rest/v1/rpc/claim_notification_delivery") return jsonResponse({ id: "delivery-1", claimed: true, claim_token: "token", attempt_count: 1, status: "processing", payload: body.p_payload });
+    if (url.pathname === "/rest/v1/rpc/complete_notification_delivery") return jsonResponse(true);
     if (url.pathname.startsWith("/rest/v1/rpc/")) { calls.push([url.pathname.slice(13), body]); return jsonResponse({ id: ORDER_ID }); }
+    if (url.hostname === "api.line.me") return new Response("{}", { status: lineStatus });
     // 通知用的訂單查詢（含會員資料）可模擬失敗
     if (url.pathname === "/rest/v1/orders" && notificationLookupFails && url.searchParams.get("select")?.includes("profiles")) return new Response("busy", { status: 503 });
     if (url.pathname === "/rest/v1/orders") return jsonResponse([order]);
@@ -36,6 +39,8 @@ const unpaidStockHome = {
   subtotal: 1000, coupon_discount: 0, point_discount: 0, shipping_fee: 0, amount_due: 1000, deposit_due: 1000, paid_amount: 0,
   payment_deadline: "2026-10-13T10:43:00Z", order_items: [{ kind: "in_stock" }]
 };
+
+const memberStockHome = { ...unpaidStockHome, profiles: { full_name: "Member", line_user_id: LINE_ID, is_admin: false } };
 
 test("an unpaid in-stock home order accepts a shipping fee", async () => {
   const calls = fakeAdmin(unpaidStockHome);
@@ -119,6 +124,18 @@ test("the admin is told when the fee notice could not be queued", async () => {
   assert.equal(failed.status, 200);
   assert.equal((await failed.json()).notification_queued, false);
   fakeAdmin(unpaidStockHome);
+  const noLine = await saveFee({ shipping_fee: 150 });
+  assert.equal((await noLine.json()).notification_queued, false, "a member without LINE gets no notice");
+  fakeAdmin(memberStockHome);
   const queued = await saveFee({ shipping_fee: 150 });
   assert.equal((await queued.json()).notification_queued, true);
+});
+
+test("a LINE push rejected for good is reported to the admin, a retryable one is not", async () => {
+  fakeAdmin(memberStockHome, { lineStatus: 401 });
+  const rejected = await saveFee({ shipping_fee: 150 });
+  assert.equal((await rejected.json()).notification_queued, false);
+  fakeAdmin(memberStockHome, { lineStatus: 503 });
+  const retrying = await saveFee({ shipping_fee: 150 });
+  assert.equal((await retrying.json()).notification_queued, true);
 });

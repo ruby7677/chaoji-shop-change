@@ -34,7 +34,12 @@ type DeliveryAttempt = {
  * by the retry cron, or the channel is disabled; false only when no claim row
  * could be recorded, so the event must be offered again later.
  */
-export type DeliveryResult = { sent: boolean; handled: boolean };
+export type DeliveryResult = { sent: boolean; handled: boolean; failed?: true };
+
+/** `failed`: the provider rejected the message for good, so no retry will deliver it. */
+function claimResult(attempt: DeliveryAttempt): DeliveryResult {
+  return attempt.sent || attempt.retryable ? { sent: attempt.sent, handled: true } : { sent: false, handled: true, failed: true };
+}
 
 const DEFAULT_LEASE_SECONDS = 120;
 
@@ -198,7 +203,7 @@ async function deliverClaim(
   // expired while its provider request was still in flight. A provider may
   // have accepted that earlier request, so delivery remains at-least-once.
   await completeNotification(env, channel, claim, attempt);
-  return attempt.sent;
+  return attempt;
 }
 
 /** Queue/claim and deliver one LINE notification. Duplicate sent rows are successful no-ops. */
@@ -213,7 +218,7 @@ export async function deliverLineNotification(
   const claim = await claimNotification(env, "line", eventKey, recipientId, eventType, { messages: [message] });
   if (!claim) return { sent: false, handled: false };
   if (!claim.claimed) return { sent: claim.status === "sent", handled: true };
-  return { sent: await deliverClaim(env, "line", claim, recipientId), handled: true };
+  return claimResult(await deliverClaim(env, "line", claim, recipientId));
 }
 
 /**
@@ -232,7 +237,7 @@ export async function deliverTelegramNotificationOrDirect(
   const claim = await claimNotification(env, "telegram", eventKey, recipientId, eventType, { text }).catch(() => null);
   if (!claim) return { sent: (await sendTelegram(env, recipientId, { text }, 1)).sent, handled: true };
   if (!claim.claimed) return { sent: claim.status === "sent", handled: true };
-  return { sent: await deliverClaim(env, "telegram", claim, recipientId), handled: true };
+  return claimResult(await deliverClaim(env, "telegram", claim, recipientId));
 }
 
 /** Queue/claim and deliver one Telegram notification. Its result is independent from LINE. */
@@ -247,7 +252,7 @@ export async function deliverTelegramNotification(
   const claim = await claimNotification(env, "telegram", eventKey, recipientId, eventType, { text: message.slice(0, 4096) });
   if (!claim) return { sent: false, handled: false };
   if (!claim.claimed) return { sent: claim.status === "sent", handled: true };
-  return { sent: await deliverClaim(env, "telegram", claim, recipientId), handled: true };
+  return claimResult(await deliverClaim(env, "telegram", claim, recipientId));
 }
 
 async function claimDue(env: NotificationDeliveryEnv, channel: NotificationChannel) {
@@ -260,7 +265,7 @@ async function claimDue(env: NotificationDeliveryEnv, channel: NotificationChann
 
 /** Reclaims retry-due failures and expired processing leases without cross-channel coupling. */
 export async function retryDueNotificationDeliveries(env: NotificationDeliveryEnv) {
-  const tasks: Promise<boolean>[] = [];
+  const tasks: Promise<DeliveryAttempt>[] = [];
   if (env.LINE_NOTIFY_ENABLED !== "false" && env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) {
     const claims = await claimDue(env, "line");
     tasks.push(...claims.map((claim) => deliverClaim(env, "line", claim, String(claim.recipient_id || ""))));

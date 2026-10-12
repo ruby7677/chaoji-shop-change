@@ -75,11 +75,27 @@ async function loadOrderNotification(env: Env, orderId: string) {
   return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; shipping_address?: string | null; shipping_recipient_name?: string | null; shipping_phone?: string | null; pickup_store_city?: string | null; pickup_store_district?: string | null; pickup_store_name?: string | null; pickup_store_code?: string | null; shipping_fee_notified_at?: string | null; paid_amount?: number; refunded_amount?: number | null; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string; is_admin?: boolean }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number; kind?: string }> };
 }
 
-/** Resolves true once every recipient's notification is sent or owned by the delivery state machine. */
+/**
+ * `handled`: every recipient's notification is sent or owned by the delivery state machine.
+ * `memberReached`: the member's LINE message was sent or is scheduled for retry; false when
+ * the member has no LINE recipient or LINE rejected the message for good.
+ */
+type OrderEventOutcome = { handled: boolean; memberReached: boolean };
 
+/** Resolves true once every recipient's notification is sent or owned by the delivery state machine. */
 export async function notifyOrderEvent(env: Env, orderId: string, eventType: OrderNotificationEventType): Promise<boolean> {
+  return (await deliverOrderEvent(env, orderId, eventType)).handled;
+}
+
+/** Same as notifyOrderEvent, but also requires that the member will actually receive the LINE message. */
+export async function notifyOrderEventToMember(env: Env, orderId: string, eventType: OrderNotificationEventType): Promise<boolean> {
+  const outcome = await deliverOrderEvent(env, orderId, eventType);
+  return outcome.handled && outcome.memberReached;
+}
+
+async function deliverOrderEvent(env: Env, orderId: string, eventType: OrderNotificationEventType): Promise<OrderEventOutcome> {
   const order = await loadOrderNotification(env, orderId);
-  if (!order) return false;
+  if (!order) return { handled: false, memberReached: false };
   const items = (order.order_items || []).map((item) => `${item.product_name}${item.variant_name === "單一規格" ? "" : ` · ${item.variant_name}`} ×${item.quantity}`).join("、");
   const hasPreorder = (order.order_items || []).some((item) => item.kind === "preorder");
   const deliveryLabels: Record<string, string> = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配", cvs_delivery: NOTIFICATION_COPY.order.delivery.cvs };
@@ -112,7 +128,7 @@ export async function notifyOrderEvent(env: Env, orderId: string, eventType: Ord
       : null
   };
   const message = buildOrderNotificationMessage(orderMessageData);
-  if (!message) return true;
+  if (!message) return { handled: true, memberReached: true };
   const ordersLiffId = env.ORDERS_LIFF_ID?.trim();
   const lineMessage = buildLineOrderFlexMessage(orderMessageData, message, ordersLiffId ? `https://liff.line.me/${ordersLiffId}` : null);
   const telegramMessage = buildTelegramOrderNotificationMessage(message, order.profiles?.full_name);
@@ -127,11 +143,16 @@ export async function notifyOrderEvent(env: Env, orderId: string, eventType: Ord
       ? `${eventType}:${orderId}:${order.updated_at || "current"}`
       : `${eventType}:${orderId}`;
   const routing = routeOrderNotificationRecipients(eventType, order.profiles?.line_user_id, telegramAdminRecipients(env), suppressAdminMemberLine);
-  const tasks: Promise<DeliveryResult>[] = routing.telegramRecipients.map((chatId) => notifyTelegram(env, eventKey, chatId, `order_${eventType}`, telegramMessage));
+  const telegramTasks = routing.telegramRecipients.map((chatId) => notifyTelegram(env, eventKey, chatId, `order_${eventType}`, telegramMessage));
   // 會員回報匯款只通知 Telegram 管理員；一般會員狀態走 LINE，管理員本人賣貨便備貨確認只保留 Telegram。
-  tasks.push(...routing.lineRecipients.map((recipientId) => notifyLine(env, eventKey, recipientId, `order_${eventType}`, lineMessage)));
-  const results = await Promise.allSettled(tasks);
-  return results.every((result) => result.status === "fulfilled" && result.value.handled);
+  const lineTasks = lineNotificationEnabled(env)
+    ? routing.lineRecipients.map((recipientId) => notifyLine(env, eventKey, recipientId, `order_${eventType}`, lineMessage))
+    : [];
+  const [telegramResults, lineResults] = await Promise.all([Promise.allSettled(telegramTasks), Promise.allSettled(lineTasks)]);
+  const handled = [...telegramResults, ...lineResults].every((result) => result.status === "fulfilled" && result.value.handled);
+  const memberReached = lineResults.length > 0
+    && lineResults.every((result) => result.status === "fulfilled" && result.value.handled && !result.value.failed);
+  return { handled, memberReached };
 }
 
 export async function notifyLowStock(env: Env) {
