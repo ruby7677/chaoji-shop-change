@@ -18,6 +18,7 @@ type NotificationClaim = {
   payload: Record<string, unknown>;
   claimed: boolean;
   recipient_id?: string;
+  event_key?: string;
 };
 
 type DeliveryAttempt = {
@@ -217,8 +218,61 @@ export async function deliverLineNotification(
   if (env.LINE_NOTIFY_ENABLED === "false" || !env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN || !recipientId) return { sent: false, handled: true };
   const claim = await claimNotification(env, "line", eventKey, recipientId, eventType, { messages: [message] });
   if (!claim) return { sent: false, handled: false };
-  if (!claim.claimed) return { sent: claim.status === "sent", handled: true };
+  if (!claim.claimed) {
+    if (claim.status === "failed" && !(await hasScheduledRetry(env, claim.id))) return { sent: false, handled: true, failed: true };
+    return { sent: claim.status === "sent", handled: true };
+  }
   return claimResult(await deliverClaim(env, "line", claim, recipientId));
+}
+
+/** An unclaimed failed row is either waiting for its retry or failed for good; only the row knows which. */
+async function hasScheduledRetry(env: NotificationDeliveryEnv, id: string) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return false;
+  const url = new URL(`${env.SUPABASE_URL}/rest/v1/notification_deliveries`);
+  url.searchParams.set("select", "next_retry_at");
+  url.searchParams.set("id", `eq.${id}`);
+  try {
+    const response = await fetchWithTimeout(url, { headers: serviceHeaders(env) });
+    if (!response.ok) return false;
+    const rows = await response.json() as Array<{ next_retry_at: string | null }>;
+    return Boolean(rows[0]?.next_retry_at);
+  } catch {
+    return false;
+  }
+}
+
+const FULFILLMENT_EVENT_KEY = /^fulfillment_updated:([0-9a-fA-F-]{36}):(.+)$/;
+
+/**
+ * A fulfillment notice quotes the amounts saved at that moment, so a retry is
+ * only valid while the order is unchanged. Returns null when the notice is
+ * current, otherwise the attempt that closes or postpones the stale claim.
+ */
+async function supersededAttempt(env: NotificationDeliveryEnv, claim: NotificationClaim): Promise<DeliveryAttempt | null> {
+  const match = FULFILLMENT_EVENT_KEY.exec(claim.event_key || "");
+  if (!match || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
+  const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
+  url.searchParams.set("select", "updated_at");
+  url.searchParams.set("id", `eq.${match[1]}`);
+  let rows: Array<{ updated_at: string }> | null = null;
+  try {
+    const response = await fetchWithTimeout(url, { headers: serviceHeaders(env) });
+    if (response.ok) rows = await response.json() as Array<{ updated_at: string }>;
+  } catch {
+    rows = null;
+  }
+  if (!rows) {
+    return { sent: false, statusCode: null, retryable: true, retryAfterSeconds: notificationRetryDelaySeconds(claim.attempt_count), errorMessage: "訂單讀取失敗，稍後再確認通知是否過期" };
+  }
+  if (rows[0] && Date.parse(rows[0].updated_at) === Date.parse(match[2])) return null;
+  return { sent: false, statusCode: null, retryable: false, retryAfterSeconds: 0, errorMessage: "訂單已更新，不再補送舊通知" };
+}
+
+async function deliverDueClaim(env: NotificationDeliveryEnv, channel: NotificationChannel, claim: NotificationClaim) {
+  const superseded = await supersededAttempt(env, claim);
+  if (!superseded) return deliverClaim(env, channel, claim, String(claim.recipient_id || ""));
+  await completeNotification(env, channel, claim, superseded);
+  return superseded;
 }
 
 /**
@@ -268,11 +322,11 @@ export async function retryDueNotificationDeliveries(env: NotificationDeliveryEn
   const tasks: Promise<DeliveryAttempt>[] = [];
   if (env.LINE_NOTIFY_ENABLED !== "false" && env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) {
     const claims = await claimDue(env, "line");
-    tasks.push(...claims.map((claim) => deliverClaim(env, "line", claim, String(claim.recipient_id || ""))));
+    tasks.push(...claims.map((claim) => deliverDueClaim(env, "line", claim)));
   }
   if (env.TELEGRAM_NOTIFY_ENABLED !== "false" && env.TELEGRAM_BOT_TOKEN) {
     const claims = await claimDue(env, "telegram");
-    tasks.push(...claims.map((claim) => deliverClaim(env, "telegram", claim, String(claim.recipient_id || ""))));
+    tasks.push(...claims.map((claim) => deliverDueClaim(env, "telegram", claim)));
   }
   await Promise.allSettled(tasks);
 }

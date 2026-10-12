@@ -13,11 +13,14 @@ const ORDER_ID = "cccccccc-0000-4000-8000-0000000000d3";
 let restoreFetch = () => {};
 afterEach(() => restoreFetch());
 
-function fakeAdmin(order, { notificationLookupFails = false, lineStatus = 200 } = {}) {
+function fakeAdmin(order, { notificationLookupFails = false, lineStatus = 200, telegramClaimFails = false, existingLineRow = null } = {}) {
   const calls = [];
   restoreFetch = stubFetch((url, _init, body) => {
     if (url.pathname === "/auth/v1/user") return jsonResponse({ id: ADMIN_ID, identities: [{ provider: "custom:line-web", identity_data: { sub: LINE_ID } }] });
     if (url.pathname === "/rest/v1/profiles") return jsonResponse([{ is_admin: true, line_user_id: LINE_ID }]);
+    if (url.pathname === "/rest/v1/rpc/claim_notification_delivery" && telegramClaimFails && body.p_channel === "telegram") return new Response("busy", { status: 503 });
+    if (url.pathname === "/rest/v1/rpc/claim_notification_delivery" && existingLineRow && body.p_channel === "line") return jsonResponse({ id: "delivery-1", claimed: false, claim_token: null, attempt_count: 1, status: "failed", payload: body.p_payload });
+    if (url.pathname === "/rest/v1/notification_deliveries" && existingLineRow) return jsonResponse([existingLineRow]);
     if (url.pathname === "/rest/v1/rpc/claim_notification_delivery") return jsonResponse({ id: "delivery-1", claimed: true, claim_token: "token", attempt_count: 1, status: "processing", payload: body.p_payload });
     if (url.pathname === "/rest/v1/rpc/complete_notification_delivery") return jsonResponse(true);
     if (url.pathname.startsWith("/rest/v1/rpc/")) { calls.push([url.pathname.slice(13), body]); return jsonResponse({ id: ORDER_ID }); }
@@ -129,6 +132,21 @@ test("the admin is told when the fee notice could not be queued", async () => {
   fakeAdmin(memberStockHome);
   const queued = await saveFee({ shipping_fee: 150 });
   assert.equal((await queued.json()).notification_queued, true);
+});
+
+test("a delivered member notice is not reported as missing when only Telegram failed", async () => {
+  fakeAdmin(memberStockHome, { telegramClaimFails: true });
+  const response = await saveFee({ shipping_fee: 150 });
+  assert.equal((await response.json()).notification_queued, true);
+});
+
+test("an existing LINE row is judged by whether a retry is still scheduled", async () => {
+  fakeAdmin(memberStockHome, { existingLineRow: { next_retry_at: null } });
+  const permanent = await saveFee({ shipping_fee: 150 });
+  assert.equal((await permanent.json()).notification_queued, false);
+  fakeAdmin(memberStockHome, { existingLineRow: { next_retry_at: "2026-10-12T11:10:00Z" } });
+  const retrying = await saveFee({ shipping_fee: 150 });
+  assert.equal((await retrying.json()).notification_queued, true);
 });
 
 test("a LINE push rejected for good is reported to the admin, a retryable one is not", async () => {

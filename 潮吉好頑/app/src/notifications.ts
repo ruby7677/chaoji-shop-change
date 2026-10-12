@@ -87,10 +87,9 @@ export async function notifyOrderEvent(env: Env, orderId: string, eventType: Ord
   return (await deliverOrderEvent(env, orderId, eventType)).handled;
 }
 
-/** Same as notifyOrderEvent, but also requires that the member will actually receive the LINE message. */
+/** Delivers like notifyOrderEvent but reports only whether the member will receive the LINE message; Telegram results do not count. */
 export async function notifyOrderEventToMember(env: Env, orderId: string, eventType: OrderNotificationEventType): Promise<boolean> {
-  const outcome = await deliverOrderEvent(env, orderId, eventType);
-  return outcome.handled && outcome.memberReached;
+  return (await deliverOrderEvent(env, orderId, eventType)).memberReached;
 }
 
 async function deliverOrderEvent(env: Env, orderId: string, eventType: OrderNotificationEventType): Promise<OrderEventOutcome> {
