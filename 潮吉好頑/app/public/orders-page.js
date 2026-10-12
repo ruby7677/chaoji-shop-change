@@ -2,7 +2,8 @@
 // 只載入登入、訂單與回報匯款末五碼，不載入型錄與商品圖，開啟一次只需要少數幾個 Worker 請求。
 import { escapeHtml } from "./product-format.js";
 import { closeDialog, showDialog, showToast } from "./app-core.js";
-import { initializeLiffClient } from "./liff-auth.js";
+import { initializeLiffClient, preloadLiffSdk } from "./liff-auth.js";
+import { markBoot, reportBootTiming } from "./boot-timing.js";
 import { refreshWebSession } from "./web-session.js";
 import { handleCopyBankAccount } from "./copy-bank-account.js";
 import { applyPaymentFormMode, orderCardMarkup, ordersEmptyMarkup, paymentOrderView, reportPayment } from "./order-views.js";
@@ -51,7 +52,7 @@ async function obtainAccessToken({ useCache = true } = {}) {
   let state = null;
   let liffError = null;
   if (config.ordersLiffId) {
-    try { state = await initializeLiffClient(config.ordersLiffId); }
+    try { state = await initializeLiffClient(config.ordersLiffId); markBoot("LIFF 初始化"); }
     catch (error) { liffError = error; console.warn("Orders LIFF unavailable; trying the web session.", error); }
   }
   // 只有 LIFF 真的初始化成功且在 LINE App 內，才走 LIFF 恢復登入；UA 判斷只用來決定商店連結
@@ -63,6 +64,7 @@ async function obtainAccessToken({ useCache = true } = {}) {
       return "redirect";
     }
     const restored = await restoreOrdersSession({ idToken: state.idToken });
+    markBoot("登入恢復");
     if (restored.outcome === "retry") throw new Error("登入服務暫時忙碌，請稍後再試");
     if (restored.outcome !== "restored") return null;
     rememberAccessToken(restored.accessToken);
@@ -95,7 +97,7 @@ async function loadOrders({ useCache = true } = {}) {
   list.setAttribute("aria-busy", "true");
   list.innerHTML = SKELETON;
   try {
-    if (!config?.ordersLiffId) await loadConfig();
+    if (!config?.ordersLiffId) { await loadConfig(); markBoot("設定"); }
     syncShopLinks();
     accessToken = await obtainAccessToken({ useCache });
     if (accessToken === "redirect") return;
@@ -113,6 +115,8 @@ async function loadOrders({ useCache = true } = {}) {
     if (result === null) return showMessage("登入已失效", "請前往商店重新以 LINE 登入。", { label: "前往商店登入" });
     orders = result;
     renderOrders();
+    markBoot("訂單顯示");
+    reportBootTiming();
   } catch (error) {
     showMessage("訂單暫時無法載入", error.message || "請稍後再試", { action: "retry", label: "重新載入" });
   } finally {
@@ -169,4 +173,6 @@ document.addEventListener("click", (event) => {
 });
 document.querySelector("#payment-form").addEventListener("submit", submitPayment);
 
+// LINE 內且沒有可用的 token 時一定會用到 LIFF：SDK 與 /api/config 同時下載，不用等設定回來才開始
+if (inLineClient && !cachedAccessToken()) preloadLiffSdk();
 loadOrders();
