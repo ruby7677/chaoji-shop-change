@@ -347,6 +347,15 @@ function orderStatusColor(orderStatus: string) {
   return orderStatus === "cancelled" ? "#D92D20" : "#06C755";
 }
 
+// 現貨宅配運費確認後的匯款提醒：說明文字以紅色提醒客人匯款
+function isStockHomeFeeNotice(data: OrderMessageData) {
+  return data.eventType === "fulfillment_updated" && data.deliveryLine === "宅配" && !data.hasPreorder && data.orderStatus === "pending_payment";
+}
+
+function orderFlexSummaryColor(data: OrderMessageData) {
+  return isStockHomeFeeNotice(data) ? "#D92D20" : "#555555";
+}
+
 function orderFlexSummary(data: OrderMessageData) {
   if (data.eventType === "created" && data.deliveryLine === "宅配" && !data.hasPreorder) {
     return "提醒您已成功建立訂單，小幫手確認運費後會再通知您匯款金額，請先不要匯款。";
@@ -354,7 +363,7 @@ function orderFlexSummary(data: OrderMessageData) {
   if (data.eventType === "created") {
     return "提醒您已成功建立訂單，請依頁面提示完成付款或回報匯款末五碼。";
   }
-  if (data.eventType === "fulfillment_updated" && data.deliveryLine === "宅配" && !data.hasPreorder && data.orderStatus === "pending_payment") {
+  if (isStockHomeFeeNotice(data)) {
     return "請依通知金額於付款期限內完成匯款，並在「查看訂單」回報匯款帳號末五碼。";
   }
   if (isPreorderHomeBalanceNotice(data)) {
@@ -448,7 +457,7 @@ export function buildLineOrderFlexMessage(data: OrderMessageData, altText: strin
         spacing: "md",
         contents: [
           { type: "text", text: orderFlexTitle(data), color: "#333333", size: "xl", weight: "bold", wrap: true },
-          { type: "text", text: orderFlexSummary(data), color: "#555555", size: "md", margin: "md", wrap: true },
+          { type: "text", text: orderFlexSummary(data), color: orderFlexSummaryColor(data), size: "md", margin: "md", wrap: true },
           { type: "separator", margin: "lg", color: "#E5E5E5" },
           { type: "text", text: statusText, color: orderStatusColor(data.orderStatus), size: "md", weight: "bold", margin: "lg", wrap: true },
           ...contents

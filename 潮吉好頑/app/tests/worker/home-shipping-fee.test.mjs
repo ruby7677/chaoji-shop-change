@@ -84,6 +84,7 @@ test("saving the fee on an unpaid in-stock home order notifies the amounts and d
   const card = JSON.stringify(messages.buildLineOrderFlexMessage({ ...homeBase, eventType: "fulfillment_updated", orderStatus: "pending_payment" }, text, "https://liff.line.me/orders"));
   assert.match(card, /運費已確認，請完成匯款/);
   assert.match(card, /查看訂單/);
+  assert.match(card, /"text":"請依通知金額[^"]*","color":"#D92D20"/, "the payment reminder is shown in red");
 });
 
 test("a zero fee is shown as free shipping", () => {
@@ -104,6 +105,7 @@ test("the creation notice for in-stock home delivery tells the member to wait fo
   assert.doesNotMatch(text, /私訊/);
   const card = JSON.stringify(messages.buildLineOrderFlexMessage(data, text, null));
   assert.match(card, /請先不要匯款/);
+  assert.match(card, /"text":"提醒您已成功建立訂單[^"]*","color":"#555555"/, "other summaries keep the default color");
 });
 
 test("preorder home arrival waits for the helper instead of asking the member to message", () => {
