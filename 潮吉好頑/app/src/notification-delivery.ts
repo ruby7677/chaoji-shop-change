@@ -241,30 +241,41 @@ async function hasScheduledRetry(env: NotificationDeliveryEnv, id: string) {
   }
 }
 
-const FULFILLMENT_EVENT_KEY = /^fulfillment_updated:([0-9a-fA-F-]{36}):(.+)$/;
+const ORDER_EVENT_KEY = /^(created|fulfillment_updated):([0-9a-fA-F-]{36})(?::(.+))?$/;
+
+type OrderSnapshot = { updated_at: string; status: string; delivery_method: string | null; shipping_fee_notified_at: string | null };
+
+/** Whether a queued order notice still matches the order, so retrying it cannot contradict a newer notice. */
+function orderNoticeIsCurrent(kind: string, savedAt: string | undefined, order: OrderSnapshot | undefined) {
+  if (!order) return false;
+  // 出貨資訊通知引用當下金額，訂單之後只要再更新就過期。
+  if (kind === "fulfillment_updated") return Date.parse(order.updated_at) === Date.parse(savedAt || "");
+  // 建單通知：取消後不再催款；現貨宅配運費確認後，「請先不要匯款」已被運費通知取代。
+  if (order.status === "cancelled") return false;
+  return !(order.delivery_method === "home_delivery" && order.shipping_fee_notified_at);
+}
 
 /**
- * A fulfillment notice quotes the amounts saved at that moment, so a retry is
- * only valid while the order is unchanged. Returns null when the notice is
- * current, otherwise the attempt that closes or postpones the stale claim.
+ * Returns null when a retried order notice is still current, otherwise the
+ * attempt that closes (stale) or postpones (order unreadable) the claim.
  */
 async function supersededAttempt(env: NotificationDeliveryEnv, claim: NotificationClaim): Promise<DeliveryAttempt | null> {
-  const match = FULFILLMENT_EVENT_KEY.exec(claim.event_key || "");
+  const match = ORDER_EVENT_KEY.exec(claim.event_key || "");
   if (!match || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set("select", "updated_at");
-  url.searchParams.set("id", `eq.${match[1]}`);
-  let rows: Array<{ updated_at: string }> | null = null;
+  url.searchParams.set("select", "updated_at,status,delivery_method,shipping_fee_notified_at");
+  url.searchParams.set("id", `eq.${match[2]}`);
+  let rows: OrderSnapshot[] | null = null;
   try {
     const response = await fetchWithTimeout(url, { headers: serviceHeaders(env) });
-    if (response.ok) rows = await response.json() as Array<{ updated_at: string }>;
+    if (response.ok) rows = await response.json() as OrderSnapshot[];
   } catch {
     rows = null;
   }
   if (!rows) {
     return { sent: false, statusCode: null, retryable: true, retryAfterSeconds: notificationRetryDelaySeconds(claim.attempt_count), errorMessage: "訂單讀取失敗，稍後再確認通知是否過期" };
   }
-  if (rows[0] && Date.parse(rows[0].updated_at) === Date.parse(match[2])) return null;
+  if (orderNoticeIsCurrent(match[1], match[3], rows[0])) return null;
   return { sent: false, statusCode: null, retryable: false, retryAfterSeconds: 0, errorMessage: "訂單已更新，不再補送舊通知" };
 }
 
