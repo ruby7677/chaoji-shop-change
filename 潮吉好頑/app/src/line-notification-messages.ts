@@ -31,6 +31,7 @@ export const NOTIFICATION_COPY = {
       arrivedSellerPreorder: "商品已到貨，私訊小幫手開賣貨便",
       arrivedHome: "商品已到貨，待小幫手確認尾款及運費後通知",
       homeFeeConfirmed: "運費已確認，請完成匯款",
+      homeBalanceConfirmed: "尾款及運費已確認，請完成匯款",
       shippedSeller: "已出貨，請留意到貨的簡訊通知",
       shippedHome: "已出貨，請留意貨運的電話／簡訊通知",
       cvsStockConfirmed: "已確認訂單(付款完成)，待出貨",
@@ -78,7 +79,9 @@ export const NOTIFICATION_COPY = {
       preorderNoticeLine: "預購商品報價有時效性，請於訂單成立後2小時內完成付訂",
       preorderNoticeCancel: "否則訂單將自動取消",
       homeShippingPending: "待到貨與尾款一併確認通知",
-      homeShippingPendingStock: "待小幫手確認運費"
+      homeShippingPendingStock: "待小幫手確認運費",
+      homeBalanceAccount: "匯款帳號與訂金相同，可在「查看訂單」查看",
+      homeBalanceReport: "匯款後請回覆末五碼給小幫手"
     }
   },
   lowStock: {
@@ -156,6 +159,11 @@ function money(value: number) {
 export function buildTelegramTestMessage(storeName: string, timestamp: string) {
   const copy = NOTIFICATION_COPY.test;
   return [storeName, copy.title, `${copy.timeLabel}：${timestamp}`, copy.note].join("\n");
+}
+
+function isPreorderHomeBalanceNotice(data: OrderMessageData) {
+  return data.eventType === "fulfillment_updated" && data.deliveryLine === "宅配" && data.hasPreorder
+    && !data.finalPaymentConfirmed && ["partially_ready", "ready_for_pickup"].includes(data.orderStatus);
 }
 
 export function buildOrderNotificationMessage(data: OrderMessageData): string | null {
@@ -241,6 +249,19 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
     ]);
   }
 
+  // 預購宅配到貨後：小幫手儲存尾款與運費（尚未入帳）時通知待付金額
+  if (isPreorderHomeBalanceNotice(data)) {
+    return message(copy.status.homeBalanceConfirmed, [
+      productLine,
+      `${copy.labels.shipping}：${data.shippingFee > 0 ? money(data.shippingFee) : copy.delivery.freeShipping}`,
+      `${copy.labels.remaining}：${money(Math.max(data.amountDue - data.paidAmount, 0))}`,
+      `${copy.labels.payment}：${copy.payment.bank}`,
+      "",
+      copy.delivery.homeBalanceAccount,
+      copy.delivery.homeBalanceReport
+    ]);
+  }
+
   if (data.eventType === "fulfillment_updated" && data.finalPaymentConfirmed && isSeller) {
     return message(copy.status.shippedSeller, [productLine, `${copy.labels.delivery}：${copy.delivery.sellerShipped}`]);
   }
@@ -316,6 +337,7 @@ function orderFlexTitle(data: OrderMessageData) {
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "宅配") return "宅配出貨通知";
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === NOTIFICATION_COPY.order.delivery.cvs) return "7-11 店到店出貨通知";
   if (data.eventType === "fulfillment_updated" && data.deliveryLine === "宅配" && !data.hasPreorder && data.orderStatus === "pending_payment") return NOTIFICATION_COPY.order.status.homeFeeConfirmed;
+  if (isPreorderHomeBalanceNotice(data)) return NOTIFICATION_COPY.order.status.homeBalanceConfirmed;
   if (data.eventType === "fulfillment_updated") return "訂單進度更新";
   return "訂單狀態更新";
 }
@@ -334,6 +356,9 @@ function orderFlexSummary(data: OrderMessageData) {
   }
   if (data.eventType === "fulfillment_updated" && data.deliveryLine === "宅配" && !data.hasPreorder && data.orderStatus === "pending_payment") {
     return "請依通知金額於付款期限內完成匯款，並在「查看訂單」回報匯款帳號末五碼。";
+  }
+  if (isPreorderHomeBalanceNotice(data)) {
+    return "預購商品已到貨，請將尾款與運費一併匯款，確認入帳後安排寄出。";
   }
   if (data.eventType === "payment_reported") {
     return "已收到您的匯款回報，待管理員確認後會再通知您。";

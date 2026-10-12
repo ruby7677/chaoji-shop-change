@@ -50,3 +50,13 @@ test("我的訂單：運費確認前沒有回報按鈕，確認後依序顯示�
   assert.ok(total < fee && fee < due, "rows follow total → fee → amount due");
   assert.match(after, /尾款／運費<\/span><strong>NT\$150/);
 });
+
+test("預購宅配到貨、尾款與運費已確認：可查看尾款匯款帳號，末五碼回覆給小幫手", () => {
+  const arrived = { ...unpaid, status: "ready_for_pickup", shipping_fee: 150, shipping_fee_notified_at: "2026-10-12T11:00:00Z", amount_due: 6650, deposit_due: 3250, order_items: [{ ...unpaid.order_items[0], kind: "preorder" }] };
+  const { html, mode } = paymentOrderView(arrived);
+  assert.equal(mode, "balance");
+  assert.match(html, /待付尾款（含運費）<\/span><strong>NT\$3,400/);
+  assert.match(html, /81680005517989/);
+  assert.match(orderCardMarkup(arrived), /data-order-payment="order-1">查看尾款匯款帳號/);
+  assert.doesNotMatch(orderCardMarkup({ ...arrived, final_payment_confirmed_at: "2026-10-13T00:00:00Z" }), /data-order-payment/);
+});

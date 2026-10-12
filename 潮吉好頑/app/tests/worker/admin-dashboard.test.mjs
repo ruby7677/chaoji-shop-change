@@ -20,6 +20,9 @@ function fakeSupabase({ isAdmin = true, todoCount = 2 } = {}) {
     seen.queries.push(url);
     seen.bodies[url.pathname] = body;
     if (url.pathname === "/rest/v1/rpc/admin_dashboard_stats") return jsonResponse({ pendingReview: 1, lowStock: 3, memberCount: 9 });
+    if (url.pathname === "/rest/v1/orders" && url.searchParams.has("shipping_fee_notified_at")) {
+      return jsonResponse([{ id: "fee-1", order_number: "CJ-F1", status: "pending_payment", created_at: "2026-10-12T12:00:00Z" }]);
+    }
     if (url.pathname === "/rest/v1/orders" && url.searchParams.has("or")) {
       return jsonResponse(Array.from({ length: todoCount }, (_, index) => ({ id: `todo-${index}`, order_number: `CJ-${index}`, status: "pending_review" })));
     }
@@ -45,14 +48,14 @@ test("overview returns stats, todo orders, recent orders and low stock in one re
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.deepEqual(body.stats, { pendingReview: 1, lowStock: 3, memberCount: 9 });
-  assert.deepEqual(body.overview.todoOrders.map((order) => order.id), ["todo-0", "todo-1"]);
+  assert.deepEqual(body.overview.todoOrders.map((order) => order.id), ["fee-1", "todo-0", "todo-1"]);
   assert.equal(body.overview.todoTruncated, false);
   assert.deepEqual(body.overview.recentOrders.map((order) => order.id), ["recent-1"]);
   assert.deepEqual(body.overview.lowStock, [
     { id: "v-out", name: "A", product_name: "缺貨商品", stock_on_hand: 0, safety_stock: 1 },
     { id: "v-low", name: "B", product_name: "低庫存商品", stock_on_hand: 2, safety_stock: 2 }
   ]);
-  assert.deepEqual(seen.restPaths.sort(), ["GET /rest/v1/orders", "GET /rest/v1/orders", "POST /rest/v1/rpc/admin_dashboard_stats", "POST /rest/v1/rpc/low_stock_variants"]);
+  assert.deepEqual(seen.restPaths.sort(), ["GET /rest/v1/orders", "GET /rest/v1/orders", "GET /rest/v1/orders", "POST /rest/v1/rpc/admin_dashboard_stats", "POST /rest/v1/rpc/low_stock_variants"]);
   assert.deepEqual(seen.bodies["/rest/v1/rpc/low_stock_variants"], { p_limit: 20 }, "low stock comes from the shared database definition, capped at 20");
 });
 
@@ -63,7 +66,6 @@ test("todo orders are filtered by the database with the manual-work rules", asyn
   const filter = todoQuery.searchParams.get("or");
   for (const rule of [
     "status.eq.pending_review",
-    "and(delivery_method.eq.home_delivery,status.eq.pending_payment,shipping_fee_notified_at.is.null)",
     "and(delivery_method.eq.cvs_delivery,status.in.(confirmed,ready_for_pickup))",
     "and(delivery_method.eq.home_delivery,status.eq.ready_for_pickup,final_payment_confirmed_at.is.null)"
   ]) assert.ok(filter.includes(rule), `todo filter includes ${rule}`);
@@ -71,6 +73,17 @@ test("todo orders are filtered by the database with the manual-work rules", asyn
   assert.ok(!filter.includes("seller_delivery"), "retired seller delivery is no longer a todo");
   assert.match(todoQuery.searchParams.get("select"), /order_items\(kind\)/, "status labels can tell preorders apart");
   assert.doesNotMatch(todoQuery.searchParams.get("select"), /shipping_address|shipping_phone|account_number/, "overview does not load unnecessary personal or bank fields");
+});
+
+test("in-stock home orders awaiting a shipping fee are queried without preorders and merged into the todo list", async () => {
+  const seen = fakeSupabase();
+  const body = await (await dashboard("?section=overview")).json();
+  const feeQuery = seen.queries.find((url) => url.pathname === "/rest/v1/orders" && url.searchParams.has("shipping_fee_notified_at"));
+  assert.equal(feeQuery.searchParams.get("status"), "eq.pending_payment");
+  assert.equal(feeQuery.searchParams.get("delivery_method"), "eq.home_delivery");
+  assert.equal(feeQuery.searchParams.get("order_items.kind"), "eq.in_stock");
+  assert.match(feeQuery.searchParams.get("select"), /order_items!inner\(kind\)/, "only orders with in-stock items count");
+  assert.equal(body.overview.todoOrders[0].id, "fee-1", "newest todo first");
 });
 
 test("more than 50 todo orders are truncated and flagged", async () => {

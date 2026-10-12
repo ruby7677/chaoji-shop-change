@@ -5,10 +5,13 @@ import { fetchWithTimeout } from "./http";
 
 // 概況只需要列表與狀態文字用得到的欄位；order_items(kind) 供前端判斷預購狀態文字。
 const OVERVIEW_ORDER_SELECT = "id,order_number,status,delivery_method,bank_account_id,payment_last_five,deposit_due,amount_due,paid_amount,shipping_fee,shipping_fee_notified_at,final_payment_confirmed_at,created_at,profiles!orders_member_id_fkey(full_name),order_items(kind)";
-// 與前端 TODO_RULES 對應的人工待辦：確認款項、現貨宅配待填運費、宅配尾款／運費、店到店待寄出與尾款。
+// 與前端 TODO_RULES 對應的人工待辦：確認款項、宅配尾款／運費、店到店待寄出與尾款（現貨宅配待填運費另外查詢）。
 // 店到店是否為預購要看 order_items，資料庫先取 confirmed／ready_for_pickup 的店到店訂單，由前端規則精確判斷。
-const TODO_FILTER = "(status.eq.pending_review,and(delivery_method.eq.home_delivery,status.eq.pending_payment,shipping_fee_notified_at.is.null),and(delivery_method.eq.home_delivery,status.eq.ready_for_pickup,final_payment_confirmed_at.is.null),and(delivery_method.eq.cvs_delivery,status.in.(confirmed,ready_for_pickup)))";
+const TODO_FILTER = "(status.eq.pending_review,and(delivery_method.eq.home_delivery,status.eq.ready_for_pickup,final_payment_confirmed_at.is.null),and(delivery_method.eq.cvs_delivery,status.in.(confirmed,ready_for_pickup)))";
 const TODO_LIMIT = 50;
+// 現貨宅配待填運費：預購宅配待付款時不填運費，要在資料庫就排除，不能讓它們佔掉待辦筆數上限。
+// 建單時現貨與預購分開成兩張訂單，所以「有現貨品項」（order_items!inner）即為現貨訂單。
+const HOME_FEE_TODO_SELECT = OVERVIEW_ORDER_SELECT.replace("order_items(kind)", "order_items!inner(kind)");
 const RECENT_LIMIT = 6;
 const LOW_STOCK_LIMIT = 20;
 
@@ -30,10 +33,11 @@ export async function loadAdminOverview(
     Object.entries(params).forEach(([key, value]) => target.searchParams.set(key, value));
     return target;
   };
-  const [statsResponse, todoRows, recentOrders, lowStockResponse] = await Promise.all([
+  const [statsResponse, ruleRows, homeFeeRows, recentOrders, lowStockResponse] = await Promise.all([
     // admin_dashboard_stats 也會再次確認 actor 是管理員
     fetchWithTimeout(`${base}/rest/v1/rpc/admin_dashboard_stats`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) }),
     fetchRows(url("orders", { select: OVERVIEW_ORDER_SELECT, or: TODO_FILTER, order: "created_at.desc", limit: String(TODO_LIMIT + 1) })),
+    fetchRows(url("orders", { select: HOME_FEE_TODO_SELECT, delivery_method: "eq.home_delivery", status: "eq.pending_payment", shipping_fee_notified_at: "is.null", "order_items.kind": "eq.in_stock", order: "created_at.desc", limit: String(TODO_LIMIT + 1) })),
     fetchRows(url("orders", { select: OVERVIEW_ORDER_SELECT, order: "created_at.desc", limit: String(RECENT_LIMIT) })),
     fetchWithTimeout(`${base}/rest/v1/rpc/low_stock_variants`, { method: "POST", headers, body: JSON.stringify({ p_limit: LOW_STOCK_LIMIT }) })
   ]);
@@ -46,6 +50,7 @@ export async function loadAdminOverview(
     stock_on_hand: variant.stock_on_hand,
     safety_stock: variant.safety_stock
   }));
+  const todoRows = [...homeFeeRows, ...ruleRows].sort((a, b) => String((b as { created_at?: string }).created_at || "").localeCompare(String((a as { created_at?: string }).created_at || "")));
   return {
     ok: true,
     stats: await statsResponse.json(),
