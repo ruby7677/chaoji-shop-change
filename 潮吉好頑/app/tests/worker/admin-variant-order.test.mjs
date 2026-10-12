@@ -50,6 +50,21 @@ test("new variant with an explicit order keeps it", async () => {
   assert.equal(rpcBodies[0].p_display_order, -30);
 });
 
+test("new variant sends its initial stock, defaulting to 0 when left blank", async () => {
+  const rpcBodies = fakeAdminRpc();
+  assert.equal((await createVariant({ stock: 5 })).status, 201);
+  assert.equal((await createVariant()).status, 201);
+  assert.equal((await createVariant({ stock: null })).status, 201);
+  assert.deepEqual(rpcBodies.map((body) => body.p_stock), [5, 0, 0]);
+});
+
+test("new variant rejects a negative or fractional initial stock", async () => {
+  const rpcBodies = fakeAdminRpc();
+  assert.equal((await createVariant({ stock: -1 })).status, 400);
+  assert.equal((await createVariant({ stock: 1.5 })).status, 400);
+  assert.equal(rpcBodies.length, 0);
+});
+
 // 重新上架並排到最前面：PATCH 帶 move_to_top 且上架成功才呼叫 admin_move_variant_to_top；沒帶或結果為下架時不呼叫。
 function fakeUpdate({ published = true, moveFails = false } = {}) {
   const calls = [];

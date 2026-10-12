@@ -162,3 +162,24 @@ select tests.expect_error($$select public.admin_create_variant(tests.id('admin')
 select tests.logout();
 select tests.assert((select count(*) = 2 from public.product_variants where name = '另一款'), 'the same name in another product is allowed');
 rollback;
+
+-- 新增規格可帶初始庫存：寫入庫存與 stock_in 異動；不帶時為 0 且不寫異動；負數拒絕。
+begin;
+select tests.seed();
+select tests.as_service();
+select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '有庫存款', null, 'in_stock', 100, null, 3, null, 0, null, true, null, 5);
+select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '無庫存款', null, 'in_stock', 100, null, 3, null, 0, null, true, null);
+select tests.expect_error($$select public.admin_create_variant(tests.id('admin'), tests.id('product_stock'), '負庫存款', null, 'in_stock', 100, null, 3, null, 0, null, true, null, -1)$$,
+                          'INVALID_VARIANT', 'a negative initial stock is rejected');
+select tests.expect_error($$select public.admin_create_variant(tests.id('member_a'), tests.id('product_stock'), '會員款', null, 'in_stock', 100, null, 3, null, 0, null, true, null, 5)$$,
+                          'ADMIN_REQUIRED', 'only admins can create a variant with stock');
+select tests.logout();
+select tests.assert((select v.stock_on_hand = 5 and exists (
+                       select 1 from public.inventory_movements m
+                        where m.variant_id = v.id and m.kind = 'stock_in' and m.quantity_delta = 5 and m.reason = '新增規格初始庫存')
+                       from public.product_variants v where v.name = '有庫存款'),
+                    'initial variant stock is stored and recorded as a stock-in movement');
+select tests.assert((select v.stock_on_hand = 0 and not exists (select 1 from public.inventory_movements m where m.variant_id = v.id)
+                       from public.product_variants v where v.name = '無庫存款'),
+                    'without an initial stock the variant starts at 0 with no movement');
+rollback;

@@ -300,6 +300,8 @@ export async function submitNewVariant(event) {
     kind,
     price: Number(document.querySelector("#admin-new-price").value),
     compare_at_price: document.querySelector("#admin-new-compare-at-price")?.value ? Number(document.querySelector("#admin-new-compare-at-price").value) : null,
+    // 初始庫存留空視為 0
+    stock: Number(document.querySelector("#admin-new-stock")?.value || 0),
     safety_stock: Number(document.querySelector("#admin-new-safety-stock").value || 0),
     deposit_rate: kind === "preorder" ? 0.5 : Number(document.querySelector("#admin-new-deposit-rate").value || 0) / 100,
     preorder_arrival: preorderArrivalValue(document.querySelector("#admin-new-arrival-from").value, document.querySelector("#admin-new-arrival-until").value),

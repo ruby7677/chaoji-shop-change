@@ -110,7 +110,7 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
 type VariantInput = {
   product_id?: string; name?: string; sku?: string; kind?: "in_stock" | "preorder"; price?: number;
   safety_stock?: number; preorder_arrival?: string; deposit_rate?: number; seller_link?: string; compare_at_price?: number | null;
-  is_published?: boolean; display_order?: number; move_to_top?: boolean;
+  is_published?: boolean; display_order?: number; move_to_top?: boolean; stock?: number | null;
 };
 
 function normalizedVariant(body: VariantInput, includeProduct = false) {
@@ -139,6 +139,9 @@ export async function createVariant(request: Request, env: Env): Promise<Respons
   const validated = normalizedVariant(body, true);
   if ("error" in validated) return json({ error: validated.error }, { status: 400 });
   const payload = validated.value;
+  // 初始庫存選填：沒填視為 0；填了須為非負整數（大於 0 時資料庫會寫入庫存異動）
+  const stock = body.stock ?? 0;
+  if (!Number.isInteger(stock) || stock < 0) return json({ error: "初始庫存須為 0 或正整數" }, { status: 400 });
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_variant`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
       p_actor_id: admin.user.id, p_product_id: payload.product_id, p_name: payload.name, p_sku: payload.sku,
@@ -146,7 +149,8 @@ export async function createVariant(request: Request, env: Env): Promise<Respons
       p_safety_stock: payload.safety_stock, p_preorder_arrival: payload.preorder_arrival,
       p_deposit_rate: payload.deposit_rate, p_seller_link: payload.seller_link,
       // 未指定排序時交給資料庫自動接在同商品最後一個規格之後
-      p_is_published: payload.is_published, p_display_order: Number.isInteger(body.display_order) ? payload.display_order : null
+      p_is_published: payload.is_published, p_display_order: Number.isInteger(body.display_order) ? payload.display_order : null,
+      p_stock: stock
     })
   });
   if (!response.ok) return databaseError(response);
