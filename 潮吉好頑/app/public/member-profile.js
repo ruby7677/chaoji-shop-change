@@ -5,6 +5,7 @@ import { auth, closeDialog, showDialog, showToast } from "./app-core.js";
 import { cartSyncUserId, loadMemberCart, resetMemberCartSyncState, saveCart } from "./cart.js";
 import { clearMemberStateCache, lineFriendshipCache, loadPoints, memberPointsCache, renderMemberPoints } from "./member-benefits.js";
 import { resumePendingReturnCheckout, saveAuthReturnState } from "./auth-return-state.js";
+import { loadMemberWallet } from "./member-wallet.js";
 import { LIFF_AUTO_CALLBACK_PARAM, LIFF_AUTO_LOGIN_KEY, clearStoredAuthSession, liffOAuthCallbackSeen, markLiffAutoLoginAttempt, recentLiffAutoLoginAttempt } from "./liff-session.js";
 
 let memberLoadInFlight = null;
@@ -121,6 +122,7 @@ export function showProfileDialog(required = false) {
     ? "第一次使用 LINE 登入，請先填寫基本資料。姓名與手機為必填，生日與地址可稍後補上。"
     : "可在這裡更新聯絡資料；生日與地址為選填。";
   renderMemberPoints();
+  loadMemberWallet().catch(() => { /* 儲值金區塊讀取失敗時維持隱藏，不影響會員資料表單 */ });
   dialog.dataset.required = String(required);
   showDialog(dialog);
 }

@@ -139,6 +139,16 @@ function bindAdminSubmitDelegation() {
       catch (error) { failAdminForm(event, error); }
       return;
     }
+    if (event.target.matches("[data-admin-wallet-form]")) {
+      try { await adminMembersPanel.submitMemberWalletAdjustment(event); }
+      catch (error) { failAdminForm(event, error); }
+      return;
+    }
+    if (event.target.matches("[data-admin-wallet-reverse-form]")) {
+      try { await adminMembersPanel.submitMemberWalletReversal(event); }
+      catch (error) { failAdminForm(event, error); }
+      return;
+    }
     if (event.target.matches("[data-admin-order-form]")) {
       try { await adminOrdersPanel.submitAdminOrderTransition(event); }
       catch (error) { failAdminForm(event, error); }

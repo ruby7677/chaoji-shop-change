@@ -19,6 +19,7 @@ import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFr
 import { notifyLowStock, notifyOrderEvent, runScheduledNotifications, testTelegramNotification } from "./notifications";
 import { isKeepaliveHour, pingSupabase } from "./supabase-keepalive";
 import { BACKUP_CRON, runWeeklyBackup } from "./database-backup";
+import { adjustMemberWallet, memberWallet, reverseWalletEntry } from "./wallet";
 
 const productShowcase = createProductShowcase<Env>({ json, serviceHeaders, requireAdmin, databaseError, securityHeaders: SECURITY_HEADERS });
 
@@ -65,6 +66,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   if (request.method === "PUT" && url.pathname === "/api/cart") return replaceMemberCart(request, env);
   if (request.method === "GET" && url.pathname === "/api/orders") return listOrders(request, env);
   if (request.method === "GET" && url.pathname === "/api/member/points") return memberPoints(request, env);
+  if (request.method === "GET" && url.pathname === "/api/member/wallet") return memberWallet(request, env);
   if (request.method === "GET" && url.pathname === "/api/member/line-friendship") return memberLineFriendship(request, env);
   if (request.method === "POST" && url.pathname === "/api/member/identity-sync") return syncMemberIdentity(request, env);
   if (request.method === "POST" && url.pathname === "/api/checkout/coupon-preview") return previewCheckoutCoupon(request, env);
@@ -110,6 +112,10 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   if (request.method === "POST" && url.pathname === "/api/admin/birthday-coupons/issue") return issueBirthdayCoupons(request, env, ctx);
   const memberPointMatch = url.pathname.match(/^\/api\/admin\/members\/([0-9a-f-]{36})\/points$/i);
   if (request.method === "POST" && memberPointMatch) return adjustMemberPoints(request, env, memberPointMatch[1]);
+  const memberWalletMatch = url.pathname.match(/^\/api\/admin\/members\/([0-9a-f-]{36})\/wallet$/i);
+  if (request.method === "POST" && memberWalletMatch) return adjustMemberWallet(request, env, memberWalletMatch[1]);
+  const walletReverseMatch = url.pathname.match(/^\/api\/admin\/wallet-entries\/([0-9a-f-]{36})\/reverse$/i);
+  if (request.method === "POST" && walletReverseMatch) return reverseWalletEntry(request, env, walletReverseMatch[1]);
   if (request.method === "POST" && url.pathname === "/api/admin/bank-accounts") return createBankAccount(request, env);
   const accountMatch = url.pathname.match(/^\/api\/admin\/bank-accounts\/([0-9a-f-]{36})$/i);
   if (request.method === "PATCH" && accountMatch) return updateBankAccount(request, env, accountMatch[1]);

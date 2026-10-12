@@ -1,0 +1,64 @@
+/* 後台會員儲值金（admin-wallet.js）：異動表單四個欄位排兩欄，沖正表單收在紀錄下方。 */
+#admin-dialog .admin-wallet-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#admin-dialog .admin-wallet-form button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+#admin-dialog .admin-wallet-form select {
+  display: block;
+  width: 100%;
+  min-height: 38px;
+  margin-top: 4px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  font-size: .875rem;
+  font-weight: 400;
+}
+
+#admin-dialog .admin-wallet-reverse {
+  grid-column: 1 / -1;
+}
+
+#admin-dialog .admin-wallet-reverse summary {
+  width: max-content;
+  cursor: pointer;
+  font-size: .75rem;
+  font-weight: 800;
+  text-decoration: underline;
+}
+
+/* 放在 <details> 內的 grid 表單在 Chrome 會縮成最小寬度，需明確撐滿 */
+#admin-dialog .admin-wallet-reverse .admin-point-adjust {
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+@media (max-width: 900px) {
+  /* 會員卡多了「儲值金」後共 4 個指標，手機排成 2×2，不要 3＋1 */
+  #admin-dialog .member-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #admin-dialog .admin-wallet-form select {
+    min-height: 44px;
+    padding: 10px;
+    font-size: 16px;
+  }
+
+  #admin-dialog .admin-wallet-form button {
+    justify-self: stretch;
+  }
+}
+
+@media (max-width: 430px) {
+  #admin-dialog .admin-wallet-form,
+  #admin-dialog .admin-wallet-reverse .admin-point-adjust {
+    grid-template-columns: 1fr;
+  }
+}

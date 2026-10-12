@@ -117,7 +117,18 @@ export const databaseErrors: Record<string, string> = {
   INVALID_ADMIN_ORDER_FILTER: "訂單篩選條件不正確",
   INVALID_NOTIFICATION_STATUS: "通知狀態篩選條件不正確",
   NOTIFICATION_NOT_FOUND: "找不到通知紀錄",
-  NOTIFICATION_REQUEUE_NOT_ALLOWED: "只有失敗通知可以重新排入"
+  NOTIFICATION_REQUEUE_NOT_ALLOWED: "只有失敗通知可以重新排入",
+  WALLET_REQUEST_ID_MISSING: "請求識別碼不正確，請重新整理後再試",
+  WALLET_REQUEST_REUSED: "這筆請求已用其他內容送出過，請重新整理後再操作",
+  WALLET_KIND_INVALID: "請選擇加值、調整或退款",
+  WALLET_AMOUNT_INVALID: "金額不正確：加值須為正數、退款須為負數，且不可為 0 或超過上限",
+  WALLET_NOTE_MISSING: "請填寫 200 字以內的原因",
+  WALLET_REF_INVALID: "匯款參照不可超過 60 字",
+  WALLET_BALANCE_SHORT: "儲值金餘額不足，異動後不可小於 0",
+  WALLET_ENTRY_NOT_FOUND: "找不到這筆儲值金紀錄",
+  WALLET_REVERSAL_INVALID: "這筆紀錄不能沖正",
+  WALLET_ALREADY_REVERSED: "這筆紀錄已經沖正過",
+  WALLET_LEDGER_IMMUTABLE: "儲值金紀錄不可修改或刪除"
 };
 
 export async function databaseError(response: Response) {

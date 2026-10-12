@@ -29,7 +29,7 @@ export function renderAdminAudit() {
   const container = document.querySelector("#admin-audit-list");
   if (!container) return;
   const actionLabels = { create: "新增", update: "更新", adjust: "調整", upload: "上傳", delete: "刪除" };
-  const resourceLabels = { product: "商品", product_variant: "規格", category: "分類", bank_account: "收款帳戶", coupon: "優惠券", birthday_coupon_settings: "生日券設定", point_settings: "點數設定", member_points: "會員點數", product_image: "商品圖片" };
+  const resourceLabels = { product: "商品", product_variant: "規格", category: "分類", bank_account: "收款帳戶", coupon: "優惠券", birthday_coupon_settings: "生日券設定", point_settings: "點數設定", member_points: "會員點數", product_image: "商品圖片", member_wallet: "會員儲值金" };
   const logs = Array.isArray(adminData?.auditLogs) ? adminData.auditLogs : [];
   // 稽核分頁不一定載入過商品；有商品資料時才補上規格所屬的商品名稱
   const productNames = new Map((adminData?.products || []).map((product) => [product.id, product.name]));

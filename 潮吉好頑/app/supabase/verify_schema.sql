@@ -406,4 +406,21 @@ select
     and not has_function_privilege('authenticated', to_regprocedure('public.admin_set_order_shipment_tracking(uuid,uuid,text)'), 'EXECUTE'), false) as shipment_tracking_rpc_service_only,
   -- 202610110002：結帳套用優惠碼試算只給已登入會員。
   coalesce(has_function_privilege('authenticated', to_regprocedure('public.preview_checkout_coupon(jsonb,text)'), 'EXECUTE')
-    and not has_function_privilege('anon', to_regprocedure('public.preview_checkout_coupon(jsonb,text)'), 'EXECUTE'), false) as coupon_preview_rpc_member_only;
+    and not has_function_privilege('anon', to_regprocedure('public.preview_checkout_coupon(jsonb,text)'), 'EXECUTE'), false) as coupon_preview_rpc_member_only,
+  -- 202610121001：儲值金帳戶與帳本開啟 RLS；API 角色（含 service_role）不能直接寫入，帳本另有不可修改觸發器。
+  coalesce((select relrowsecurity from pg_class where oid = to_regclass('public.wallet_accounts')), false)
+    and coalesce((select relrowsecurity from pg_class where oid = to_regclass('public.wallet_ledger')), false) as wallet_tables_rls_enabled,
+  coalesce(not has_table_privilege('service_role', 'public.wallet_ledger', 'INSERT,UPDATE,DELETE,TRUNCATE')
+    and not has_table_privilege('service_role', 'public.wallet_accounts', 'INSERT,UPDATE,DELETE,TRUNCATE')
+    and not has_table_privilege('authenticated', 'public.wallet_ledger', 'INSERT,UPDATE,DELETE,TRUNCATE')
+    and not has_table_privilege('authenticated', 'public.wallet_accounts', 'INSERT,UPDATE,DELETE,TRUNCATE')
+    and not has_table_privilege('anon', 'public.wallet_ledger', 'SELECT')
+    and not has_table_privilege('anon', 'public.wallet_accounts', 'SELECT'), false) as wallet_tables_api_write_blocked,
+  exists (select 1 from pg_trigger where not tgisinternal and tgname = 'wallet_ledger_immutable'
+    and tgrelid = to_regclass('public.wallet_ledger')) as wallet_ledger_immutable_trigger_exists,
+  coalesce(has_function_privilege('service_role', to_regprocedure('public.admin_adjust_wallet(uuid,uuid,text,integer,text,uuid,text)'), 'EXECUTE')
+    and not has_function_privilege('authenticated', to_regprocedure('public.admin_adjust_wallet(uuid,uuid,text,integer,text,uuid,text)'), 'EXECUTE')
+    and has_function_privilege('service_role', to_regprocedure('public.admin_reverse_wallet_entry(uuid,uuid,text,uuid)'), 'EXECUTE')
+    and not has_function_privilege('authenticated', to_regprocedure('public.admin_reverse_wallet_entry(uuid,uuid,text,uuid)'), 'EXECUTE'), false) as wallet_admin_rpcs_service_only,
+  coalesce(has_function_privilege('authenticated', to_regprocedure('public.member_wallet_balance()'), 'EXECUTE')
+    and not has_function_privilege('anon', to_regprocedure('public.member_wallet_balance()'), 'EXECUTE'), false) as wallet_balance_rpc_member_only;

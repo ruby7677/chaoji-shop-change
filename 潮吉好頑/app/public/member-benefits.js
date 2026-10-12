@@ -5,6 +5,7 @@ import { auth, closeDialog, formatDate, showDialog } from "./app-core.js";
 import { resetMemberCartSyncState } from "./cart.js";
 import { activeCheckoutScope, openCheckout } from "./checkout-flow.js";
 import { liffSessionMatches } from "./liff-session.js";
+import { clearMemberWalletCache } from "./member-wallet.js";
 
 const MEMBER_POINTS_TTL_MS = 12 * 60 * 1000;
 const LINE_FRIENDSHIP_TTL_MS = 15 * 60 * 1000;
@@ -22,6 +23,7 @@ export function clearMemberStateCache() {
   auth.points = null;
   auth.lineFriendFlag = null;
   resetMemberCartSyncState();
+  clearMemberWalletCache();
   renderMemberPoints();
 }
 

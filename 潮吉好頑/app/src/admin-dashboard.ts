@@ -20,6 +20,8 @@ const ADMIN_MEMBER_SELECT = "id,full_name,phone,birthday,address,is_admin,create
 
 const ADMIN_POINT_ENTRIES_SELECT = "id,member_id,order_id,kind,points,reason,created_at,profiles!point_ledger_member_id_fkey(full_name),actor:profiles!point_ledger_actor_id_fkey(full_name),orders(order_number)";
 
+const ADMIN_WALLET_ENTRIES_SELECT = "id,member_id,kind,amount,balance_after,reversal_of,transfer_ref,reason,created_at,actor:profiles!wallet_ledger_actor_id_fkey(full_name)";
+
 const ADMIN_COUPON_SELECT = "id,code,name,discount_amount,combinable_with_points,valid_from,valid_until,total_usage_limit,per_member_limit,is_active,is_birthday,created_at,coupon_products(product_id),coupon_members(member_id),coupon_redemptions(id)";
 
 function adminResourceUrl(base: string, resource: string, select: string, params: Record<string, string> = {}) {
@@ -102,15 +104,17 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
       if (!searchResponse.ok) return databaseError(searchResponse);
       const searchResult = await searchResponse.json() as { ids?: unknown; pagination?: Record<string, unknown> };
       const ids = Array.isArray(searchResult.ids) ? searchResult.ids.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)) : [];
-      if (!ids.length) return json({ members: [], pointEntries: [], pointSettings: null, orders: [], pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+      if (!ids.length) return json({ members: [], pointEntries: [], pointSettings: null, orders: [], walletAccounts: [], walletEntries: [], pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
       const idFilter = adminIdFilter(ids);
-      const [members, pointEntries, pointSettings, orders] = await Promise.all([
+      const [members, pointEntries, pointSettings, orders, walletAccounts, walletEntries] = await Promise.all([
         rows("admin_member_summary", ADMIN_MEMBER_SELECT, { id: idFilter, order: "created_at.desc", limit: String(page.pageSize) }),
         rows("point_ledger", ADMIN_POINT_ENTRIES_SELECT, { member_id: idFilter, order: "created_at.desc", limit: "500" }),
         rows("point_settings", "earn_amount_per_point,point_value,min_redeem_points,max_redeem_mode,max_redeem_value,updated_at", { id: "eq.true", limit: "1" }),
-        rows("orders", ADMIN_ORDERS_SELECT, { member_id: idFilter, order: "created_at.desc", limit: "500" })
+        rows("orders", ADMIN_ORDERS_SELECT, { member_id: idFilter, order: "created_at.desc", limit: "500" }),
+        rows("wallet_accounts", "member_id,balance,updated_at", { member_id: idFilter, limit: String(page.pageSize) }),
+        rows("wallet_ledger", ADMIN_WALLET_ENTRIES_SELECT, { member_id: idFilter, order: "created_at.desc", limit: "500" })
       ]);
-      return json({ members: orderRowsByIds(members, ids), pointEntries, pointSettings: pointSettings[0] || null, orders, pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+      return json({ members: orderRowsByIds(members, ids), pointEntries, pointSettings: pointSettings[0] || null, orders, walletAccounts, walletEntries, pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
     }
     if (section === "products") {
       const page = adminPage(request, 100);
@@ -185,7 +189,7 @@ export async function adminAuditLogs(request: Request, env: Env): Promise<Respon
   const page = adminPage(request, 100);
   const resource = url.searchParams.get("resource") || "";
   const action = url.searchParams.get("action") || "";
-  const allowedResources = new Set(["product", "product_variant", "category", "bank_account", "coupon", "birthday_coupon_settings", "point_settings", "member_points", "product_image"]);
+  const allowedResources = new Set(["product", "product_variant", "category", "bank_account", "coupon", "birthday_coupon_settings", "point_settings", "member_points", "product_image", "member_wallet"]);
   const allowedActions = new Set(["create", "update", "adjust", "upload", "delete"]);
   if ((resource && !allowedResources.has(resource)) || (action && !allowedActions.has(action))) return json({ error: "稽核篩選條件不正確" }, { status: 400 });
   const query = new URL(`${env.SUPABASE_URL}/rest/v1/audit_logs`);

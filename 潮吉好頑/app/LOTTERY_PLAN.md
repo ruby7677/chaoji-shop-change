@@ -286,7 +286,8 @@ public.member_prizes
 | POST | `/api/member/prizes/shipments/:id/cancel` | 會員 | 取消尚未付款的出貨申請 |
 | GET／POST／PUT | `/api/admin/lotteries…` | 管理員 | 草稿 CRUD、開賣、取消、查詢抽獎紀錄（不含未開格子） |
 | GET／PUT | `/api/admin/prize-shipments…` | 管理員 | 獎品出貨列表、宅配運費報價、出貨狀態、寄件編號 |
-| POST | `/api/admin/members/:id/wallet` | 管理員 | 加值／調整／沖正，必填原因與 `requestId` |
+| POST | `/api/admin/members/:id/wallet` | 管理員 | 加值／退款／調整，body：`{ kind, amount, reason, requestId, transferRef? }` |
+| POST | `/api/admin/wallet-entries/:id/reverse` | 管理員 | 沖正一筆加值／退款／調整，body：`{ reason, requestId }` |
 | PUT | `/api/admin/lottery-settings` | 管理員 | 盲盒分類 |
 
 - 新模組：`src/lottery-public.ts`、`src/lottery-member.ts`、`src/lottery-admin.ts`、`src/wallet.ts`、`src/member-prizes.ts`、`src/prize-shipments.ts`；`index.ts` 只加路由。
@@ -390,7 +391,13 @@ public.member_prizes
 **Goal**：會員有獨立儲值金，管理員可加值／調整／沖正。
 **Success Criteria**：後台加值後會員看到餘額與紀錄；餘額不可能為負；同一 `requestId` 不重複入帳；帳本不可修改；每筆有 audit log；`balance = sum(ledger)`。
 **Tests**：`tests/db/wallet.test.sql`（加值、扣到負數被拒、重送不重複入帳、沖正、update／delete 帳本被拒、一般會員不能寫入、不能讀別人的帳、authenticated 直接呼叫 RPC 被拒）；`tests/worker` 加值路由權限（未登入 401、會員 403、管理員 200）。
-**Status**：Not Started
+**Status**：Complete（2026-10-12，未部署、未套用正式 DB）
+
+**Stage 2 實作紀錄**：
+- migration `202610121001_member_wallet.sql`：`wallet_accounts`／`wallet_ledger`、`admin_adjust_wallet`（kind 限 `topup` 正數／`refund` 負數／`adjust` 非 0，單筆上限 1,000,000）、`admin_reverse_wallet_entry`（只沖正上述三種；抽獎與運費的沖正留給 Stage 3／6）、`member_wallet_balance()`；`backup_snapshot()` 加入兩張表。會員只看得到 `id, kind, amount, balance_after, reason, created_at`，**原因文字會員看得到**，後台欄位已標示。
+- Worker `src/wallet.ts`；沖正另開 `/api/admin/wallet-entries/:id/reverse`（§5），不和加值共用同一路由。
+- 前台 `member-wallet.js` 在**開啟會員資料視窗時**才讀取（60 秒快取），不增加每次開機的請求；從未有紀錄且餘額 0 的會員不顯示。後台 `admin-wallet.js`＋`admin-wallet.css` 在會員卡內，沖正原因用就地表單（不用 `window.prompt`）。
+- §7「管理員加值 → 會員 LINE 通知」依 Stage 7 Goal 與其他通知一起實作，Stage 2 不發通知。
 
 ### Stage 3：抽獎資料層與交易 RPC
 **Goal**：建立活動、開賣、開抽、結束／取消全部在 SQL 完成且可驗證。

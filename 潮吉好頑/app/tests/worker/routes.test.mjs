@@ -27,7 +27,10 @@ const protectedRoutes = [
   ["POST", "/api/admin/products"],
   ["POST", `/api/admin/variants/${ORDER_ID}/inventory`],
   ["PUT", "/api/admin/point-settings"],
-  ["POST", `/api/admin/members/${ORDER_ID}/points`]
+  ["POST", `/api/admin/members/${ORDER_ID}/points`],
+  ["GET", "/api/member/wallet"],
+  ["POST", `/api/admin/members/${ORDER_ID}/wallet`],
+  ["POST", `/api/admin/wallet-entries/${ORDER_ID}/reverse`]
 ];
 
 for (const [method, path] of protectedRoutes) {
