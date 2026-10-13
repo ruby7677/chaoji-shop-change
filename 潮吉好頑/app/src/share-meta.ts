@@ -60,8 +60,8 @@ function isHomePage(url: URL) {
   return url.pathname === "/" || url.pathname === "/index.html";
 }
 
-// 型錄 API 一律預先載入（前端 fetch 預設 credentials 為 same-origin，對應 crossorigin=anonymous）；
-// 能及時取得型錄時，再預先載入第一張輪播圖
+// 能及時取得型錄時，預先載入第一張輪播圖。型錄 API 本身不用 preload：它是 no-store，iOS WebKit 不會沿用而再下載一次，
+// 改由 index.html 的 catalog-prefetch.js 提早 fetch
 // 型錄讀取會被之後的 /api/catalog 共用（isolate 內同一個 in-flight）：必須用 waitUntil 讓它在首頁回應送出後
 // 仍能完成，否則讀取被中斷、in-flight 永遠不會結束，之後所有型錄請求都會卡住
 export async function homePreloadMarkup(env: Env, url: URL, ctx?: ExecutionContext) {
@@ -72,8 +72,7 @@ export async function homePreloadMarkup(env: Env, url: URL, ctx?: ExecutionConte
   const image = products ? firstHeroImageUrl(products) : null;
   // 圖片在 R2 公開網域時先建立連線，第一張輪播圖與商品縮圖不必再等 DNS／TLS
   const origin = imageOrigin(env);
-  return '<link rel="preload" href="/api/catalog" as="fetch" crossorigin="anonymous" />'
-    + (origin ? `<link rel="preconnect" href="${escapeAttribute(origin)}" />` : "")
+  return (origin ? `<link rel="preconnect" href="${escapeAttribute(origin)}" />` : "")
     + (image ? `<link rel="preload" href="${escapeAttribute(image)}" as="image" fetchpriority="high" />` : "");
 }
 

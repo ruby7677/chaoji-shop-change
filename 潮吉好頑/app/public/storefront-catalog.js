@@ -6,6 +6,7 @@ import { loadMoreMarkup, showMore, visibleLimit } from "./catalog-paging.js";
 import { mountHeroCarousel } from "./hero-carousel.js";
 import { selectHeroSlides } from "./hero-slides.js";
 import { showToast } from "./app-core.js";
+import { takePrefetchedCatalog } from "./catalog-prefetch.js";
 import { productPage } from "./app.js";
 
 export let products = [];
@@ -138,7 +139,8 @@ export function openProductDetail(id) {
 // 回傳是否成功；失敗（網路、伺服器錯誤）不丟錯，由 renderProducts 顯示重新載入提示
 export async function loadProducts() {
   try {
-    const response = await fetch("/api/catalog");
+    // 開機第一次沿用 <head> 已發出的請求，之後（後台重新載入）才另外請求
+    const response = await (takePrefetchedCatalog() || fetch("/api/catalog"));
     if (!response.ok) return false;
     const payload = await response.json();
     if (!Array.isArray(payload.products)) return false;

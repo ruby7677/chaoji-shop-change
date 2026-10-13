@@ -1,7 +1,7 @@
 // 開機計時（?cj_timing=1）：機房代碼、同源 JS 的重驗證／下載／快取統計、追蹤請求耗時、歷次中位數與報告格式。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { coloFromRay, formatBootReport, historyMedians, parseHistory, requestDurations, summarizeScripts } from "../../public/boot-timing.js";
+import { coloFromRay, formatBootReport, historyMedians, lcpLabel, parseHistory, requestDurations, summarizeScripts } from "../../public/boot-timing.js";
 
 const ORIGIN = "https://shop.test";
 const entry = (name, startTime, responseEnd, transferSize = 500, encodedBodySize = 4000) => ({ name, startTime, responseEnd, transferSize, encodedBodySize });
@@ -74,4 +74,10 @@ test("the report fits a phone screen: short labels, 4 items per line, P50 across
     "登入恢復200 SJC",
     "近2次P50 遮罩1189"
   ].join("\n"));
+});
+
+test("the LCP note names an image or the element tag, or says it is unsupported", () => {
+  assert.equal(lcpLabel({ url: "https://img.test/a.webp", element: { tagName: "IMG" } }), "LCP元素 IMG");
+  assert.equal(lcpLabel({ url: "", element: { tagName: "H1" } }), "LCP元素 H1");
+  assert.equal(lcpLabel(null), "LCP 不支援");
 });

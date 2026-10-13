@@ -1,7 +1,8 @@
 // 開機各階段計時（只在除錯時開啟）：網址帶 ?cj_timing=1 開啟一次後，同分頁（含 LINE 登入轉址回來）都會記錄，
 // 開機與會員載入完成後跳出精簡報告（一個畫面放得下），方便在 LINE 手機上直接看時間花在哪裡。
 // 各請求耗時從 Resource Timing 讀取；Worker 回應的 cf-ray 結尾是實際執行的 Cloudflare 機房（TPE、SJC…）。
-// 歷次結果存在 localStorage（關掉 LINE 視窗也會累計），報告附最近幾次的 P50。不記錄 token、Cookie 或會員資料。
+// 歷次結果存在 localStorage（關掉 LINE 視窗也會累計），報告附最近幾次的 P50；?cj_timing=reset 清除歷次結果重新累計。
+// LCP 取報告當下最新的一筆（之後圖片才載完時可能再更新）；瀏覽器不支援時顯示「不支援」。不記錄 token、Cookie 或會員資料。
 const TIMING_PARAM = "cj_timing";
 const TIMING_KEY = "cj-boot-timing";
 const HISTORY_KEY = "cj-boot-timing-history";
@@ -28,14 +29,17 @@ const PHASE_LABELS = new Map([
   ["LINE 登入恢復（背景）", "登入"],
   ["會員資料", "會員"],
   ["會員功能就緒", "就緒"],
-  ["開機失敗", "失敗"]
+  ["開機失敗", "失敗"],
+  ["LCP", "LCP"]
 ]);
 // 跨次比較的關鍵時間點（短標籤）
-const SUMMARY_PHASES = ["遮罩", "登入", "就緒"];
+const SUMMARY_PHASES = ["遮罩", "LCP", "登入", "就緒"];
 
 const enabled = (() => {
   try {
-    if (new URL(location.href).searchParams.has(TIMING_PARAM)) sessionStorage.setItem(TIMING_KEY, "1");
+    const param = new URL(location.href).searchParams.get(TIMING_PARAM);
+    if (param === "reset") localStorage.removeItem(HISTORY_KEY);
+    if (param !== null) sessionStorage.setItem(TIMING_KEY, "1");
     return sessionStorage.getItem(TIMING_KEY) === "1";
   } catch {
     return false;
@@ -44,6 +48,21 @@ const enabled = (() => {
 
 // 預設只保留 250 筆資源紀錄：首頁商品圖多，排在後面的登入恢復與會員請求會被擠掉
 if (enabled) performance.setResourceTimingBufferSize?.(2000);
+
+let lcp = null;
+if (enabled) {
+  try {
+    new PerformanceObserver((list) => { lcp = list.getEntries().at(-1) || lcp; })
+      .observe({ type: "largest-contentful-paint", buffered: true });
+  } catch { /* 不支援 LCP 的瀏覽器：報告顯示「不支援」 */ }
+}
+
+/** LCP 元素類型：圖片（含背景圖）顯示 IMG，其餘顯示元素標籤，例如文字標題 H1。 */
+export function lcpLabel(entry) {
+  if (!entry) return "LCP 不支援";
+  const tag = entry.url ? "IMG" : (entry.element?.tagName || "?");
+  return `LCP元素 ${tag}`;
+}
 
 const marks = [];
 const notes = [];
@@ -177,6 +196,8 @@ export function reportBootTiming() {
   // 除錯工具出錯（舊版 WebView 缺少 Performance API 等）不能讓開機流程變成失敗
   try {
     const entries = performance.getEntriesByType("resource");
+    if (lcp) marks.push(["LCP", Math.round(lcp.renderTime || lcp.startTime)]);
+    notes.push(lcpLabel(lcp));
     const history = recordRun();
     const text = formatBootReport({
       marks,

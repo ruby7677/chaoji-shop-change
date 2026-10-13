@@ -21,6 +21,8 @@
     @media (prefers-reduced-motion:reduce){#auth-boot-screen i{animation:none}}
     @keyframes cj-boot-spin{to{transform:rotate(360deg)}}
   </style>
+  <!-- 型錄請求不等 app.js 的 import 樹：下載完立即 fetch，storefront-catalog.js 沿用同一個請求（見 catalog-prefetch.js） -->
+  <script type="module" async src="/catalog-prefetch.js"></script>
   <link rel="preload" href="/Logo.webp" as="image" type="image/webp" fetchpriority="high" />
   <link rel="preconnect" href="https://static.line-scdn.net" crossorigin />
   <link rel="preconnect" href="https://api.line.me" />

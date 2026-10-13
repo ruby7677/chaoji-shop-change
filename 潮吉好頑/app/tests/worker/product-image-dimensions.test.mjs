@@ -192,19 +192,20 @@ test("a slow catalog only skips the hero image preload instead of holding the pa
   const execution = ctx();
   const markup = await homePreloadMarkup(baseEnv, new URL("https://slow.test/"), execution);
   assert.ok(Date.now() - started < 1000);
-  assert.equal(markup, '<link rel="preload" href="/api/catalog" as="fetch" crossorigin="anonymous" />');
+  assert.equal(markup, "");
   // 首頁回應送出後型錄讀取仍交給 waitUntil 完成，之後的 /api/catalog 才不會卡在被中斷的讀取
   await execution.settle();
 });
 
 // Node 沒有 HTMLRewriter：這裡驗證要插入首頁的標記；插入位置（charset 之後）由 share-meta.ts 的 HTMLRewriter 規則負責
-test("the home page preloads the catalog and the first hero image", async () => {
+// 型錄 API 不 preload：它是 no-store，iOS WebKit 不沿用 preload 會下載兩次；改由 public/catalog-prefetch.js 提早 fetch
+test("the home page preloads the first hero image but not the catalog API", async () => {
   restoreFetch = stubFetch(async (url) => {
     if (url.pathname === "/rest/v1/storefront_variants") return jsonResponse([{ ...variant({ id: "h", product_id: PRODUCT_ID, hero_rank: 1 }), has_image: true, image_path: `${PRODUCT_ID}/a.webp`, image_updated_at: "2026-10-08" }]);
     return jsonResponse([]);
   });
   const markup = await homePreloadMarkup(baseEnv, new URL("https://preload.test/"));
-  assert.match(markup, /<link rel="preload" href="\/api\/catalog" as="fetch" crossorigin="anonymous" \/>/);
+  assert.doesNotMatch(markup, /\/api\/catalog/);
   assert.match(markup, new RegExp(`<link rel="preload" href="/api/product-images/${PRODUCT_ID}\\?v=2026-10-08" as="image" fetchpriority="high" />`));
   assert.doesNotMatch(markup, /preconnect/, "no extra connection while images are served by the Worker");
 });
