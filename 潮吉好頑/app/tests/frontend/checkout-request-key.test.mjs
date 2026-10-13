@@ -118,3 +118,32 @@ test("the completed marker survives a reload through sessionStorage", async () =
   assert.equal(fresh.recentCompletedCheckout(body, { storage, now: 6000 }), true);
   assert.notEqual(fresh.checkoutRequestKey(body, { storage, randomUUID: () => "after-reload" }), "key-1");
 });
+
+// 重新整理後的新頁面：本頁記憶體是空的，只剩 storage 的舊記錄
+const freshPage = () => import(`../../public/checkout-request-key.js?page=${Math.random()}`);
+const readOnly = (storage) => ({ ...storage, setItem() { throw new Error("quota"); }, removeItem() { throw new Error("quota"); } });
+
+test("readable but unwritable storage: an old completed record cannot replace this page's pending key", async () => {
+  const storage = memoryStorage();
+  const body = JSON.stringify({ quantity: 6 });
+  const before = await freshPage();
+  before.checkoutRequestKey(body, { storage, randomUUID: () => "old" });
+  before.markCheckoutRequestCompleted({ storage, now: 1000 });
+  const page = await freshPage();
+  const locked = readOnly(storage);
+  const randomUUID = sequence();
+  const first = page.checkoutRequestKey(body, { storage: locked, randomUUID });
+  assert.equal(page.checkoutRequestKey(body, { storage: locked, randomUUID }), first, "an unknown-result retry reuses the same key");
+  page.markCheckoutRequestCompleted({ storage: locked, now: 2000 });
+  assert.equal(page.recentCompletedCheckout(body, { storage: locked, now: 2000 }), true, "the in-page completed marker is honoured");
+  assert.notEqual(page.checkoutRequestKey(body, { storage: locked, randomUUID }), first, "the completed in-page key is not reused");
+});
+
+test("a clear that cannot remove the stored record still stops reusing it on this page", async () => {
+  const storage = memoryStorage();
+  const body = JSON.stringify({ quantity: 7 });
+  const page = await freshPage();
+  const key = page.checkoutRequestKey(body, { storage, randomUUID: () => "stored" });
+  page.clearCheckoutRequestKey({ storage: readOnly(storage) });
+  assert.notEqual(page.checkoutRequestKey(body, { storage: readOnly(storage), randomUUID: () => "next" }), key);
+});

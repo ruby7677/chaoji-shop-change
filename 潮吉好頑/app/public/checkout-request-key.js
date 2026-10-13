@@ -4,8 +4,9 @@
 const STORAGE_KEY = "chaoji-checkout-request";
 // 已完成後這段時間內再送出相同內容，先請客人確認是否真的要再下一筆
 export const RECENT_COMPLETED_MS = 30 * 60 * 1000;
-// 同一頁的備援：sessionStorage 不可用（無痕、受限預覽）時，同頁重送仍沿用同一個 key
-let memoryPending = null;
+// 本頁最後一次寫入的狀態，優先於 sessionStorage：storage 可讀但寫不進去時，舊記錄不能蓋過本頁最新的 key。
+// undefined＝本頁尚未寫入（重新整理後以 storage 為準）；null＝本頁已清除。
+let memoryPending;
 
 function sessionStore() {
   try { return globalThis.sessionStorage ?? null; } catch { return null; }
@@ -34,7 +35,8 @@ function readPending(storage) {
 }
 
 function currentPending(storage) {
-  return (storage ? readPending(storage) : null) || memoryPending;
+  if (memoryPending !== undefined) return memoryPending;
+  return storage ? readPending(storage) : null;
 }
 
 function writePending(storage, pending) {

@@ -49,9 +49,11 @@ beforeEach(async () => {
         return jsonResponse(upstream.vault === "found" ? [{ sealed_refresh_token: upstream.sealed }] : []);
       }
       // 更新與刪除只套用到內容仍符合 sealed_refresh_token 條件的列
+      if (method !== "POST") assert.equal(url.searchParams.get("line_user_id"), `eq.${LINE_USER_ID}`, "vault writes are scoped to the verified LINE user");
       const matches = upstream.vault === "found" && url.searchParams.get("sealed_refresh_token") === `eq.${upstream.sealed}`;
       if (method === "PATCH") {
         if (upstream.patchFails) return jsonResponse({}, 503);
+        assert.equal(init.headers.Prefer, "return=representation", "the PATCH reports which rows it updated");
         if (!matches) return jsonResponse([]);
         upstream.patched = body.sealed_refresh_token;
         upstream.sealed = body.sealed_refresh_token;
