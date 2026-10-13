@@ -1,5 +1,5 @@
 // 結帳請求識別碼：同內容重送沿用 key、內容改變換新 key、成功後清除，且不在瀏覽器保存收件人原文。
-import { test } from "node:test";
+import { beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { RECENT_COMPLETED_MS, checkoutRequestKey, clearCheckoutRequestKey, markCheckoutRequestCompleted, recentCompletedCheckout, requestDigest } from "../../public/checkout-request-key.js";
 
@@ -12,6 +12,9 @@ function memoryStorage() {
     removeItem: (key) => data.delete(key)
   };
 }
+
+// 每個測試從「本頁已清除」開始，不沿用前一個測試留在模組裡的 key
+beforeEach(() => clearCheckoutRequestKey({ storage: null }));
 
 const sequence = () => {
   let n = 0;
