@@ -329,7 +329,8 @@ async function claimDue(env: NotificationDeliveryEnv, channel: NotificationChann
 }
 
 /** Reclaims retry-due failures and expired processing leases without cross-channel coupling. */
-export async function retryDueNotificationDeliveries(env: NotificationDeliveryEnv) {
+/** 補送到期的通知；回傳這次取得並處理的筆數（0＝沒有積壓）。 */
+export async function retryDueNotificationDeliveries(env: NotificationDeliveryEnv): Promise<number> {
   const tasks: Promise<DeliveryAttempt>[] = [];
   if (env.LINE_NOTIFY_ENABLED !== "false" && env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) {
     const claims = await claimDue(env, "line");
@@ -340,4 +341,5 @@ export async function retryDueNotificationDeliveries(env: NotificationDeliveryEn
     tasks.push(...claims.map((claim) => deliverDueClaim(env, "telegram", claim)));
   }
   await Promise.allSettled(tasks);
+  return tasks.length;
 }
