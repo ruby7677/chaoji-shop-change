@@ -3,6 +3,7 @@ import { initializeLiffClient, liffState } from "./liff-auth.js";
 import { accessTokenExpiresSoon } from "./auth-expiry.js";
 import { refreshWebSession, refreshWebSessionOutcome, startWebSession } from "./web-session.js";
 import { auth } from "./app-core.js";
+import { noteBootResponse } from "./boot-timing.js";
 import { forgetCartSyncUser } from "./cart.js";
 import { clearMemberStateCache } from "./member-benefits.js";
 import { captureAuthReturn } from "./auth-return-state.js";
@@ -80,6 +81,7 @@ export function captureAuthSession() {
 export async function loadRuntimeConfig() {
   try {
     const response = await fetch("/api/config");
+    noteBootResponse("設定", response);
     if (!response.ok) return false;
     auth.config = await response.json();
     return true;
@@ -221,6 +223,7 @@ async function requestPersistentRestore() {
   } catch {
     return { outcome: "retry" };
   }
+  noteBootResponse("登入恢復", response);
   if (isRetryableRestoreStatus(response.status)) return { outcome: "retry" };
   const result = await response.json().catch(() => ({}));
   if (!response.ok || typeof result.access_token !== "string") {

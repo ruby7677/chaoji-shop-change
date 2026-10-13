@@ -12,6 +12,7 @@ import { checkLineFriendship, handleLineFriendRequest, showLineFriendDialog } fr
 import { currentOrders, openOrders, showPaymentDialog, submitPayment } from "./member-orders.js";
 import { loadProducts, openProductDetail, products, renderHeroSpotlight, renderProducts, search, selectCategory } from "./storefront-catalog.js";
 import { markAuthSettled, whenAuthReady } from "./auth-ready.js";
+import { markBoot, reportBootTiming } from "./boot-timing.js";
 import { failAuthBoot, finishAuthBoot, startAuthBoot } from "./auth-boot.js";
 import { restoreAuthReturnState } from "./auth-return-state.js";
 import { activeCheckoutScope, openCheckout, showCheckoutError, submitOrder } from "./checkout-flow.js";
@@ -194,13 +195,16 @@ function renderInitialPageOnce() {
 async function bootstrapAuth() {
   if (authBootstrapInFlight) return authBootstrapInFlight;
   authBootstrapInFlight = (async () => {
+    // app.js 要等所有靜態 import 的 module 下載並執行完才會跑到這裡
+    markBoot("JS 載入完成");
     const bootUrl = new URL(location.href);
     // 公開型錄不需要登入：一開機就開始載入，與設定、LIFF 初始化和登入恢復同時進行（loadProducts 不會丟錯）
-    const catalogLoading = loadProducts();
+    const catalogLoading = loadProducts().then((loaded) => { markBoot(loaded ? "型錄" : "型錄失敗"); return loaded; });
     // Overlap the LIFF SDK download with /api/config for LINE launches only;
     // ordinary browsers never load the SDK.
     if (hasLiffPrimaryRedirectParams(bootUrl) || bootUrl.searchParams.has(LIFF_AUTO_CALLBACK_PARAM) || readLiffLaunchContext()) preloadLiffSdk();
     const configLoaded = await loadRuntimeConfig();
+    markBoot("設定");
     const liffPrimaryRedirect = hasLiffPrimaryRedirectParams(bootUrl);
     const explicitLiffLaunch = liffPrimaryRedirect || bootUrl.searchParams.has(LIFF_AUTO_CALLBACK_PARAM);
     const liffLaunchIntent = hasLiffLaunchIntent(bootUrl);
@@ -214,6 +218,7 @@ async function bootstrapAuth() {
       launchIntent: configLoaded && liffLaunchIntent,
       explicitLaunch: explicitLiffLaunch
     });
+    markBoot("LIFF 初始化");
     if (liffStage.primary) return;
     if (liffPrimaryRedirect) captureAuthSession();
     const inLineClient = Boolean(liffStage.state?.isInClient);
@@ -230,16 +235,21 @@ async function bootstrapAuth() {
     renderInitialPageOnce();
     // 主圖不再擋開機畫面：商品頁先出現，主圖（fetchpriority=high）自行載入
     finishAuthBoot();
+    markBoot("畫面顯示（遮罩關閉）");
     await liffBridge;
+    markBoot("LINE 登入恢復（背景）");
     // Member/session restoration continues after the public catalog is usable,
     // so a slow auth request cannot keep ordinary browsers behind the boot UI.
     if (!inLineClient) await ensureWebSession();
     await loadMember();
+    markBoot("會員資料");
     releaseBootCartBaseline();
     // 回到登入前的結帳等畫面會呼叫 openCheckout（會等 whenAuthReady），必須先標記完成
     markAuthSettled();
     await restoreAuthReturnState();
     openAdminFromRoute();
+    markBoot("會員功能就緒");
+    reportBootTiming();
   })();
   return authBootstrapInFlight;
 }
@@ -251,6 +261,8 @@ try {
   releaseBootCartBaseline();
   markAuthSettled();
   console.error("App bootstrap failed.", error);
+  markBoot("開機失敗");
+  reportBootTiming();
   if (liffPrimaryRedirectPending || hasLiffPrimaryRedirectParams() || new URL(location.href).searchParams.has(LIFF_AUTO_CALLBACK_PARAM)) {
     failAuthBoot("LINE 登入頁面準備失敗，請點擊重試");
   } else {
