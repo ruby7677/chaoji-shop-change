@@ -1,0 +1,54 @@
+/* 觸控診斷模式（?cj_touch=）專用，由 touch-diagnostics.js 動態載入；正式頁面不載入這個檔案。 */
+
+/* B 測試組：商品卡的 hover 效果只留給滑鼠裝置，觸控裝置維持原本外觀（等同把 hover 規則限制在 (hover: hover) and (pointer: fine)）。
+   原版生效的 hover：位移 translateY(-5px)＋transition、陰影加深、名稱底線變深；圖片放大已被 storefront-refinements.css 的 transform:none 覆蓋。
+   數值對應 bundle-storefront.css 的 .product-card 陰影與 product-page.css 的名稱底線，原版改動時要同步。 */
+@media (hover: none), (pointer: coarse) {
+  html.cj-touch-b .product-card { transition: none; }
+  html.cj-touch-b .product-card:hover { transform: none; box-shadow: 0 10px 30px rgba(21, 21, 21, .06); }
+  html.cj-touch-b .product-card h3:hover { text-decoration-color: var(--home-line); }
+}
+
+.cj-touch-fab {
+  position: fixed;
+  left: 4px;
+  bottom: 4px;
+  z-index: 2147483000;
+  padding: 4px 6px;
+  border: 1px solid #151515;
+  border-radius: 6px;
+  background: #fffbe6;
+  color: #151515;
+  font: 700 11px/1.2 system-ui, sans-serif;
+  opacity: .85;
+}
+
+.cj-touch-panel {
+  position: fixed;
+  inset: auto 6px 40px 6px;
+  z-index: 2147483001;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid #151515;
+  border-radius: 10px;
+  background: #fff;
+  color: #151515;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .25);
+}
+.cj-touch-panel[hidden] { display: none; }
+.cj-touch-panel pre {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font: 11px/1.45 ui-monospace, Menlo, monospace;
+}
+.cj-touch-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.cj-touch-actions button {
+  padding: 6px 8px;
+  border: 1px solid #151515;
+  border-radius: 6px;
+  background: #fffbe6;
+  color: #151515;
+  font: 700 12px/1.2 system-ui, sans-serif;
+}

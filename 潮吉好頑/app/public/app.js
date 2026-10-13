@@ -21,6 +21,11 @@ import { LIFF_AUTO_CALLBACK_PARAM, captureAuthSession, clearLiffLaunchContext, c
 import { beginLineLogin, loadMember, showProfileDialog, submitProfile } from "./member-profile.js";
 import { handleCopyBankAccount } from "./copy-bank-account.js";
 
+// 觸控診斷（?cj_touch=）只在除錯時載入，一般訪客不下載（見 touch-diagnostics.js）
+try {
+  if (new URLSearchParams(location.search).has("cj_touch") || sessionStorage.getItem("cj-touch-diag")) import("./touch-diagnostics.js").catch(() => {});
+} catch { /* 無法讀取 sessionStorage 時不啟用診斷 */ }
+
 let authBootstrapInFlight = null;
 let initialPageRendered = false;
 
