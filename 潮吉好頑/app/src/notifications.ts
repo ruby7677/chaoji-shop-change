@@ -33,6 +33,11 @@ function telegramNotificationEnabled(env: Env) {
   return env.TELEGRAM_NOTIFY_ENABLED !== "false" && Boolean(env.TELEGRAM_BOT_TOKEN);
 }
 
+/** 至少有一個通知管道可送出訂單通知（LINE 會員或 Telegram 管理員）。 */
+export function orderNotificationsConfigured(env: Env) {
+  return lineNotificationEnabled(env) || (telegramNotificationEnabled(env) && telegramAdminRecipients(env).length > 0);
+}
+
 async function notifyLine(env: Env, eventKey: string, recipientId: string, eventType: string, message: string | LinePushMessage): Promise<DeliveryResult> {
   if (!lineNotificationEnabled(env) || !recipientId) return { sent: false, handled: true };
   const payload = typeof message === "string" ? { type: "text", text: message.slice(0, 5000) } : message;

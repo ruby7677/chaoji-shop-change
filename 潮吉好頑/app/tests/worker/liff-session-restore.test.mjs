@@ -64,6 +64,9 @@ beforeEach(async () => {
         if (matches) upstream.vault = "missing";
         return new Response(null, { status: 204 });
       }
+      // POST＝保存登入（upsert）：覆寫成新的 sealed 值
+      upstream.sealed = body.sealed_refresh_token;
+      upstream.vault = "found";
       return new Response(null, { status: 201 });
     }
     // userLookup 為狀態碼時，refresh 回應不帶 user，改由 /auth/v1/user 查詢並回該狀態
@@ -253,4 +256,14 @@ test("輪替期間另一次 LINE Login 已覆寫 vault 時，不蓋掉也不刪�
   assert.equal(upstream.sealed, newer, "the newer vault token is not deleted");
   const cookie = (response.headers.get("Set-Cookie") || "").split(";")[0];
   assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, cookie.split("=").slice(1).join("=")), ROTATED_TOKEN);
+});
+
+test("同一會員兩次恢復同時進行且都成功時，vault 最後保存的是輪替後仍有效的 token", async () => {
+  // Supabase 的重複使用寬限期內，同一個舊 token 換發兩次都拿到同一個新 token（stub 一律回 ROTATED_TOKEN）
+  const [first, second] = await Promise.all([restore(), restore()]);
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.deepEqual(upstream.sent, [SHORT_REFRESH_TOKEN, SHORT_REFRESH_TOKEN], "both requests read the same vault token");
+  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, upstream.sealed), ROTATED_TOKEN, "the vault ends with the live rotated token");
+  assert.equal(vaultDeleted(), false);
 });

@@ -97,7 +97,7 @@ export async function submitOrder() {
   // 已建單：key 立即標記完成，之後相同內容的購買不會再拿回這筆訂單
   markCheckoutRequestCompleted();
   // 先把已購商品移出購物車並保存（本機與會員雲端），之後才清除 key：
-  // 中途重新整理時購物車仍有這些商品，再次結帳會帶同一個 key 拿回原訂單，不會重複建單
+  // 中途重新整理時購物車仍有這些商品，已完成的 key 不會再沿用；30 分鐘內再送出相同內容會先跳確認（見 recentCompletedCheckout）
   cart.splice(0, cart.length, ...cart.filter((item) => !itemsForOrder.includes(item)));
   saveCart();
   await syncMemberCartNow();

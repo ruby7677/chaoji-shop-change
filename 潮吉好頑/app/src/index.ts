@@ -19,6 +19,7 @@ import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFr
 import { notifyLowStock, notifyOrderEvent, notifyOrderEventToMember, runScheduledNotifications, testTelegramNotification } from "./notifications";
 import { isKeepaliveHour, pingSupabase } from "./supabase-keepalive";
 import { BACKUP_CRON, runDailyBackup } from "./database-backup";
+import { notifyMissedCreatedOrders } from "./order-created-sweep";
 
 const productShowcase = createProductShowcase<Env>({ json, serviceHeaders, requireAdmin, databaseError, securityHeaders: SECURITY_HEADERS });
 
@@ -162,8 +163,8 @@ export default {
     if (_controller.cron === BACKUP_CRON) return ctx.waitUntil(runDailyBackup(env, new Date(_controller.scheduledTime)));
     const task = _controller.cron === "*/5 * * * *"
       ? retryDueNotificationDeliveries(env)
-      // 每小時：通知排程，並補齊尚未記錄寬高的商品主圖（補完後只剩一次查詢）
-      : Promise.all([retryDueNotificationDeliveries(env), runScheduledNotifications(env), backfillProductImageDimensions(env).catch((error) => console.error("商品主圖寬高補齊失敗", error))]).then(() => undefined);
+      // 每小時：通知排程、補發回應遺失訂單的建單通知，並補齊尚未記錄寬高的商品主圖（補完後只剩一次查詢）
+      : Promise.all([retryDueNotificationDeliveries(env), runScheduledNotifications(env), notifyMissedCreatedOrders(env).catch((error) => console.error("建單通知補發排程失敗", error)), backfillProductImageDimensions(env).catch((error) => console.error("商品主圖寬高補齊失敗", error))]).then(() => undefined);
     ctx.waitUntil(task);
     // 每日一次唯讀保活（每小時排程在固定時刻觸發），與通知任務互不影響。
     if (_controller.cron !== "*/5 * * * *" && isKeepaliveHour(_controller.scheduledTime)) ctx.waitUntil(pingSupabase(env));
