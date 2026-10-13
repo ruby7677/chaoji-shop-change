@@ -8,7 +8,7 @@ import { rememberCvsStore } from "./checkout-cvs-store.js";
 import { checkoutRequestKey, clearCheckoutRequestKey } from "./checkout-request-key.js";
 import { ensureCheckoutCouponApplied, resetCheckoutCoupon } from "./checkout-coupon.js";
 import { whenAuthReady } from "./auth-ready.js";
-import { beginLineLogin, profileIsComplete, saveProfile, showProfileDialog } from "./member-profile.js";
+import { beginLineLogin, loadMember, profileIsComplete, saveProfile, showProfileDialog } from "./member-profile.js";
 
 export let activeCheckoutScope = null;
 export let activeCheckoutItems = null;
@@ -29,6 +29,8 @@ export async function openCheckout(scope = null) {
   if (!scopedItems.length) return showToast("請先加入商品");
   activeCheckoutScope = resolvedScope;
   activeCheckoutItems = scopedItems.slice();
+  // 開機時會員資料暫時載入失敗（登入仍保留）：結帳前再載入一次，不直接導去 LINE 登入
+  if (auth.accessToken && !auth.user) await loadMember();
   if (!auth.accessToken || !auth.user) return beginLineLogin();
   // 會員購物車沒合併成功（網路中斷或逾時）就不結帳，避免事後合併把已購商品加回購物車；再按一次會重試
   if (!memberCartSettled) return showToast("購物車還在與會員資料同步，請稍後再按一次結帳；持續失敗請重新整理頁面", "warning");

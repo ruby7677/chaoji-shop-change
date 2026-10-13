@@ -132,3 +132,18 @@ select tests.expect_error(
   'permission denied', 'anon cannot call the idempotent order entry');
 select tests.logout();
 rollback;
+
+-- 同 key 重送帶點數折抵：點數只扣一次。
+begin;
+select tests.seed();
+insert into public.point_ledger(member_id, kind, points, reason) values (tests.id('member_a'), 'manual', 50, '測試贈點');
+select tests.login(tests.id('member_a'));
+create temp table t_ids on commit drop as
+  select public.create_delivery_order(tests.order_items(tests.id('variant_stock'), 2), 'together', 'store_pickup', null, 30,
+           tests.id('bank'), null, null, null, null, null, null, null, null, '99999999-9999-4999-8999-999999999999') as first_id,
+         public.create_delivery_order(tests.order_items(tests.id('variant_stock'), 2), 'together', 'store_pickup', null, 30,
+           tests.id('bank'), null, null, null, null, null, null, null, null, '99999999-9999-4999-8999-999999999999') as second_id;
+select tests.logout();
+select tests.assert((select first_id = second_id from t_ids), 'the retry with points returns the original order');
+select tests.assert(tests.point_balance(tests.id('member_a')) = 20, 'redeemed points are deducted only once');
+rollback;

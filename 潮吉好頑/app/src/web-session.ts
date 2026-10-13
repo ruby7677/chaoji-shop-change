@@ -99,7 +99,7 @@ export function createWebSession<E extends WebSessionEnv>(deps: WebSessionDeps<E
     const result = await requestSupabaseRefresh(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!, refreshToken);
     if (!result.ok) return result.retryable ? unavailable() : failure("INVALID_WEB_SESSION", true);
     const refreshed = result.session;
-    // OAuth token 只在此刻出現、事先無從得知會員 id，限流只能在輪替後；查詢暫時失敗時前端保留 token，在 Supabase 重複使用寬限內重送
+    // OAuth token 只在此刻出現、事先無從得知會員 id，限流只能在輪替後。查詢暫時失敗回 503：token 已輪替，前端重送只在 Supabase 重複使用寬限內有效，否則需重新登入（refresh 回應通常已帶 user，極少走到）
     let userId: string | null;
     try { userId = await lineMemberId(env, refreshed); }
     catch { return unavailable(); }

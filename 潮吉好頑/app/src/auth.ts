@@ -167,7 +167,7 @@ export async function rememberLiffSession(request: Request, env: Env): Promise<R
     if (refreshed.retryable) return sessionUnavailable("SESSION_REMEMBER_UNAVAILABLE");
     return json({ error: "會員登入工作階段已失效" }, { status: 401, headers: { "Set-Cookie": clearRefreshSessionCookie() } });
   }
-  // token 已輪替但查不到使用者：這個 token 尚未驗證過身分，不能保存；前端在 Supabase 的重複使用寬限內重送仍可換發
+  // token 已輪替但查不到使用者：這個 token 尚未驗證過身分，不能保存；前端重送只在 Supabase 重複使用寬限內有效（refresh 回應通常已帶 user，極少走到）
   let user: AuthUser | null;
   try { user = await validateRefreshedLineSession(env, refreshed.session, identity.sub); }
   catch { return sessionUnavailable("SESSION_REMEMBER_UNAVAILABLE"); }

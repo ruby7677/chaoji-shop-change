@@ -20,3 +20,10 @@ test("ensureWebSession drops the OAuth refresh token only on a definite rejectio
   const body = source.slice(source.indexOf("export async function ensureWebSession()"), source.indexOf("export async function restoreWebSession()"));
   assert.match(body, /else if \(!retryable\) \{ auth\.refreshToken = null;/);
 });
+
+test("checkout retries a member load that failed temporarily before sending the member to LINE login", async () => {
+  const source = await read("checkout-flow.js");
+  const body = source.slice(source.indexOf("export async function openCheckout"), source.indexOf("export function showCheckoutError"));
+  assert.ok(body.indexOf("if (auth.accessToken && !auth.user) await loadMember();") >= 0);
+  assert.ok(body.indexOf("await loadMember()") < body.indexOf("return beginLineLogin()"), "the retry runs before the login redirect");
+});
