@@ -33,9 +33,23 @@ function telegramNotificationEnabled(env: Env) {
   return env.TELEGRAM_NOTIFY_ENABLED !== "false" && Boolean(env.TELEGRAM_BOT_TOKEN);
 }
 
-/** 至少有一個通知管道可送出訂單通知（LINE 會員或 Telegram 管理員）。 */
-export function orderNotificationsConfigured(env: Env) {
-  return lineNotificationEnabled(env) || (telegramNotificationEnabled(env) && telegramAdminRecipients(env).length > 0);
+export type NoticeRecipient = { channel: "line" | "telegram"; recipientId: string };
+
+/** 建單通知實際會 claim 的收件人（與 deliverOrderEvent 的分流相同）；補發時逐一比對通知紀錄。 */
+export function createdNoticeRecipients(env: Env, memberLineUserId: string | null | undefined): NoticeRecipient[] {
+  const routing = routeOrderNotificationRecipients("created", memberLineUserId, telegramAdminRecipients(env));
+  return [
+    ...(lineNotificationEnabled(env) ? routing.lineRecipients.map((recipientId) => ({ channel: "line" as const, recipientId })) : []),
+    ...(telegramNotificationEnabled(env) ? routing.telegramRecipients.map((recipientId) => ({ channel: "telegram" as const, recipientId })) : [])
+  ];
+}
+
+/**
+ * 補發建單通知：以這次讀到的訂單重新確認仍待付款、宅配運費尚未通知，才送「訂單已成立」；
+ * 掃描後才被取消、付款或通知運費的訂單不會收到過期訊息。
+ */
+export async function resendCreatedNotice(env: Env, orderId: string): Promise<boolean> {
+  return (await deliverOrderEvent(env, orderId, "created", { stillDue: (order) => order.status === "pending_payment" && !order.shipping_fee_notified_at })).handled;
 }
 
 async function notifyLine(env: Env, eventKey: string, recipientId: string, eventType: string, message: string | LinePushMessage): Promise<DeliveryResult> {
@@ -97,9 +111,17 @@ export async function notifyOrderEventToMember(env: Env, orderId: string, eventT
   return (await deliverOrderEvent(env, orderId, eventType)).memberReached;
 }
 
-async function deliverOrderEvent(env: Env, orderId: string, eventType: OrderNotificationEventType): Promise<OrderEventOutcome> {
+type LoadedOrderNotification = NonNullable<Awaited<ReturnType<typeof loadOrderNotification>>>;
+
+async function deliverOrderEvent(
+  env: Env,
+  orderId: string,
+  eventType: OrderNotificationEventType,
+  options: { stillDue?: (order: LoadedOrderNotification) => boolean } = {}
+): Promise<OrderEventOutcome> {
   const order = await loadOrderNotification(env, orderId);
   if (!order) return { handled: false, memberReached: false };
+  if (options.stillDue && !options.stillDue(order)) return { handled: true, memberReached: false };
   const items = (order.order_items || []).map((item) => `${item.product_name}${item.variant_name === "單一規格" ? "" : ` · ${item.variant_name}`} ×${item.quantity}`).join("、");
   const hasPreorder = (order.order_items || []).some((item) => item.kind === "preorder");
   const deliveryLabels: Record<string, string> = { store_pickup: "到店取貨", seller_delivery: "賣貨便", home_delivery: "宅配", cvs_delivery: NOTIFICATION_COPY.order.delivery.cvs };
