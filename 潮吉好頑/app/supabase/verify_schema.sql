@@ -410,4 +410,8 @@ select
   -- 202610130001：冪等建單入口（15 參數）只給已登入會員；同會員同 client_request_id 只能有一筆訂單。
   coalesce(has_function_privilege('authenticated', to_regprocedure('public.create_delivery_order(jsonb,text,text,text,integer,uuid,text,text,text,text,text,text,text,text,uuid)'), 'EXECUTE')
     and not has_function_privilege('anon', to_regprocedure('public.create_delivery_order(jsonb,text,text,text,integer,uuid,text,text,text,text,text,text,text,text,uuid)'), 'EXECUTE'), false) as idempotent_order_rpc_member_only,
-  to_regclass('public.orders_member_client_request_key') is not null as order_client_request_unique;
+  to_regclass('public.orders_member_client_request_key') is not null as order_client_request_unique,
+  -- 202610130003：建單通知補發查詢只有 service_role 能執行（含其他會員的訂單與 LINE 收件人）。
+  coalesce(has_function_privilege('service_role', to_regprocedure('public.missing_created_notifications(timestamptz,timestamptz,boolean,text[],integer)'), 'EXECUTE')
+    and not has_function_privilege('anon', to_regprocedure('public.missing_created_notifications(timestamptz,timestamptz,boolean,text[],integer)'), 'EXECUTE')
+    and not has_function_privilege('authenticated', to_regprocedure('public.missing_created_notifications(timestamptz,timestamptz,boolean,text[],integer)'), 'EXECUTE'), false) as missing_created_notifications_service_only;

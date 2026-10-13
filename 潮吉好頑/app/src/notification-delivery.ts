@@ -320,10 +320,13 @@ export async function deliverTelegramNotification(
   return claimResult(await deliverClaim(env, "telegram", claim, recipientId));
 }
 
+// Workers Free 每次執行最多 50 個子請求：每筆補送最多 3 次（讀訂單確認未過期、送出、完成），兩個管道各 5 筆約 32 次
+export const RETRY_BATCH_PER_CHANNEL = 5;
+
 async function claimDue(env: NotificationDeliveryEnv, channel: NotificationChannel) {
   return (await rpc<NotificationClaim[]>(env, "claim_due_notification_deliveries", {
     p_channel: channel,
-    p_limit: 25,
+    p_limit: RETRY_BATCH_PER_CHANNEL,
     p_lease_seconds: DEFAULT_LEASE_SECONDS
   })) || [];
 }

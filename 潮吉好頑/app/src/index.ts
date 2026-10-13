@@ -19,7 +19,7 @@ import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFr
 import { notifyLowStock, notifyOrderEvent, notifyOrderEventToMember, runScheduledNotifications, testTelegramNotification } from "./notifications";
 import { isKeepaliveHour, pingSupabase } from "./supabase-keepalive";
 import { BACKUP_CRON, runDailyBackup } from "./database-backup";
-import { notifyMissedCreatedOrders } from "./order-created-sweep";
+import { notifyMissedCreatedOrders, scheduledSweepBudget } from "./order-created-sweep";
 
 const productShowcase = createProductShowcase<Env>({ json, serviceHeaders, requireAdmin, databaseError, securityHeaders: SECURITY_HEADERS });
 
@@ -161,10 +161,11 @@ export default {
   scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     // 每日備份（19:00 UTC＝台灣隔日 03:00）獨立一次執行，不和通知排程共用子請求額度
     if (_controller.cron === BACKUP_CRON) return ctx.waitUntil(runDailyBackup(env, new Date(_controller.scheduledTime)));
-    // 每 5 分鐘：通知重試；這次沒有積壓才補發回應遺失訂單的建單通知，兩者不在同一次執行搶子請求額度
+    // 每 5 分鐘：通知重試，剩下的子請求額度（Workers Free 每次 50）補發回應遺失訂單的建單通知
     const task = _controller.cron === "*/5 * * * *"
       ? retryDueNotificationDeliveries(env)
-        .then((retried) => (retried === 0 ? notifyMissedCreatedOrders(env, new Date(_controller.scheduledTime)) : undefined))
+        .then((retried) => notifyMissedCreatedOrders(env, scheduledSweepBudget(retried), new Date(_controller.scheduledTime)))
+        .then(() => undefined)
         .catch((error) => console.error("通知重試或建單通知補發失敗", error))
       // 每小時：通知排程，並補齊尚未記錄寬高的商品主圖（補完後只剩一次查詢）
       : Promise.all([retryDueNotificationDeliveries(env), runScheduledNotifications(env), backfillProductImageDimensions(env).catch((error) => console.error("商品主圖寬高補齊失敗", error))]).then(() => undefined);
