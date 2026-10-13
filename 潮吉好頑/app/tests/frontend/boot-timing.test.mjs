@@ -1,7 +1,7 @@
 // 開機計時（?cj_timing=1）：機房代碼、同源 JS 的重驗證／下載／快取統計、追蹤請求耗時、歷次中位數與報告格式。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { coloFromRay, formatBootReport, historyMedians, requestDurations, summarizeScripts } from "../../public/boot-timing.js";
+import { coloFromRay, formatBootReport, historyMedians, parseHistory, requestDurations, summarizeScripts } from "../../public/boot-timing.js";
 
 const ORIGIN = "https://shop.test";
 const entry = (name, startTime, responseEnd, transferSize = 500, encodedBodySize = 4000) => ({ name, startTime, responseEnd, transferSize, encodedBodySize });
@@ -44,6 +44,15 @@ test("history medians skip runs missing a phase", () => {
     ["登入", 2000],
     ["就緒", 3500]
   ]);
+});
+
+test("stored history drops invalid counts and times instead of trusting them", () => {
+  assert.deepEqual(parseHistory('{"total":-5,"runs":[{"遮罩":-1000},{"遮罩":1200,"登入":"x","其他":5},null]}'), {
+    total: 3,
+    runs: [{}, { 遮罩: 1200 }, {}]
+  });
+  assert.deepEqual(parseHistory("not json"), { total: 0, runs: [] });
+  assert.deepEqual(parseHistory(null), { total: 0, runs: [] });
 });
 
 test("the report fits a phone screen: short labels, 4 items per line, P50 across runs", () => {

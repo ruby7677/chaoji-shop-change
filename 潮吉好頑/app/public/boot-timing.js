@@ -131,10 +131,27 @@ export function formatBootReport({ marks: phaseMarks, notes: responseNotes, scri
   return lines.join("\n");
 }
 
+const isTime = (value) => Number.isSafeInteger(value) && value >= 0;
+
+/** 只保留合法的關鍵時間點；格式不對的歷史（手動改過、舊版資料）當作沒有。 */
+export function parseHistory(raw) {
+  try {
+    const parsed = JSON.parse(raw || "{}");
+    const total = isTime(parsed?.total) ? parsed.total : 0;
+    const runs = (Array.isArray(parsed?.runs) ? parsed.runs : []).slice(-HISTORY_LIMIT).map((run) => {
+      const clean = {};
+      for (const phase of SUMMARY_PHASES) if (isTime(run?.[phase])) clean[phase] = run[phase];
+      return clean;
+    });
+    return { total: Math.max(total, runs.length), runs };
+  } catch {
+    return { total: 0, runs: [] };
+  }
+}
+
 function readHistory() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(HISTORY_KEY) || "{}");
-    return { total: Number(parsed.total) || 0, runs: Array.isArray(parsed.runs) ? parsed.runs : [] };
+    return parseHistory(localStorage.getItem(HISTORY_KEY));
   } catch {
     return { total: 0, runs: [] };
   }
