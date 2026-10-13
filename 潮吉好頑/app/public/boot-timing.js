@@ -41,7 +41,8 @@ export function markBoot(label) {
 /** 記下 Worker 回應的狀態碼與執行機房；同一標籤可記多次（例如登入恢復重試）。 */
 export function noteBootResponse(label, response) {
   if (!enabled || !response) return;
-  notes.push(`${label}：HTTP ${response.status}・機房 ${coloFromRay(response.headers.get("cf-ray"))}`);
+  try { notes.push(`${label}：HTTP ${response.status}・機房 ${coloFromRay(response.headers.get("cf-ray"))}`); }
+  catch { /* 除錯工具出錯不能影響開機 */ }
 }
 
 export function noteBoot(text) {
@@ -112,15 +113,20 @@ let reported = false;
 export function reportBootTiming() {
   if (!enabled || reported || !marks.length) return;
   reported = true;
-  const entries = performance.getEntriesByType("resource");
-  const text = formatBootReport({
-    marks,
-    notes,
-    scripts: summarizeScripts(entries, location.origin),
-    requests: requestLines(entries),
-    openCount: nextOpenCount(),
-    navigationType: performance.getEntriesByType("navigation")[0]?.type || "unknown"
-  });
-  console.info(text);
-  window.alert(text);
+  // 除錯工具出錯（舊版 WebView 缺少 Performance API 等）不能讓開機流程變成失敗
+  try {
+    const entries = performance.getEntriesByType("resource");
+    const text = formatBootReport({
+      marks,
+      notes,
+      scripts: summarizeScripts(entries, location.origin),
+      requests: requestLines(entries),
+      openCount: nextOpenCount(),
+      navigationType: performance.getEntriesByType("navigation")[0]?.type || "unknown"
+    });
+    console.info(text);
+    window.alert(text);
+  } catch (error) {
+    console.warn("開機計時報告失敗", error);
+  }
 }
