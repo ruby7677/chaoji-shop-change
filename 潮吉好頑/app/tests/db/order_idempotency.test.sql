@@ -76,6 +76,7 @@ select tests.seed();
 select tests.login(tests.id('member_a'));
 create temp table t_first on commit drop as
   select tests.place_keyed(tests.id('variant_stock'), 1, '55555555-5555-4555-8555-555555555555') as id;
+grant select on t_first to public;
 select tests.logout();
 select tests.as_service();
 select public.admin_transition_order(tests.id('admin'), (select id from t_first), 'cancelled', '測試取消', 0);
