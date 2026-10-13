@@ -5,6 +5,7 @@ import { auth, showToast, syncPageScrollLock } from "./app-core.js";
 import { catalogLoaded, products } from "./storefront-catalog.js";
 import { activeCheckoutItems, activeCheckoutScope, openCheckout } from "./checkout-flow.js";
 import { cvsFeeHint, cvsFeeRule } from "./cvs-delivery.js";
+import { createCartSyncRetry } from "./cart-sync-retry.js";
 import { markCartGuestStart, planLoginCart, readCartOwner, readStoredCartItems, shrinkBaseToCart, shrinkCartGuestBase, writeCartOwner } from "./cart-merge.js";
 
 export const cart = [];
@@ -25,11 +26,14 @@ let cartSyncGeneration = 0;
 // 首次載入雲端購物車失敗時為 true：之後加入／移除商品或結帳時會重試合併，成功後才恢復同步
 let memberCartLoadFailed = false;
 let memberCartLoadInFlight = null;
+// 同步失敗時保留未送出的內容並自動重試，避免已在別台裝置結帳的商品留在雲端購物車
+const cartSyncRetry = createCartSyncRetry({ run: () => { runMemberCartSync({ silent: true }).catch(() => {}); } });
 
 // 登出或切換會員時清除購物車同步對象（登入模組不能直接重新指定這個 let）
 export function forgetCartSyncUser() {
   cartSyncUserId = null;
   memberCartLoadFailed = false;
+  cartSyncRetry.reset();
   // 用儲存裡未裁切的內容：開機早期（還原購物車前）記憶體中的 cart 可能還是空的。
   // 背景登入期間改用開放購物前固定的基準，客人在這段時間加入的商品才不會被當成舊會員的內容排除
   markCartGuestStart(bootCartBaseline ?? (storedCartStale ? null : readStoredCartItems()) ?? cartPayload(cart));
@@ -58,6 +62,7 @@ export function resetMemberCartSyncState() {
   cartSyncInFlight = null;
   cartSyncUserId = null;
   memberCartLoadFailed = false;
+  cartSyncRetry.reset();
 }
 
 try {
@@ -229,10 +234,15 @@ function runMemberCartSync({ silent = false } = {}) {
       try {
         await replaceMemberCartOnServer(snapshot);
       } catch (error) {
-        if (!silent && cartSyncGeneration === generation && auth.user?.id === userId) showToast(error.message || "會員購物車同步失敗，稍後會再試", "warning");
+        if (cartSyncGeneration !== generation || auth.user?.id !== userId) return;
+        // 沒有更新的內容在排隊時放回這次的內容，重試才會送出
+        if (!pendingCartSnapshot) { pendingCartSnapshot = snapshot; pendingCartHash = hash; }
+        cartSyncRetry.schedule();
+        if (!silent) showToast(error.message || "會員購物車同步失敗，稍後會再試", "warning");
         return;
       }
       if (cartSyncGeneration === generation && auth.user?.id === userId) {
+        cartSyncRetry.reset();
         lastSyncedCartHash = hash;
         writeCartOwner(userId, cartPayload(snapshot));
       }

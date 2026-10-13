@@ -17,10 +17,17 @@ globalThis.caches ??= { default: { delete: async () => true } };
 const orderRow = { id: ORDER_ID, order_number: "CJ-1", status: "pending_payment", delivery_method: "store_pickup", bank_account_id: BANK_ID, subtotal: 500, coupon_discount: 0, point_discount: 0, shipping_fee: 0, amount_due: 500, deposit_due: 500, order_items: [] };
 
 let rpcBodies = [];
+let cartDeletes = [];
 
-function fakeSupabase({ ordersStatus = 200, bankStatus = 200 } = {}) {
+function fakeSupabase({ ordersStatus = 200, bankStatus = 200, rpcStatus = 200, cartStatus = 204 } = {}) {
   rpcBodies = [];
-  restoreFetch = stubFetch((url, _init, body) => {
+  cartDeletes = [];
+  restoreFetch = stubFetch((url, init, body) => {
+    if (url.pathname === "/rest/v1/member_cart_items") {
+      cartDeletes.push({ method: init?.method, member: url.searchParams.get("member_id"), variants: url.searchParams.get("variant_id"), auth: new Headers(init?.headers).get("Authorization") });
+      return new Response(null, { status: cartStatus });
+    }
+    if (url.pathname === "/rest/v1/rpc/create_delivery_order" && rpcStatus !== 200) return jsonResponse({ code: "P0001", message: "OUT_OF_STOCK" }, rpcStatus);
     if (url.pathname === "/auth/v1/user") return jsonResponse({ id: MEMBER_ID, identities: [{ provider: "custom:line-web", identity_data: { sub: LINE_ID } }] });
     if (url.pathname === "/rest/v1/rpc/create_delivery_order") { rpcBodies.push(body); return jsonResponse(ORDER_ID); }
     if (url.pathname === "/rest/v1/orders") return ordersStatus === 200 ? jsonResponse([orderRow]) : jsonResponse({ message: "down" }, ordersStatus);
@@ -108,4 +115,22 @@ test("an order created without readable details still triggers the created notif
   assert.equal((await response.json()).order, null);
   await context.settle();
   assert.deepEqual(notificationReads, [`eq.${ORDER_ID}`], "the created notification loads the order by its id");
+});
+
+test("a created order removes its variants from the member's cloud cart as that member", async () => {
+  fakeSupabase();
+  assert.equal((await createOrder()).status, 201);
+  assert.deepEqual(cartDeletes, [{ method: "DELETE", member: `eq.${MEMBER_ID}`, variants: `in.(${VARIANT_ID})`, auth: "Bearer member-access-token" }]);
+});
+
+test("a cloud cart cleanup failure does not fail the created order", async () => {
+  fakeSupabase({ cartStatus: 503 });
+  assert.equal((await createOrder()).status, 201);
+  assert.equal(cartDeletes.length, 1);
+});
+
+test("a rejected order leaves the cloud cart untouched", async () => {
+  fakeSupabase({ rpcStatus: 400 });
+  assert.notEqual((await createOrder()).status, 201);
+  assert.deepEqual(cartDeletes, []);
 });

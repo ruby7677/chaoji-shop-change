@@ -225,6 +225,17 @@ export async function memberLineFriendship(request: Request, env: Env): Promise<
   return json({ error: "LINE 好友狀態暫時無法確認" }, { status: 503 });
 }
 
+/** 建單成功後由伺服器移除雲端購物車中已下單的規格：前台同步失敗時，其他裝置也不會再看到已購買的商品。失敗不影響建單結果。 */
+async function removeOrderedCartItems(env: Env, memberId: string, authorization: string, variantIds: string[]) {
+  const url = new URL(`${env.SUPABASE_URL}/rest/v1/member_cart_items`);
+  url.searchParams.set("member_id", `eq.${memberId}`);
+  url.searchParams.set("variant_id", `in.(${variantIds.join(",")})`);
+  await fetchWithTimeout(url, {
+    method: "DELETE",
+    headers: { apikey: env.SUPABASE_ANON_KEY as string, Authorization: authorization, Prefer: "return=minimal" }
+  }).catch(() => undefined);
+}
+
 export async function createOrder(request: Request, env: Env): Promise<Response> {
   const authResult = await requireUser(request, env);
   if (authResult instanceof Response) return authResult;
@@ -300,6 +311,7 @@ export async function createOrder(request: Request, env: Env): Promise<Response>
   // 建單會保留庫存，前台型錄的可售量隨之減少
   await invalidateCatalogCache(request);
   const orderId = await response.json() as string;
+  await removeOrderedCartItems(env, user.id, authorization, [...variantIds]);
   // 回讀逾時或網路例外也收斂成 null：訂單已建立，不能讓外層錯誤處理回 503
   const order = await loadOrder(env, orderId, user.id, authorization).catch(() => null);
   // 訂單已建立：明細讀不到也回 201，前端改導向我的訂單，避免客人以為失敗而重新下單。
