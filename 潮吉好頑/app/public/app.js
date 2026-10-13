@@ -1,5 +1,6 @@
 import { canRequestLineFriendship, liffState, preloadLiffSdk } from "./liff-auth.js";
 import { createProductPage } from "./product-page.js";
+import { createVariantSheet } from "./variant-sheet.js";
 import { initAnchorScroll, scrollToAnchor } from "./anchor-scroll.js";
 import { initAuthExpiry } from "./auth-expiry.js";
 import { initAdminTab, openAdminFromRoute, openAdminInNewTab } from "./admin-tab.js";
@@ -102,6 +103,16 @@ export const productPage = createProductPage({
   showToast,
   showDialog,
   closeDialog
+});
+createVariantSheet({
+  getProducts: () => products,
+  addToCart: addVariantQuantityToCart,
+  buyNow: buyNowVariant,
+  openProduct: (productId, variantId) => productPage.open(productId, variantId),
+  showToast,
+  showDialog,
+  closeDialog,
+  syncScrollLock: syncPageScrollLock
 });
 initAdminTab({
   isLiffClient: () => Boolean(liffState.isInClient),

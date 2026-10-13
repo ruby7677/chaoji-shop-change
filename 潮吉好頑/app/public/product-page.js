@@ -280,8 +280,8 @@ export function createProductPage(deps) {
       return;
     }
     // 商品卡的圖片與名稱也能進入商品頁。名稱連結的一般點擊改走站內切換；
-    // Ctrl／Cmd／Shift／中鍵點擊交給瀏覽器另開分頁。
-    const cardTarget = event.target.closest(".product-card .product-image, .product-card h3, .product-card [data-choose-variant]");
+    // Ctrl／Cmd／Shift／中鍵點擊交給瀏覽器另開分頁。多規格卡的「選擇規格」改開快速選購面板（variant-sheet.js）。
+    const cardTarget = event.target.closest(".product-card .product-image, .product-card h3");
     if (cardTarget && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0)) return;
     const variantId = cardTarget?.closest(".product-card")?.dataset.productId;
     const variant = variantId && deps.getProducts().find((item) => item.id === variantId);

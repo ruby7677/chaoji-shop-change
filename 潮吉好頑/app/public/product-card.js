@@ -31,7 +31,7 @@ export function productCardMarkup(product) {
 function cardActionsMarkup(product) {
   const id = escapeHtml(product.id);
   const soldOut = Number(product.stock || 0) <= 0;
-  // 多規格商品（product-groups.js 合併的卡）：到商品頁選規格，不直接加入
+  // 多規格商品（product-groups.js 合併的卡）：開快速選購面板選規格（variant-sheet.js）
   if (product.variant_count > 1) return `<div class="card-actions"><button type="button" class="card-choose-variant" data-choose-variant="${id}">${soldOut ? "查看規格" : "選擇規格"}</button></div>`;
   return `<div class="card-actions"><button type="button" data-add="${id}" ${soldOut ? "disabled" : ""}>加入購物車</button><button type="button" class="detail-button buy-now-button" data-buy-now="${id}" ${soldOut ? "disabled" : ""}>${soldOut ? "已售完" : "直接購買"}</button></div>`;
 }

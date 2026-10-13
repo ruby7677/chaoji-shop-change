@@ -33,6 +33,34 @@
 .pp-option.is-sold-out span { color: var(--home-muted); text-decoration: line-through; text-decoration-thickness: 1px; }
 .pp-option.is-sold-out:has(input:checked) span { color: rgba(255, 255, 255, .8); }
 
+/* ---------- 快速選購面板（variant-sheet.js）：桌機置中小視窗，手機改為底部面板 ---------- */
+dialog.variant-sheet { width: min(440px, calc(100% - 28px)); }
+dialog.variant-sheet:focus { outline: none; }
+.vs-panel { display: grid; gap: 16px; max-height: calc(100dvh - 24px); padding: 18px; overflow-y: auto; overscroll-behavior-y: contain; }
+.vs-panel > .dialog-close { margin-bottom: -50px; }
+.vs-head { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 14px; align-items: start; padding-right: 36px; }
+.vs-thumb { width: 84px; height: 84px; border-radius: 10px; background: #f4f4f1; object-fit: cover; }
+.vs-thumb-empty { display: grid; place-items: center; color: var(--home-muted); font-weight: 800; }
+.vs-head-text { display: grid; gap: 4px; min-width: 0; }
+.vs-head-text h2 { margin: 0; font-size: 1rem; line-height: 1.4; }
+.vs-head-text .price { font-size: 1.15rem; }
+.vs-stock { margin: 0; color: var(--home-muted); font-size: .85rem; }
+.vs-options .pp-option-list { max-height: 40dvh; overflow-y: auto; }
+.vs-qty { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-weight: 800; }
+.vs-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.vs-actions > :only-child { grid-column: 1 / -1; }
+.vs-actions button { min-height: 48px; font-size: .95rem; }
+.vs-actions button:disabled { opacity: .45; cursor: default; }
+.vs-detail-link { justify-self: center; color: var(--home-muted); font-size: .85rem; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+
+@media (max-width: 760px) {
+  dialog.variant-sheet { width: 100%; max-width: 100%; margin: auto 0 0; border-radius: 16px 16px 0 0; }
+  dialog.variant-sheet[open] { animation: vs-slide-up .22s ease-out; }
+  .vs-panel { max-height: 85dvh; padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+}
+@keyframes vs-slide-up { from { transform: translateY(100%); } to { transform: none; } }
+
 @media (prefers-reduced-motion: reduce) {
   .pp-option { transition: none; }
+  dialog.variant-sheet[open] { animation: none; }
 }
