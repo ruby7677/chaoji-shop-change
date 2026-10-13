@@ -300,7 +300,8 @@ export async function createOrder(request: Request, env: Env): Promise<Response>
   // 建單會保留庫存，前台型錄的可售量隨之減少
   await invalidateCatalogCache(request);
   const orderId = await response.json() as string;
-  const order = await loadOrder(env, orderId, user.id, authorization);
+  // 回讀逾時或網路例外也收斂成 null：訂單已建立，不能讓外層錯誤處理回 503
+  const order = await loadOrder(env, orderId, user.id, authorization).catch(() => null);
   // 訂單已建立：明細讀不到也回 201，前端改導向我的訂單，避免客人以為失敗而重新下單。
   if (!order) return json({ order: null, order_id: orderId, detail_unavailable: true }, { status: 201 });
   return json({ order }, { status: 201 });

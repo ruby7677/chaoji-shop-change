@@ -30,7 +30,11 @@ export async function openCheckout(scope = null) {
   activeCheckoutScope = resolvedScope;
   activeCheckoutItems = scopedItems.slice();
   // 開機時會員資料暫時載入失敗（登入仍保留）：結帳前再載入一次，不直接導去 LINE 登入
-  if (auth.accessToken && !auth.user) await loadMember();
+  if (auth.accessToken && !auth.user) {
+    await loadMember();
+    // 仍是暫時故障（登入保留、會員資料未載入）：留在原頁，確定被拒時 loadMember 會清除登入再走下一行
+    if (auth.accessToken && !auth.user) return showToast("會員資料暫時無法載入，請稍後再試", "warning");
+  }
   if (!auth.accessToken || !auth.user) return beginLineLogin();
   // 會員購物車沒合併成功（網路中斷或逾時）就不結帳，避免事後合併把已購商品加回購物車；再按一次會重試
   if (!memberCartSettled) return showToast("購物車還在與會員資料同步，請稍後再按一次結帳；持續失敗請重新整理頁面", "warning");

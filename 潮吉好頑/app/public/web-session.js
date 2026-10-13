@@ -26,10 +26,6 @@ async function send(path, body) {
   }
 }
 
-async function post(path, body) {
-  return (await send(path, body)).session;
-}
-
 export function hasWebSession() {
   try { return document.cookie.split(";").some((part) => part.trim() === HINT_COOKIE); }
   catch { return false; }
@@ -41,12 +37,17 @@ export function startWebSession(refreshToken) {
   return send("/api/auth/web-session/start", { refresh_token: refreshToken });
 }
 
-// 同一分頁合併重複呼叫；跨分頁以 Web Locks 排隊，避免多個分頁同時用同一個 refresh token 換發
-export function refreshWebSession() {
-  if (!hasWebSession()) return Promise.resolve(null);
+// 回傳 { session, retryable }。同一分頁合併重複呼叫；跨分頁以 Web Locks 排隊，避免多個分頁同時用同一個 refresh token 換發
+export function refreshWebSessionOutcome() {
+  if (!hasWebSession()) return Promise.resolve({ session: null, retryable: false });
   refreshInFlight ||= (navigator.locks?.request
-    ? navigator.locks.request(LOCK_NAME, () => post("/api/auth/web-session/refresh"))
-    : post("/api/auth/web-session/refresh")
+    ? navigator.locks.request(LOCK_NAME, () => send("/api/auth/web-session/refresh"))
+    : send("/api/auth/web-session/refresh")
   ).finally(() => { refreshInFlight = null; });
   return refreshInFlight;
+}
+
+// 只需要結果的呼叫端（開機、獨立訂單頁）：回傳 session 或 null
+export async function refreshWebSession() {
+  return (await refreshWebSessionOutcome()).session;
 }

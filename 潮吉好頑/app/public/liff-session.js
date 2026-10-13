@@ -1,7 +1,7 @@
 // 登入工作階段：執行設定、LIFF 啟動情境判斷、登入回呼擷取、session 保存／還原（LIFF vault 與一般瀏覽器 HttpOnly cookie）與 LIFF 橋接。
 import { initializeLiffClient, liffState } from "./liff-auth.js";
 import { accessTokenExpiresSoon } from "./auth-expiry.js";
-import { refreshWebSession, startWebSession } from "./web-session.js";
+import { refreshWebSession, refreshWebSessionOutcome, startWebSession } from "./web-session.js";
 import { auth } from "./app-core.js";
 import { forgetCartSyncUser } from "./cart.js";
 import { clearMemberStateCache } from "./member-benefits.js";
@@ -230,21 +230,26 @@ async function requestPersistentRestore() {
   return { outcome: "restored", result };
 }
 
-export async function restorePersistentLiffSession() {
-  if (!liffState.isInClient || !liffState.idToken) return false;
+// 回傳 "restored"、"failed"（確定無法恢復）或 "retry"（重試一次後仍是網路、限流或服務暫時故障）
+export async function renewLiffSession() {
+  if (!liffState.isInClient || !liffState.idToken) return "failed";
   let attempt = await requestPersistentRestore();
   if (attempt.outcome === "retry") {
     await new Promise((resolve) => setTimeout(resolve, RESTORE_RETRY_DELAY_MS));
     attempt = await requestPersistentRestore();
   }
-  if (attempt.outcome !== "restored") return false;
+  if (attempt.outcome !== "restored") return attempt.outcome;
   const { result } = attempt;
   auth.accessToken = result.access_token;
   auth.refreshToken = null;
   auth.lineProviderToken = null;
   liffSessionMatches = true;
   persistEphemeralAuthSession({ includeRefresh: false });
-  return true;
+  return "restored";
+}
+
+export async function restorePersistentLiffSession() {
+  return (await renewLiffSession()) === "restored";
 }
 
 // 一般瀏覽器：refresh token 只在 OAuth 回來當下交給 Worker 保存（web-session.js），前端不再留存
@@ -268,11 +273,25 @@ export async function ensureWebSession() {
   if (refreshed) applyWebSession(refreshed);
 }
 
-export async function restoreWebSession() {
-  const refreshed = await refreshWebSession();
-  if (!refreshed || (auth.user?.id && refreshed.user_id !== auth.user.id)) return false;
-  applyWebSession(refreshed);
-  return true;
+// 回傳 "restored"、"failed"（確定失效）或 "retry"（網路、限流、服務暫時故障）
+export async function renewWebSession() {
+  // OAuth 回來當下交給 Worker 暫時失敗而保留的 refresh token：先完成 start，再談 cookie 續期
+  if (auth.refreshToken) {
+    const started = await startWebSession(auth.refreshToken);
+    if (started.session) return acceptWebSession(started.session);
+    if (started.retryable) return "retry";
+    auth.refreshToken = null;
+    persistEphemeralAuthSession({ includeRefresh: false });
+  }
+  const { session, retryable } = await refreshWebSessionOutcome();
+  if (session) return acceptWebSession(session);
+  return retryable ? "retry" : "failed";
+}
+
+function acceptWebSession(session) {
+  if (auth.user?.id && session.user_id !== auth.user.id) return "failed";
+  applyWebSession(session);
+  return "restored";
 }
 
 async function forgetPersistentLiffSession() {

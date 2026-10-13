@@ -64,6 +64,14 @@ test("a failed renewal resolves to null", async () => {
   assert.equal(await webSession.refreshWebSession(), null);
 });
 
+for (const [status, retryable] of [[503, true], [429, true], [401, false]]) {
+  test(`a ${status} renewal reports retryable=${retryable} so expiry handling can keep the session`, async () => {
+    document.cookie = "__Host-cj-web-hint=1";
+    reply = { status, body: { error: "x" } };
+    assert.deepEqual(await webSession.refreshWebSessionOutcome(), { session: null, retryable });
+  });
+}
+
 test("startWebSession posts the OAuth refresh token once and ignores empty input", async () => {
   assert.deepEqual(await webSession.startWebSession(null), { session: null, retryable: false });
   assert.equal(fetches.length, 0);
@@ -96,7 +104,7 @@ test("auth-expiry renews early, keeps a still-valid session on a failed early re
   authExpiry.initAuthExpiry({
     getAccessToken: () => token,
     tryRestore: async () => {
-      if (restoreResult) token = jwt(nowSeconds() + 7200);
+      if (restoreResult === true) token = jwt(nowSeconds() + 7200);
       return restoreResult;
     },
     clearSession: () => { cleared += 1; token = null; },
@@ -127,6 +135,20 @@ test("auth-expiry renews early, keeps a still-valid session on a failed early re
   assert.equal(cleared, 1, "an API 401 logs out when renewal fails even if the clock says valid");
   assert.ok(toasts.includes("登入已過期，請重新登入"));
 
+  // 暫時故障（"retry"）：token 已到期也不登出，提示一次並排程重試
+  token = jwt(nowSeconds() - 10);
+  restoreResult = "retry";
+  await authExpiry.handleSessionExpired();
+  assert.equal(cleared, 1, "a temporary renewal failure keeps the session");
+  assert.equal(timers.at(-1).ms, authExpiry.RENEW_RETRY_MS, "the renewal is retried later");
+  await authExpiry.handleSessionExpired();
+  assert.equal(toasts.filter((message) => message.includes("稍後會自動重試")).length, 1, "the retry notice is shown once");
+  restoreResult = true;
+  await authExpiry.handleSessionExpired();
+  assert.equal(cleared, 1);
+  assert.equal(authExpiry.accessTokenExpiresSoon(token), false, "a later successful retry restores the session");
+
+  restoreResult = false;
   token = jwt(nowSeconds() - 10);
   listeners.visibilitychange();
   await new Promise((resolve) => setTimeout(resolve, 20));

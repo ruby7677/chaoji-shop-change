@@ -17,13 +17,24 @@ test("loadMember logs out only when Supabase rejects the token", async () => {
 
 test("ensureWebSession drops the OAuth refresh token only on a definite rejection", async () => {
   const source = await read("liff-session.js");
-  const body = source.slice(source.indexOf("export async function ensureWebSession()"), source.indexOf("export async function restoreWebSession()"));
+  const body = source.slice(source.indexOf("export async function ensureWebSession()"), source.indexOf("export async function renewWebSession()"));
   assert.match(body, /else if \(!retryable\) \{ auth\.refreshToken = null;/);
 });
 
 test("checkout retries a member load that failed temporarily before sending the member to LINE login", async () => {
   const source = await read("checkout-flow.js");
   const body = source.slice(source.indexOf("export async function openCheckout"), source.indexOf("export function showCheckoutError"));
-  assert.ok(body.indexOf("if (auth.accessToken && !auth.user) await loadMember();") >= 0);
+  assert.ok(body.indexOf("await loadMember();") >= 0);
   assert.ok(body.indexOf("await loadMember()") < body.indexOf("return beginLineLogin()"), "the retry runs before the login redirect");
+  const afterReload = body.slice(body.indexOf("await loadMember();"), body.indexOf("return beginLineLogin()"));
+  assert.ok(afterReload.includes('if (auth.accessToken && !auth.user) return showToast("會員資料暫時無法載入，請稍後再試", "warning");'), "a second temporary failure stays on the page");
+});
+
+test("expiry handling receives restored, failed or retry instead of a boolean", async () => {
+  const app = await read("app.js");
+  assert.ok(app.includes("tryRestore: () => (liffState.isInClient ? renewLiffSession() : renewWebSession()),"));
+  const source = await read("liff-session.js");
+  const web = source.slice(source.indexOf("export async function renewWebSession()"), source.indexOf("function acceptWebSession"));
+  assert.ok(web.indexOf("const started = await startWebSession(auth.refreshToken);") < web.indexOf("await refreshWebSessionOutcome()"), "a kept OAuth token is handed to start first");
+  assert.ok(web.includes('return retryable ? "retry" : "failed";'));
 });

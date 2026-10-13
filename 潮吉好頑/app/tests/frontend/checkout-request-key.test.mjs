@@ -56,3 +56,13 @@ test("unavailable storage still yields a key without throwing", () => {
   assert.equal(checkoutRequestKey("{}", { storage: broken, randomUUID: () => "fresh" }), "fresh");
   assert.doesNotThrow(() => clearCheckoutRequestKey({ storage: broken }));
 });
+
+test("without usable storage a same-page retry still reuses the key", () => {
+  const broken = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); }, removeItem() { throw new Error("blocked"); } };
+  const randomUUID = sequence();
+  const body = JSON.stringify({ items: [{ variant_id: "b", quantity: 3 }] });
+  const first = checkoutRequestKey(body, { storage: broken, randomUUID });
+  assert.equal(checkoutRequestKey(body, { storage: broken, randomUUID }), first);
+  clearCheckoutRequestKey({ storage: broken });
+  assert.notEqual(checkoutRequestKey(body, { storage: broken, randomUUID }), first, "a successful order still clears the in-page key");
+});

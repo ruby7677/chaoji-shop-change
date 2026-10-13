@@ -16,7 +16,7 @@ import { failAuthBoot, finishAuthBoot, startAuthBoot } from "./auth-boot.js";
 import { restoreAuthReturnState } from "./auth-return-state.js";
 import { activeCheckoutScope, openCheckout, showCheckoutError, submitOrder } from "./checkout-flow.js";
 import { applyCheckoutCoupon, handleCouponInputChange, removeCheckoutCoupon } from "./checkout-coupon.js";
-import { LIFF_AUTO_CALLBACK_PARAM, captureAuthSession, clearLiffLaunchContext, clearStoredAuthSession, ensureWebSession, hasLiffLaunchIntent, hasLiffPrimaryRedirectParams, initializeLiffBridge, initializeLiffStage, liffPrimaryRedirectPending, loadRuntimeConfig, readLiffLaunchContext, restorePersistentLiffSession, restoreWebSession } from "./liff-session.js";
+import { LIFF_AUTO_CALLBACK_PARAM, captureAuthSession, clearLiffLaunchContext, clearStoredAuthSession, ensureWebSession, hasLiffLaunchIntent, hasLiffPrimaryRedirectParams, initializeLiffBridge, initializeLiffStage, liffPrimaryRedirectPending, loadRuntimeConfig, readLiffLaunchContext, renewLiffSession, renewWebSession } from "./liff-session.js";
 import { beginLineLogin, loadMember, showProfileDialog, submitProfile } from "./member-profile.js";
 import { handleCopyBankAccount } from "./copy-bank-account.js";
 
@@ -124,7 +124,7 @@ initAdminTab({
 initAuthExpiry({
   getAccessToken: () => auth.accessToken,
   // LINE App 內用保存的 LIFF 工作階段、一般瀏覽器用 HttpOnly cookie（web-session.js）換發新 token
-  tryRestore: () => (liffState.isInClient ? restorePersistentLiffSession() : restoreWebSession()),
+  tryRestore: () => (liffState.isInClient ? renewLiffSession() : renewWebSession()),
   clearSession: clearStoredAuthSession,
   closeDialog,
   showToast

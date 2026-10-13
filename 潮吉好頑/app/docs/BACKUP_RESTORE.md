@@ -41,14 +41,16 @@ $env:WRANGLER_WRITE_LOGS='0'; npx wrangler r2 object get chaoji-backups/daily/20
    insert into public._restore_input values (:'snap'::jsonb);
    ```
 
-4. 重建 auth 使用者與 LINE 身分（id 必須與快照相同，`profiles`／`orders` 才對得上）：
+4. 重建 auth 使用者與 LINE 身分（id 必須與快照相同，`profiles`／`orders` 才對得上）。`confirmation_token`、`recovery_token`、`email_change_token_new`、`email_change` 在 Auth schema 沒有預設值，留 NULL 會讓 Auth 讀取該會員時出錯而無法登入，必須填空字串；套用前先以 `select column_name, column_default from information_schema.columns where table_schema = 'auth' and table_name = 'users'` 確認目標專案沒有其他無預設值的必要字串欄位：
 
    ```sql
    begin;
-   insert into auth.users (instance_id, id, aud, role, created_at, updated_at, raw_app_meta_data, raw_user_meta_data)
+   insert into auth.users (instance_id, id, aud, role, created_at, updated_at, raw_app_meta_data, raw_user_meta_data,
+                           confirmation_token, recovery_token, email_change_token_new, email_change)
    select '00000000-0000-0000-0000-000000000000', (u->>'id')::uuid, 'authenticated', 'authenticated',
           (u->>'created_at')::timestamptz, now(),
-          jsonb_build_object('provider', 'custom:line-web', 'providers', jsonb_build_array('custom:line-web')), '{}'::jsonb
+          jsonb_build_object('provider', 'custom:line-web', 'providers', jsonb_build_array('custom:line-web')), '{}'::jsonb,
+          '', '', '', ''
    from public._restore_input, jsonb_array_elements(s->'auth_users') u;
 
    insert into auth.identities (provider_id, user_id, identity_data, provider, created_at, updated_at)
@@ -59,7 +61,7 @@ $env:WRANGLER_WRITE_LOGS='0'; npx wrangler r2 object get chaoji-backups/daily/20
    commit;
    ```
 
-5. 匯入營運資料。`session_replication_role = replica` 暫停觸發器與外鍵檢查（含 audit_logs 不可修改的觸發器），只在這個隔離專案使用：
+5. 匯入營運資料。`session_replication_role = replica` 暫停觸發器與外鍵檢查（含 audit_logs 不可修改的觸發器），只在這個隔離專案使用。它不影響 `truncate` 的外鍵檢查：參照這些表的 `member_cart_items`、`line_low_stock_states`（快照不含、還原後從空開始）必須列在同一個 `truncate`，否則即使是空表也會被拒：
 
    ```sql
    begin;
@@ -67,7 +69,8 @@ $env:WRANGLER_WRITE_LOGS='0'; npx wrangler r2 object get chaoji-backups/daily/20
    truncate public.categories, public.products, public.product_variants, public.product_images, public.profiles,
      public.bank_accounts, public.point_settings, public.birthday_coupon_settings, public.coupons, public.coupon_members,
      public.coupon_products, public.orders, public.order_items, public.order_status_history, public.inventory_reservations,
-     public.inventory_movements, public.point_ledger, public.coupon_redemptions, public.birthday_coupon_issues, public.audit_logs;
+     public.inventory_movements, public.point_ledger, public.coupon_redemptions, public.birthday_coupon_issues, public.audit_logs,
+     public.member_cart_items, public.line_low_stock_states;
    do $$
    declare t text;
    begin

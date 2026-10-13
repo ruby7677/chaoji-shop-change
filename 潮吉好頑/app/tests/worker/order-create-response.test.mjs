@@ -70,3 +70,16 @@ test("a malformed request id is rejected before the database is called", async (
   assert.equal(response.status, 400);
   assert.equal(rpcBodies.length, 0);
 });
+
+test("a network failure while reading the created order back still reports it as created", async () => {
+  rpcBodies = [];
+  restoreFetch = stubFetch((url, _init, body) => {
+    if (url.pathname === "/auth/v1/user") return jsonResponse({ id: MEMBER_ID, identities: [{ provider: "custom:line-web", identity_data: { sub: LINE_ID } }] });
+    if (url.pathname === "/rest/v1/rpc/create_delivery_order") { rpcBodies.push(body); return jsonResponse(ORDER_ID); }
+    if (url.pathname === "/rest/v1/orders") throw new Error("network timeout");
+    return jsonResponse([]);
+  });
+  const response = await createOrder();
+  assert.equal(response.status, 201);
+  assert.deepEqual(await response.json(), { order: null, order_id: ORDER_ID, detail_unavailable: true });
+});

@@ -4,7 +4,10 @@
 // 避免頁首仍顯示會員名稱、但所有會員／後台操作都被拒絕。
 // 提前換發，避免在到期那一刻送出的請求拿到 401
 const RENEW_BEFORE_MS = 60 * 1000;
+// 換發遇到網路、限流或服務暫時故障：保留登入，隔一段時間自動再試
+export const RENEW_RETRY_MS = 30 * 1000;
 let deps = null;
+let retryNoticeShown = false;
 let timer = null;
 let handling = null;
 
@@ -52,17 +55,31 @@ export function handleSessionExpired({ early = false } = {}) {
   if (!deps || !deps.getAccessToken()) return Promise.resolve();
   handling ||= (async () => {
     window.clearTimeout(timer);
-    const restored = await deps.tryRestore().catch(() => false);
+    // tryRestore 回傳 "restored"／"failed"／"retry"（舊介面的 true／false 也接受）；例外視為暫時故障
+    const outcome = await deps.tryRestore().catch(() => "retry");
+    const restored = outcome === true || outcome === "restored";
     if (restored && deps.getAccessToken() && !isExpired(deps.getAccessToken())) {
+      retryNoticeShown = false;
       watchSessionExpiry();
       return;
     }
     const current = deps.getAccessToken();
     const expiresAt = tokenExpiresAt(current);
     if (early && current && expiresAt !== null && Date.now() < expiresAt) {
-      timer = window.setTimeout(() => { void handleSessionExpired(); }, expiresAt - Date.now());
+      timer = window.setTimeout(() => { void handleSessionExpired(); }, Math.min(expiresAt - Date.now(), outcome === "retry" ? RENEW_RETRY_MS : Infinity));
       return;
     }
+    if (outcome === "retry") {
+      // 暫時故障不登出：token 已到期的請求會失敗，但工作階段仍在，稍後自動重試
+      timer = window.setTimeout(() => { void handleSessionExpired(); }, RENEW_RETRY_MS);
+      // 舊 token 仍有效時不打擾；已到期（操作會失敗）才提示一次
+      if (!retryNoticeShown && (!current || isExpired(current))) {
+        deps.showToast("登入續期暫時無法完成，稍後會自動重試", "warning");
+        retryNoticeShown = true;
+      }
+      return;
+    }
+    retryNoticeShown = false;
     deps.clearSession();
     renderLoggedOut();
     deps.showToast("登入已過期，請重新登入", "warning");
