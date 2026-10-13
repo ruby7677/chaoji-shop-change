@@ -169,7 +169,7 @@ export default {
         .catch((error) => console.error("通知重試或建單通知補發失敗", error))
       // 每小時：通知排程，並補齊尚未記錄寬高的商品主圖（補完後只剩一次查詢）。
       // 通知重試只在 5 分鐘排程執行（整點也會另外觸發一次），不和這裡共用 Workers Free 每次 50 個子請求的額度
-      : Promise.all([runScheduledNotifications(env), backfillProductImageDimensions(env).catch((error) => console.error("商品主圖寬高補齊失敗", error))]).then(() => undefined);
+      : Promise.all([runScheduledNotifications(env, new Date(_controller.scheduledTime)), backfillProductImageDimensions(env).catch((error) => console.error("商品主圖寬高補齊失敗", error))]).then(() => undefined);
     ctx.waitUntil(task);
     // 每日一次唯讀保活（每小時排程在固定時刻觸發），與通知任務互不影響。
     if (_controller.cron !== "*/5 * * * *" && isKeepaliveHour(_controller.scheduledTime)) ctx.waitUntil(pingSupabase(env));

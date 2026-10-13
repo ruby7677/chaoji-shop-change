@@ -183,30 +183,13 @@ async function deliverOrderEvent(
   return { handled, memberReached };
 }
 
-// 低庫存通知最多每 24 小時一次（管理員要求）；期間的變化累積到下一次通知
-export const LOW_STOCK_INTERVAL_MS = 24 * 60 * 60 * 1000;
-
-/** 最近一次低庫存通知是否在 24 小時內；讀不到紀錄時視為「是」，等下一次排程再試。 */
-async function lowStockRecentlyNotified(env: Env, now: Date) {
-  const url = new URL(`${env.SUPABASE_URL}/rest/v1/notification_deliveries`);
-  url.searchParams.set("select", "created_at");
-  url.searchParams.set("channel", "eq.telegram");
-  url.searchParams.set("event_type", "eq.low_stock");
-  url.searchParams.set("created_at", `gt.${new Date(now.getTime() - LOW_STOCK_INTERVAL_MS).toISOString()}`);
-  url.searchParams.set("limit", "1");
-  try {
-    const response = await fetchWithTimeout(url, { headers: serviceHeaders(env) });
-    if (!response.ok) return true;
-    return (await response.json() as unknown[]).length > 0;
-  } catch {
-    return true;
-  }
-}
+// 低庫存通知每個台灣日最多一則（管理員要求）：event key 只帶台灣日期，由通知 claim 原子去重，
+// 並行的排程與後台操作也只會有一方送出。當天已通知後新增的低庫存規格不記錄水位，留到隔天的通知。
+export const LOW_STOCK_DIGEST_TAIPEI_HOUR = 10;
 
 export async function notifyLowStock(env: Env, now = new Date()) {
   const recipients = telegramAdminRecipients(env);
   if (!telegramNotificationEnabled(env) || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !recipients.length) return;
-  if (await lowStockRecentlyNotified(env, now)) return;
   const base = env.SUPABASE_URL;
   const headers = serviceHeaders(env);
   // 低庫存唯一定義在資料庫 low_stock_variants（商品與規格都上架、庫存 ≤ 安全庫存），與後台統計、清單一致。
@@ -230,10 +213,10 @@ export async function notifyLowStock(env: Env, now = new Date()) {
   }
   if (!toNotify.length) return;
   const lines = toNotify.map((variant) => `• ${variant.product_name || "商品"} · ${variant.name}：剩 ${variant.stock_on_hand} 件`);
-  // 以台灣日期去重：同一台灣日內相同庫存狀態只通知一次（原本用 UTC 日期，台灣早上 8 點才換日）。
-  const eventKey = `low-stock:${taipeiDate(now)}:${toNotify.map((item) => `${item.id}-${item.stock_on_hand}`).join(",")}`;
-  const sent = await Promise.all(recipients.map((chatId) => notifyTelegram(env, eventKey, chatId, "low_stock", buildLowStockMessage(env.STORE_NAME, lines))));
-  if (sent.some((result) => result.sent)) {
+  const eventKey = `low-stock:${taipeiDate(now)}`;
+  const results = await Promise.all(recipients.map((chatId) => notifyTelegram(env, eventKey, chatId, "low_stock", buildLowStockMessage(env.STORE_NAME, lines))));
+  // 只有取得今天這則通知的一方記錄水位（送出或排入重試）；今天已由別次送出時，這些規格留到隔天
+  if (results.some((result) => result.claimed && !result.failed)) {
     // 一次寫回所有規格的通知水位（批次 upsert），不因規格數量增加子請求
     const notifiedAt = now.toISOString();
     await fetchWithTimeout(`${base}/rest/v1/line_low_stock_states?on_conflict=variant_id`, {
@@ -340,8 +323,13 @@ async function notifyRecentlyCancelledOrders(env: Env) {
   }
 }
 
-export async function runScheduledNotifications(env: Env) {
+export async function runScheduledNotifications(env: Env, now = new Date()) {
   await notifyRecentlyCancelledOrders(env);
   await notifyBirthdayCoupons(env);
-  await notifyLowStock(env);
+  // 每小時排程只在台灣 10 點補檢查一次低庫存（庫存異動時後台路由已即時檢查），也讓其他整點少用子請求
+  if (taipeiHour(now) === LOW_STOCK_DIGEST_TAIPEI_HOUR) await notifyLowStock(env, now);
+}
+
+function taipeiHour(date: Date) {
+  return Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", hour: "2-digit", hourCycle: "h23" }).format(date));
 }

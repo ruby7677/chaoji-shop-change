@@ -52,7 +52,7 @@ function fakeSupabase(orders) {
 
 async function runHourly() {
   const context = ctx();
-  worker.scheduled({ cron: "0 * * * *" }, baseEnv, context);
+  worker.scheduled({ cron: "0 * * * *", scheduledTime: Date.UTC(2026, 9, 13, 5) }, baseEnv, context);
   await context.settle();
 }
 

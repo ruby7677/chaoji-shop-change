@@ -35,7 +35,7 @@ type DeliveryAttempt = {
  * by the retry cron, or the channel is disabled; false only when no claim row
  * could be recorded, so the event must be offered again later.
  */
-export type DeliveryResult = { sent: boolean; handled: boolean; failed?: true };
+export type DeliveryResult = { sent: boolean; handled: boolean; failed?: true; claimed?: true };
 
 /** `failed`: the provider rejected the message for good, so no retry will deliver it. */
 function claimResult(attempt: DeliveryAttempt): DeliveryResult {
@@ -317,7 +317,8 @@ export async function deliverTelegramNotification(
   const claim = await claimNotification(env, "telegram", eventKey, recipientId, eventType, { text: message.slice(0, 4096) });
   if (!claim) return { sent: false, handled: false };
   if (!claim.claimed) return { sent: claim.status === "sent", handled: true };
-  return claimResult(await deliverClaim(env, "telegram", claim, recipientId));
+  // claimed：這次呼叫取得並送出（或排入重試）這則通知；同一 event key 已被別人處理時不帶
+  return { ...claimResult(await deliverClaim(env, "telegram", claim, recipientId)), claimed: true };
 }
 
 // Workers Free 每次執行最多 50 個子請求：每筆補送最多 3 次（讀訂單確認未過期、送出、完成），兩個管道各 5 筆約 32 次
