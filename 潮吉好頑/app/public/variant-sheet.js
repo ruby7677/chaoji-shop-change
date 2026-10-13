@@ -6,6 +6,7 @@ import { productPageHref } from "./product-card.js";
 
 export function createVariantSheet(deps) {
   const dialog = document.querySelector("#variant-sheet");
+  const panel = dialog?.querySelector("[data-vs-panel]");
   let state = null;
 
   const selected = () => state?.variants.find((variant) => variant.id === state.variantId);
@@ -29,12 +30,13 @@ export function createVariantSheet(deps) {
     state.quantity = Math.min(Math.max(state.quantity, 1), Math.max(max, 1));
     const name = variant.product_name || variant.name;
     const disabled = max > 0 ? "" : "disabled";
-    dialog.innerHTML = `<div class="vs-panel"><button class="dialog-close" type="button" data-vs-close aria-label="關閉">×</button><div class="vs-head">${imageMarkup(variant)}<div class="vs-head-text"><h2 id="variant-sheet-title">${escapeHtml(name)}</h2><div class="price${hasProductDiscount(variant) ? " price-discounted" : ""}">${productPriceMarkup(variant)}</div><p class="vs-stock">${escapeHtml(productAvailability(variant))}</p>${preorderStockMarkup(variant)}</div></div><fieldset class="pp-options vs-options"><legend>規格</legend><div class="pp-option-list">${optionsMarkup()}</div></fieldset><div class="vs-qty"><label for="vs-quantity">數量</label><div class="pp-stepper"><button type="button" data-vs-step="-1" aria-label="減少數量" ${disabled}>−</button><input id="vs-quantity" type="number" inputmode="numeric" min="1" max="${Math.max(max, 1)}" step="1" value="${state.quantity}" ${disabled} /><button type="button" data-vs-step="1" aria-label="增加數量" ${disabled}>+</button></div></div><div class="vs-actions"><button class="primary-button" type="button" data-vs-add ${disabled}>${max > 0 ? "加入購物車" : "目前無可售庫存"}</button>${max > 0 ? '<button class="secondary-button" type="button" data-vs-buy-now>直接購買</button>' : ""}</div><a class="vs-detail-link" href="${escapeHtml(productPageHref(variant))}" data-vs-detail>查看商品詳情 <span aria-hidden="true">→</span></a></div>`;
+    // 只重畫面板內容：showToast() 會把全站共用的 #toast 移進開啟中的 dialog，不能整個 dialog 重寫
+    panel.innerHTML = `<button class="dialog-close" type="button" data-vs-close aria-label="關閉">×</button><div class="vs-head">${imageMarkup(variant)}<div class="vs-head-text"><h2 id="variant-sheet-title">${escapeHtml(name)}</h2><div class="price${hasProductDiscount(variant) ? " price-discounted" : ""}">${productPriceMarkup(variant)}</div><p class="vs-stock">${escapeHtml(productAvailability(variant))}</p>${preorderStockMarkup(variant)}</div></div><fieldset class="pp-options vs-options"><legend>規格</legend><div class="pp-option-list">${optionsMarkup()}</div></fieldset><div class="vs-qty"><label for="vs-quantity">數量</label><div class="pp-stepper"><button type="button" data-vs-step="-1" aria-label="減少數量" ${disabled}>−</button><input id="vs-quantity" type="number" inputmode="numeric" min="1" max="${Math.max(max, 1)}" step="1" value="${state.quantity}" ${disabled} /><button type="button" data-vs-step="1" aria-label="增加數量" ${disabled}>+</button></div></div><div class="vs-actions"><button class="primary-button" type="button" data-vs-add ${disabled}>${max > 0 ? "加入購物車" : "目前無可售庫存"}</button>${max > 0 ? '<button class="secondary-button" type="button" data-vs-buy-now>直接購買</button>' : ""}</div><a class="vs-detail-link" href="${escapeHtml(productPageHref(variant))}" data-vs-detail>查看商品詳情 <span aria-hidden="true">→</span></a>`;
   }
 
   function open(cardVariantId) {
     const card = deps.getProducts().find((item) => item.id === cardVariantId);
-    if (!card?.product_id || !dialog) return false;
+    if (!card?.product_id || !panel) return false;
     const variants = deps.getProducts().filter((item) => item.product_id === card.product_id);
     const lead = variants.find((item) => item.id === cardVariantId && Number(item.stock) > 0) || variants.find((item) => Number(item.stock) > 0) || card;
     state = { productId: card.product_id, variants, variantId: lead.id, quantity: 1 };
@@ -64,8 +66,9 @@ export function createVariantSheet(deps) {
     }
     if (event.target.closest("[data-vs-add]:not([disabled])")) {
       const result = deps.addToCart(state.variantId, quantity());
-      deps.showToast(result.message, result.ok ? "success" : "warning");
+      // 成功先關面板再提示，提示才不會跟著面板一起隱藏；失敗則留在面板內提示
       if (result.ok) close();
+      deps.showToast(result.message, result.ok ? "success" : "warning");
       return;
     }
     if (event.target.closest("[data-vs-buy-now]")) {
