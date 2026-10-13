@@ -1,23 +1,37 @@
 // 開機各階段計時（只在除錯時開啟）：網址帶 ?cj_timing=1 開啟一次後，同分頁（含 LINE 登入轉址回來）都會記錄，
-// 開機與會員載入完成後跳出各階段距離頁面開始載入的毫秒數，方便在 LINE 手機上直接看時間花在哪裡。
-// 各請求的起訖時間從 Resource Timing 讀取；Worker 回應的 cf-ray 結尾是實際執行的 Cloudflare 機房（TPE、IAD…）。
-// 不記錄 token、Cookie 或會員資料。
+// 開機與會員載入完成後跳出精簡報告（一個畫面放得下），方便在 LINE 手機上直接看時間花在哪裡。
+// 各請求耗時從 Resource Timing 讀取；Worker 回應的 cf-ray 結尾是實際執行的 Cloudflare 機房（TPE、SJC…）。
+// 歷次結果存在 localStorage（關掉 LINE 視窗也會累計），報告附最近幾次的 P50。不記錄 token、Cookie 或會員資料。
 const TIMING_PARAM = "cj_timing";
 const TIMING_KEY = "cj-boot-timing";
-const OPEN_COUNT_KEY = "cj-boot-timing-opens";
+const HISTORY_KEY = "cj-boot-timing-history";
+export const HISTORY_LIMIT = 10;
 
-// 報告列出的請求：標籤 → 判斷網址的條件
+// 報告列出的請求：短標籤 → 判斷網址的條件
 export const TRACKED_REQUESTS = [
-  ["LIFF SDK", (url) => url.hostname === "static.line-scdn.net"],
-  ["/api/config", (url) => url.pathname === "/api/config"],
-  ["/api/catalog", (url) => url.pathname === "/api/catalog"],
-  ["登入恢復 restore", (url) => url.pathname === "/api/auth/session/restore"],
-  ["會員身分 auth/v1/user", (url) => url.pathname === "/auth/v1/user"],
+  ["SDK", (url) => url.hostname === "static.line-scdn.net"],
+  ["設定", (url) => url.pathname === "/api/config"],
+  ["型錄", (url) => url.pathname === "/api/catalog"],
+  ["恢復", (url) => url.pathname === "/api/auth/session/restore"],
+  ["身分", (url) => url.pathname === "/auth/v1/user"],
   ["Profile", (url) => url.pathname === "/rest/v1/profiles"],
   ["點數", (url) => url.pathname === "/api/member/points"],
   ["購物車", (url) => url.pathname === "/api/cart"],
-  ["身分同步", (url) => url.pathname === "/api/member/identity-sync"]
+  ["同步", (url) => url.pathname === "/api/member/identity-sync"]
 ];
+
+// markBoot 標籤 → 報告用的短標籤
+const PHASE_LABELS = new Map([
+  ["JS 載入完成", "JS"],
+  ["LIFF 初始化", "LIFF"],
+  ["畫面顯示（遮罩關閉）", "遮罩"],
+  ["LINE 登入恢復（背景）", "登入"],
+  ["會員資料", "會員"],
+  ["會員功能就緒", "就緒"],
+  ["開機失敗", "失敗"]
+]);
+// 跨次比較的關鍵時間點（短標籤）
+const SUMMARY_PHASES = ["遮罩", "登入", "就緒"];
 
 const enabled = (() => {
   try {
@@ -38,15 +52,13 @@ export function markBoot(label) {
   if (enabled) marks.push([label, Math.round(performance.now())]);
 }
 
-/** 記下 Worker 回應的狀態碼與執行機房；同一標籤可記多次（例如登入恢復重試）。 */
+/** 記下 Worker 回應的狀態碼、執行機房與 placement；同一標籤可記多次（例如登入恢復重試）。 */
 export function noteBootResponse(label, response) {
   if (!enabled || !response) return;
-  try { notes.push(`${label}：HTTP ${response.status}・機房 ${coloFromRay(response.headers.get("cf-ray"))}`); }
-  catch { /* 除錯工具出錯不能影響開機 */ }
-}
-
-export function noteBoot(text) {
-  if (enabled) notes.push(text);
+  try {
+    const placement = response.headers.get("cf-placement");
+    notes.push(`${label}${response.status} ${coloFromRay(response.headers.get("cf-ray"))}${placement ? `(${placement})` : ""}`);
+  } catch { /* 除錯工具出錯不能影響開機 */ }
 }
 
 export function coloFromRay(ray) {
@@ -72,41 +84,73 @@ export function summarizeScripts(entries, origin) {
   };
 }
 
-/** 依 TRACKED_REQUESTS 列出每個請求的開始→完成與耗時；同一請求出現多次（重試）會各列一行。 */
-export function requestLines(entries, tracked = TRACKED_REQUESTS) {
-  const lines = [];
+/** 每個追蹤請求的耗時（ms）；同一請求出現多次（重試、重複下載）以「+」相連，依追蹤順序排列。 */
+export function requestDurations(entries, tracked = TRACKED_REQUESTS) {
+  const durations = [];
   for (const [label, matches] of tracked) {
+    const times = [];
     for (const entry of entries) {
       let url;
       try { url = new URL(entry.name); } catch { continue; }
-      if (!matches(url)) continue;
-      const start = Math.round(entry.startTime);
-      const end = Math.round(entry.responseEnd);
-      lines.push(`${label}：${start}→${end}（${end - start}ms）`);
+      if (matches(url)) times.push(Math.round(entry.responseEnd - entry.startTime));
     }
+    if (times.length) durations.push(`${label}${times.join("+")}`);
   }
+  return durations;
+}
+
+/** 歷次結果各關鍵時間點的中位數；缺值的次數不列入。 */
+export function historyMedians(runs) {
+  const medians = [];
+  for (const phase of SUMMARY_PHASES) {
+    const values = runs.map((run) => run?.[phase]).filter(Number.isFinite).sort((a, b) => a - b);
+    if (!values.length) continue;
+    const mid = Math.floor(values.length / 2);
+    medians.push([phase, values.length % 2 ? values[mid] : Math.round((values[mid - 1] + values[mid]) / 2)]);
+  }
+  return medians;
+}
+
+/** 把多個項目以「・」接成每行最多 perLine 個。 */
+function rows(items, perLine) {
+  const lines = [];
+  for (let index = 0; index < items.length; index += perLine) lines.push(items.slice(index, index + perLine).join("・"));
   return lines;
 }
 
-export function formatBootReport({ marks: phaseMarks, notes: responseNotes, scripts, requests, openCount, navigationType }) {
-  const sections = [`開機計時（本分頁第 ${openCount} 次・${navigationType}）`];
-  sections.push(...phaseMarks.map(([label, ms]) => `${label}：${ms}ms`));
-  if (scripts) {
-    sections.push("", `JS ${scripts.count} 個：${scripts.start}→${scripts.end}ms`, `重驗證 ${scripts.revalidated}・下載 ${scripts.downloaded}・快取 ${scripts.cached}`);
-  }
-  if (requests.length) sections.push("", ...requests);
-  if (responseNotes.length) sections.push("", ...responseNotes);
-  return sections.join("\n");
+/** 只列 PHASE_LABELS 內的階段（其餘時間點可從請求耗時推算），每行 4 個。 */
+export function formatBootReport({ marks: phaseMarks, notes: responseNotes, scripts, requests, runNumber, navigationType, runs = [] }) {
+  const lines = [`計時 #${runNumber}（${navigationType}）`];
+  const phases = phaseMarks.filter(([label]) => PHASE_LABELS.has(label)).map(([label, ms]) => `${PHASE_LABELS.get(label)}${ms}`);
+  lines.push(...rows(phases, 4));
+  if (scripts) lines.push(`JS×${scripts.count} ${scripts.start}→${scripts.end} 下${scripts.downloaded}驗${scripts.revalidated}快${scripts.cached}`);
+  lines.push(...rows(requests, 4));
+  if (responseNotes.length) lines.push(responseNotes.join("・"));
+  const medians = historyMedians(runs);
+  if (runs.length > 1 && medians.length) lines.push(`近${runs.length}次P50 ${medians.map(([phase, ms]) => `${phase}${ms}`).join("・")}`);
+  return lines.join("\n");
 }
 
-function nextOpenCount() {
+function readHistory() {
   try {
-    const count = Number(sessionStorage.getItem(OPEN_COUNT_KEY) || 0) + 1;
-    sessionStorage.setItem(OPEN_COUNT_KEY, String(count));
-    return count;
+    const parsed = JSON.parse(localStorage.getItem(HISTORY_KEY) || "{}");
+    return { total: Number(parsed.total) || 0, runs: Array.isArray(parsed.runs) ? parsed.runs : [] };
   } catch {
-    return 1;
+    return { total: 0, runs: [] };
   }
+}
+
+/** 記下這次的關鍵時間點，回傳累計次數與最近 HISTORY_LIMIT 次（含這次）。 */
+function recordRun() {
+  const history = readHistory();
+  const run = {};
+  for (const [label, ms] of marks) {
+    const phase = PHASE_LABELS.get(label);
+    if (SUMMARY_PHASES.includes(phase)) run[phase] = ms;
+  }
+  const next = { total: history.total + 1, runs: [...history.runs, run].slice(-HISTORY_LIMIT) };
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch { /* 無法保存時只顯示這一次 */ }
+  return next;
 }
 
 let reported = false;
@@ -116,13 +160,15 @@ export function reportBootTiming() {
   // 除錯工具出錯（舊版 WebView 缺少 Performance API 等）不能讓開機流程變成失敗
   try {
     const entries = performance.getEntriesByType("resource");
+    const history = recordRun();
     const text = formatBootReport({
       marks,
       notes,
       scripts: summarizeScripts(entries, location.origin),
-      requests: requestLines(entries),
-      openCount: nextOpenCount(),
-      navigationType: performance.getEntriesByType("navigation")[0]?.type || "unknown"
+      requests: requestDurations(entries),
+      runNumber: history.total,
+      navigationType: performance.getEntriesByType("navigation")[0]?.type || "unknown",
+      runs: history.runs
     });
     console.info(text);
     window.alert(text);

@@ -1,7 +1,7 @@
-// 開機計時（?cj_timing=1）：機房代碼、同源 JS 的重驗證／下載／快取統計、追蹤請求的起訖與報告格式。
+// 開機計時（?cj_timing=1）：機房代碼、同源 JS 的重驗證／下載／快取統計、追蹤請求耗時、歷次中位數與報告格式。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { coloFromRay, formatBootReport, requestLines, summarizeScripts } from "../../public/boot-timing.js";
+import { coloFromRay, formatBootReport, historyMedians, requestDurations, summarizeScripts } from "../../public/boot-timing.js";
 
 const ORIGIN = "https://shop.test";
 const entry = (name, startTime, responseEnd, transferSize = 500, encodedBodySize = 4000) => ({ name, startTime, responseEnd, transferSize, encodedBodySize });
@@ -27,41 +27,42 @@ test("no same-origin scripts gives no summary", () => {
   assert.equal(summarizeScripts([entry("https://static.line-scdn.net/liff/edge/2/sdk.js", 1, 2)], ORIGIN), null);
 });
 
-test("tracked requests list each attempt with its duration, in tracking order", () => {
-  const lines = requestLines([
+test("tracked requests show durations in tracking order, repeats joined with +", () => {
+  const durations = requestDurations([
     entry(`${ORIGIN}/api/auth/session/restore`, 800, 2000),
     entry(`${ORIGIN}/api/config`, 400, 450),
     entry(`${ORIGIN}/api/auth/session/restore`, 2500, 2900),
     entry("https://db.supabase.co/auth/v1/user?x=1", 2950, 3100),
     entry(`${ORIGIN}/api/products`, 1, 2)
   ]);
-  assert.deepEqual(lines, [
-    "/api/config：400→450（50ms）",
-    "登入恢復 restore：800→2000（1200ms）",
-    "登入恢復 restore：2500→2900（400ms）",
-    "會員身分 auth/v1/user：2950→3100（150ms）"
+  assert.deepEqual(durations, ["設定50", "恢復1200+400", "身分150"]);
+});
+
+test("history medians skip runs missing a phase", () => {
+  assert.deepEqual(historyMedians([{ 遮罩: 1000, 就緒: 3000 }, { 遮罩: 1400, 登入: 2000, 就緒: 4000 }, { 遮罩: 1100 }]), [
+    ["遮罩", 1100],
+    ["登入", 2000],
+    ["就緒", 3500]
   ]);
 });
 
-test("the report keeps phases, scripts, requests and Worker notes in separate blocks", () => {
+test("the report fits a phone screen: short labels, 4 items per line, P50 across runs", () => {
   const text = formatBootReport({
-    marks: [["JS 載入完成", 420], ["設定", 716]],
-    notes: ["登入恢復：HTTP 200・機房 IAD"],
-    scripts: { count: 43, revalidated: 43, downloaded: 0, cached: 0, start: 90, end: 410 },
-    requests: ["/api/config：420→700（280ms）"],
-    openCount: 2,
-    navigationType: "reload"
+    marks: [["JS 載入完成", 420], ["設定", 716], ["LIFF 初始化", 900], ["畫面顯示（遮罩關閉）", 1036], ["LINE 登入恢復（背景）", 1822]],
+    notes: ["登入恢復200 SJC"],
+    scripts: { count: 44, revalidated: 0, downloaded: 44, cached: 0, start: 188, end: 855 },
+    requests: ["設定29", "型錄188+162", "恢復849", "身分116", "點數600"],
+    runNumber: 3,
+    navigationType: "navigate",
+    runs: [{ 遮罩: 1036 }, { 遮罩: 1341 }]
   });
   assert.equal(text, [
-    "開機計時（本分頁第 2 次・reload）",
-    "JS 載入完成：420ms",
-    "設定：716ms",
-    "",
-    "JS 43 個：90→410ms",
-    "重驗證 43・下載 0・快取 0",
-    "",
-    "/api/config：420→700（280ms）",
-    "",
-    "登入恢復：HTTP 200・機房 IAD"
+    "計時 #3（navigate）",
+    "JS420・LIFF900・遮罩1036・登入1822",
+    "JS×44 188→855 下44驗0快0",
+    "設定29・型錄188+162・恢復849・身分116",
+    "點數600",
+    "登入恢復200 SJC",
+    "近2次P50 遮罩1189"
   ].join("\n"));
 });
