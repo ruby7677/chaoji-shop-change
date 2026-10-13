@@ -83,3 +83,29 @@ test("a network failure while reading the created order back still reports it as
   assert.equal(response.status, 201);
   assert.deepEqual(await response.json(), { order: null, order_id: ORDER_ID, detail_unavailable: true });
 });
+
+test("an order created without readable details still triggers the created notification", async () => {
+  const notificationReads = [];
+  restoreFetch = stubFetch((url, init, body) => {
+    if (url.pathname === "/auth/v1/user") return jsonResponse({ id: MEMBER_ID, identities: [{ provider: "custom:line-web", identity_data: { sub: LINE_ID } }] });
+    if (url.pathname === "/rest/v1/rpc/create_delivery_order") return jsonResponse(ORDER_ID);
+    if (url.pathname === "/rest/v1/orders") {
+      const headers = new Headers(init.headers);
+      // 會員權杖讀明細失敗；通知以 service key 讀同一筆訂單
+      if (headers.get("Authorization") === "Bearer member-access-token") return jsonResponse({ message: "down" }, 503);
+      notificationReads.push(url.searchParams.get("id"));
+      return jsonResponse([orderRow]);
+    }
+    return jsonResponse(body?.p_event_key ? null : []);
+  });
+  const context = ctx();
+  const response = await worker.fetch(new Request("https://shop.test/api/orders", {
+    method: "POST",
+    headers: { Authorization: "Bearer member-access-token", "Content-Type": "application/json" },
+    body: JSON.stringify({ items: [{ variant_id: VARIANT_ID, quantity: 1 }], delivery_method: "store_pickup", bank_account_id: BANK_ID })
+  }), baseEnv, context);
+  assert.equal(response.status, 201);
+  assert.equal((await response.json()).order, null);
+  await context.settle();
+  assert.deepEqual(notificationReads, [`eq.${ORDER_ID}`], "the created notification loads the order by its id");
+});

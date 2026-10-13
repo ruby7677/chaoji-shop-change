@@ -72,8 +72,10 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
     const response = await createOrder(request, env);
     if (response.ok) {
       try {
-        const payload = await response.clone().json() as { order?: { id?: string } };
-        if (payload.order?.id) ctx.waitUntil(notifyOrderEvent(env, payload.order.id, "created"));
+        const payload = await response.clone().json() as { order?: { id?: string } | null; order_id?: string };
+        // 明細讀不到時回應只有 order_id；訂單已建立，通知照送（通知以 event key 去重，不會重複）
+        const orderId = payload.order?.id ?? payload.order_id;
+        if (orderId) ctx.waitUntil(notifyOrderEvent(env, orderId, "created"));
       } catch { /* response body is still returned to the member */ }
     }
     return response;

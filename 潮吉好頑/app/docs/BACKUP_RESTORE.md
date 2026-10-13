@@ -33,12 +33,12 @@ $env:WRANGLER_WRITE_LOGS='0'; npx wrangler r2 object get chaoji-backups/daily/20
 
 1. 在 Supabase 建立新專案。在 Authentication 設定與正式專案相同的 LINE 自訂 provider（`custom:line-web`），Redirect URL 指向測試網址。
 2. 依檔名順序套用 `supabase/migrations/` 到 `migration_version` 為止（含），並寫入 migration 紀錄（同 `npm run db:history-sql` 的流程）。
-3. 用 psql 連線到**新專案**（不要用 SQL Editor 貼大型 JSON），把快照讀進暫存表：
+3. 用 psql 連線到**新專案**（不要用 SQL Editor 貼大型 JSON），把快照讀進 TEMP 暫存表（只存在這條連線，結束即消失，不在 public schema 留下會員個資）。第 3 到 6 步必須在同一個 psql 連線內完成：
 
    ```sql
-   create table public._restore_input (s jsonb not null);
+   create temp table _restore_input (s jsonb not null);
    \set snap `type <本機路徑>\snapshot.json`
-   insert into public._restore_input values (:'snap'::jsonb);
+   insert into _restore_input values (:'snap'::jsonb);
    ```
 
 4. 重建 auth 使用者與 LINE 身分（id 必須與快照相同，`profiles`／`orders` 才對得上）。`confirmation_token`、`recovery_token`、`email_change_token_new`、`email_change` 在 Auth schema 沒有預設值，留 NULL 會讓 Auth 讀取該會員時出錯而無法登入，必須填空字串；套用前先以 `select column_name, column_default from information_schema.columns where table_schema = 'auth' and table_name = 'users'` 確認目標專案沒有其他無預設值的必要字串欄位：
@@ -51,13 +51,13 @@ $env:WRANGLER_WRITE_LOGS='0'; npx wrangler r2 object get chaoji-backups/daily/20
           (u->>'created_at')::timestamptz, now(),
           jsonb_build_object('provider', 'custom:line-web', 'providers', jsonb_build_array('custom:line-web')), '{}'::jsonb,
           '', '', '', ''
-   from public._restore_input, jsonb_array_elements(s->'auth_users') u;
+   from _restore_input, jsonb_array_elements(s->'auth_users') u;
 
    insert into auth.identities (provider_id, user_id, identity_data, provider, created_at, updated_at)
    select i->>'provider_id', (u->>'id')::uuid,
           jsonb_build_object('sub', i->>'sub', 'provider_id', i->>'provider_id'),
           i->>'provider', (i->>'created_at')::timestamptz, now()
-   from public._restore_input, jsonb_array_elements(s->'auth_users') u, jsonb_array_elements(u->'identities') i;
+   from _restore_input, jsonb_array_elements(s->'auth_users') u, jsonb_array_elements(u->'identities') i;
    commit;
    ```
 
@@ -78,7 +78,7 @@ $env:WRANGLER_WRITE_LOGS='0'; npx wrangler r2 object get chaoji-backups/daily/20
        'point_settings','birthday_coupon_settings','coupons','coupon_members','coupon_products','orders','order_items',
        'order_status_history','inventory_reservations','inventory_movements','point_ledger','coupon_redemptions',
        'birthday_coupon_issues','audit_logs'] loop
-       execute format('insert into public.%I select * from jsonb_populate_recordset(null::public.%I, (select s->''tables''->%L from public._restore_input))', t, t, t);
+       execute format('insert into public.%I select * from jsonb_populate_recordset(null::public.%I, (select s->''tables''->%L from _restore_input))', t, t, t);
      end loop;
    end;
    $$;
@@ -86,11 +86,11 @@ $env:WRANGLER_WRITE_LOGS='0'; npx wrangler r2 object get chaoji-backups/daily/20
    ```
 
 6. 驗證：
-   - 每張表列數與快照一致：`select t, jsonb_array_length(s->'tables'->t) from public._restore_input, jsonb_object_keys(s->'tables') t;` 對照 `count(*)`。
+   - 每張表列數與快照一致：`select t, jsonb_array_length(s->'tables'->t) from _restore_input, jsonb_object_keys(s->'tables') t;` 對照 `count(*)`。
    - 執行 `supabase/verify_schema.sql`，所有欄位為 true。
    - 抽查幾筆訂單的明細、狀態歷程、點數與商品可售量。
    - **以真實 LINE 帳號登入測試站，確認登入後的 user id 與快照相同、看得到自己的訂單與點數**（Supabase 是否把既有 identity 對回同一個 user id 只有實測能確認）。
-7. `drop table public._restore_input;`，刪除本機快照檔。
+7. 結束 psql 連線（暫存表隨之消失），刪除本機快照檔。
 8. 是否把正式 Worker 的 `SUPABASE_URL`／金鑰改指向新專案，由店主決定；切換前先暫停接單，並依 AGENTS.md 部署流程處理。
 
 ## 3. 單筆補回（正式資料庫）

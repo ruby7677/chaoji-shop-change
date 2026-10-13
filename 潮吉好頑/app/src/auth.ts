@@ -254,8 +254,12 @@ export async function restoreLiffSession(request: Request, env: Env): Promise<Re
     if (result.reason === "unavailable") {
       if (result.rotated) {
         // vault 的 token 已在本次輪替：存回輪替後的 token 再回 503，不改用 cookie（Supabase 此刻也查不到使用者）
-        await replaceVaultedToken(env, identity.sub, await sealRefreshToken(env.AUTH_SESSION_SECRET!, result.rotated.refresh_token));
-        return restoreUnavailable();
+        const sealed = await sealRefreshToken(env.AUTH_SESSION_SECRET!, result.rotated.refresh_token);
+        if (await replaceVaultedToken(env, identity.sub, sealed)) return restoreUnavailable();
+        // vault 也寫不進去：新 token 改放 cookie，並刪掉 vault 內已失效的舊 token，
+        // 否則下次會先拿舊 token 換發，被 Supabase 當成重複使用而撤銷整條登入（刪除也失敗時才會發生）
+        await deleteVaultedSession(env, identity.sub);
+        return restoreUnavailable({ headers: { "Set-Cookie": refreshSessionCookie(sealed) } });
       }
       temporarilyUnavailable = true;
     }

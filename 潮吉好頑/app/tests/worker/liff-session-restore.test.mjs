@@ -22,6 +22,7 @@ beforeEach(async () => {
     sealed: await sealRefreshToken(env.AUTH_SESSION_SECRET, SHORT_REFRESH_TOKEN),
     refresh: "ok",
     userLookup: null,
+    patchFails: false,
     patched: null,
     calls: []
   };
@@ -39,7 +40,10 @@ beforeEach(async () => {
         if (upstream.vault === "down") return jsonResponse({}, 500);
         return jsonResponse(upstream.vault === "found" ? [{ sealed_refresh_token: upstream.sealed }] : []);
       }
-      if (method === "PATCH") upstream.patched = body.sealed_refresh_token;
+      if (method === "PATCH") {
+        if (upstream.patchFails) return jsonResponse({}, 503);
+        upstream.patched = body.sealed_refresh_token;
+      }
       return new Response(null, { status: method === "DELETE" ? 204 : 201 });
     }
     // userLookup 為狀態碼時，refresh 回應不帶 user，改由 /auth/v1/user 查詢並回該狀態
@@ -163,4 +167,16 @@ test("保存登入時 Supabase 拒絕 refresh token 回 401 並清除 cookie", a
   const response = await remember();
   assert.equal(response.status, 401);
   assert.match(response.headers.get("Set-Cookie") || "", /Max-Age=0/);
+});
+
+test("輪替後 vault 也寫不進去時，新 token 改存 cookie 並刪除 vault 的舊 token", async () => {
+  upstream.userLookup = 503;
+  upstream.patchFails = true;
+  const response = await restore();
+  assert.equal(response.status, 503);
+  assert.ok(vaultDeleted(), "the spent token is removed from the vault");
+  const cookie = response.headers.get("Set-Cookie") || "";
+  assert.doesNotMatch(cookie, /Max-Age=0/);
+  const sealed = cookie.split(";")[0].split("=").slice(1).join("=");
+  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, sealed), "mnopqrstuvwx", "the rotated token is kept in the cookie");
 });
