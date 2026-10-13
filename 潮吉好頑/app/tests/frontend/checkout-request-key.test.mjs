@@ -66,3 +66,19 @@ test("without usable storage a same-page retry still reuses the key", () => {
   clearCheckoutRequestKey({ storage: broken });
   assert.notEqual(checkoutRequestKey(body, { storage: broken, randomUUID }), first, "a successful order still clears the in-page key");
 });
+
+test("after a successful order the cart is settled before the request key is cleared", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../../public/checkout-flow.js", import.meta.url), "utf8");
+  const body = source.slice(source.indexOf("export async function submitOrder"));
+  const at = (text) => {
+    const index = body.indexOf(text);
+    assert.ok(index >= 0, `missing: ${text}`);
+    return index;
+  };
+  const cleared = at("clearCheckoutRequestKey();");
+  assert.ok(at("cart.splice(") < cleared, "purchased items leave the cart first");
+  assert.ok(at("saveCart();") < cleared, "the cart is saved locally first");
+  assert.ok(at("await syncMemberCartNow();") < cleared, "the member cloud cart is synced first");
+  assert.ok(at("await loadPoints({ force: true })") > cleared, "a slow points reload cannot delay clearing past an unsaved cart");
+});

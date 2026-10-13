@@ -6,11 +6,13 @@ import assert from "node:assert/strict";
 import { LINE_USER_ID, baseEnv, ctx, jsonResponse, lineUser, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
 
 const worker = await loadWorker();
-const { openRefreshToken, sealRefreshToken } = await loadSourceModule("auth-session.ts");
+const { openRefreshToken, refreshSessionCookie, sealRefreshToken } = await loadSourceModule("auth-session.ts");
 const allow = { limit: async () => ({ success: true }) };
 const env = { ...baseEnv, LIFF_ID: "liff-test-id", LINE_LOGIN_CHANNEL_ID: "channel-test-id", API_AUTH_IP_RATE_LIMITER: allow, API_MEMBER_RATE_LIMITER: allow };
 // Supabase 目前發出的 refresh token 為 12 字元
 const SHORT_REFRESH_TOKEN = "abcdefghijkl";
+const ROTATED_TOKEN = "mnopqrstuvwx";
+const COOKIE_TOKEN = "cookietoken1";
 
 let upstream;
 let restoreFetch;
@@ -23,6 +25,10 @@ beforeEach(async () => {
     refresh: "ok",
     userLookup: null,
     patchFails: false,
+    deleteFails: false,
+    // 送到 Supabase 換發的 refresh token；rejectTokens 內的 token 會被拒（已輪替的舊 token）
+    sent: [],
+    rejectTokens: [],
     patched: null,
     calls: []
   };
@@ -44,15 +50,17 @@ beforeEach(async () => {
         if (upstream.patchFails) return jsonResponse({}, 503);
         upstream.patched = body.sealed_refresh_token;
       }
+      if (method === "DELETE" && upstream.deleteFails) return jsonResponse({}, 503);
       return new Response(null, { status: method === "DELETE" ? 204 : 201 });
     }
     // userLookup 為狀態碼時，refresh 回應不帶 user，改由 /auth/v1/user 查詢並回該狀態
     if (url.pathname === "/auth/v1/user") return jsonResponse({}, upstream.userLookup);
     if (url.pathname === "/auth/v1/token") {
-      assert.equal(body.refresh_token, SHORT_REFRESH_TOKEN, "restore sends the decrypted short token to Supabase");
+      upstream.sent.push(body.refresh_token);
+      assert.ok([SHORT_REFRESH_TOKEN, ROTATED_TOKEN, COOKIE_TOKEN].includes(body.refresh_token), "restore sends a decrypted token to Supabase");
       if (upstream.refresh === "down") return jsonResponse({}, 503);
-      if (upstream.refresh === "reject") return jsonResponse({ error: "invalid_grant" }, 400);
-      return jsonResponse({ access_token: "access-new", refresh_token: "mnopqrstuvwx", expires_in: 3600, user: upstream.userLookup ? undefined : lineUser("user-1") });
+      if (upstream.refresh === "reject" || upstream.rejectTokens.includes(body.refresh_token)) return jsonResponse({ error: "invalid_grant" }, 400);
+      return jsonResponse({ access_token: "access-new", refresh_token: ROTATED_TOKEN, expires_in: 3600, user: upstream.userLookup ? undefined : lineUser("user-1") });
     }
     throw new Error(`unexpected request: ${method} ${url}`);
   });
@@ -60,10 +68,10 @@ beforeEach(async () => {
 
 afterEach(() => restoreFetch());
 
-function restore() {
+function restore({ cookie } = {}) {
   return worker.fetch(new Request("https://shop.test/api/auth/session/restore", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(cookie ? { Cookie: cookie } : {}) },
     body: JSON.stringify({ id_token: "liff-id-token" })
   }), env, ctx());
 }
@@ -179,4 +187,42 @@ test("輪替後 vault 也寫不進去時，新 token 改存 cookie 並刪除 vau
   assert.doesNotMatch(cookie, /Max-Age=0/);
   const sealed = cookie.split(";")[0].split("=").slice(1).join("=");
   assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, sealed), "mnopqrstuvwx", "the rotated token is kept in the cookie");
+});
+
+const cookieHeader = async (token) => refreshSessionCookie(await sealRefreshToken(env.AUTH_SESSION_SECRET, token)).split(";")[0];
+
+test("cookie 與 vault 都有 token 時先用 cookie（只有 vault 寫不進去才有 cookie，它比較新）", async () => {
+  const response = await restore({ cookie: await cookieHeader(COOKIE_TOKEN) });
+  assert.equal(response.status, 200);
+  assert.deepEqual(upstream.sent, [COOKIE_TOKEN], "the possibly stale vault token is never sent");
+});
+
+test("vault 更新與刪除都失敗後，下一次恢復仍用 cookie 的新 token，不碰 vault 的舊 token", async () => {
+  upstream.userLookup = 503;
+  upstream.patchFails = true;
+  upstream.deleteFails = true;
+  const first = await restore();
+  assert.equal(first.status, 503);
+  const cookie = (first.headers.get("Set-Cookie") || "").split(";")[0];
+  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, cookie.split("=").slice(1).join("=")), ROTATED_TOKEN);
+  upstream.userLookup = null;
+  upstream.rejectTokens = [SHORT_REFRESH_TOKEN];
+  upstream.sent = [];
+  const second = await restore({ cookie });
+  assert.equal(second.status, 200);
+  assert.deepEqual(upstream.sent, [ROTATED_TOKEN], "the spent vault token is not reused");
+});
+
+test("cookie 被拒時改用 vault 恢復，並清掉失效的 cookie", async () => {
+  upstream.rejectTokens = [COOKIE_TOKEN];
+  const response = await restore({ cookie: await cookieHeader(COOKIE_TOKEN) });
+  assert.equal(response.status, 200);
+  assert.deepEqual(upstream.sent, [COOKIE_TOKEN, SHORT_REFRESH_TOKEN]);
+});
+
+test("cookie 換發時 Supabase 暫時故障就回 503，不改試較舊的 vault", async () => {
+  upstream.refresh = "down";
+  const response = await restore({ cookie: await cookieHeader(COOKIE_TOKEN) });
+  assert.equal(response.status, 503);
+  assert.deepEqual(upstream.sent, [COOKIE_TOKEN]);
 });

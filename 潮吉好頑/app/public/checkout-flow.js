@@ -89,11 +89,15 @@ export async function submitOrder() {
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || result.message || "訂單建立失敗");
+  // 先把已購商品移出購物車並保存（本機與會員雲端），之後才清除 key：
+  // 中途重新整理時購物車仍有這些商品，再次結帳會帶同一個 key 拿回原訂單，不會重複建單
+  cart.splice(0, cart.length, ...cart.filter((item) => !itemsForOrder.includes(item)));
+  saveCart();
+  await syncMemberCartNow();
   clearCheckoutRequestKey();
   if (store) rememberCvsStore(store);
+  renderCart(); activeCheckoutItems = null; activeCheckoutScope = null; closeDialog(document.querySelector("#checkout-dialog"));
   await loadPoints({ force: true }).catch(() => {});
-  cart.splice(0, cart.length, ...cart.filter((item) => !itemsForOrder.includes(item)));
-  saveCart(); await syncMemberCartNow(); renderCart(); activeCheckoutItems = null; activeCheckoutScope = null; closeDialog(document.querySelector("#checkout-dialog"));
   // 訂單已建立但明細暫時讀不到：改開我的訂單，不讓客人以為失敗而重新下單
   if (!result.order) {
     showToast("訂單已建立，請在我的訂單查看匯款資訊", "success");

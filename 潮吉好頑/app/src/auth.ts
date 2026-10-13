@@ -242,45 +242,47 @@ export async function restoreLiffSession(request: Request, env: Env): Promise<Re
   const userRateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `session-restore-user:${identity.sub}`);
   if (userRateLimitResponse) return userRateLimitResponse;
 
-  // 任一路徑遇到暫時性故障就記下；最後沒有其他可恢復的來源時回 503，而不是「沒有工作階段」
-  let temporarilyUnavailable = false;
+  // cookie 優先：只有 vault 寫不進去時才把 token 放進 cookie（成功寫入 vault 會清掉 cookie），所以 cookie 存在時一定比 vault 新。
+  // 先用 vault 可能拿到已輪替的舊 token，被 Supabase 視為重複使用而撤銷整條登入。
+  const clearCookie = { "Set-Cookie": clearRefreshSessionCookie() };
+  // cookie 確定不可用（解不開、被拒）時的回應；vault 也無法恢復才回傳
+  let cookieFailure: Response | null = null;
+  const sealedCookie = readRefreshSessionCookie(request);
+  if (sealedCookie) {
+    const result = await restoreSealedSession(env, sealedCookie, identity.sub);
+    if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
+    if (result.reason === "unavailable") {
+      // Supabase 暫時故障：不改試較舊的 vault；token 已輪替時把新 token 存回 cookie
+      if (!result.rotated) return restoreUnavailable();
+      const sealed = await sealRefreshToken(env.AUTH_SESSION_SECRET!, result.rotated.refresh_token);
+      return restoreUnavailable({ headers: { "Set-Cookie": refreshSessionCookie(sealed) } });
+    }
+    if (result.reason === "mismatch") return json({ error: "LIFF LINE 身分與保存的會員登入不一致", code: "LIFF_SESSION_MISMATCH" }, { status: 409, headers: clearCookie });
+    cookieFailure = result.reason === "invalid"
+      ? json({ error: "登入工作階段無效", code: "INVALID_PERSISTENT_SESSION" }, { status: 401, headers: clearCookie })
+      : json({ error: "會員登入工作階段已失效" }, { status: 401, headers: clearCookie });
+  }
+
   const vaulted = await readVaultedSession(env, identity.sub);
-  if (vaulted.status === "unavailable") temporarilyUnavailable = true;
   if (vaulted.status === "found") {
     const result = await restoreSealedSession(env, vaulted.sealed, identity.sub);
     if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
     // 只有確定無效（解不開、身分不符）才刪除；token 被拒可能是暫時狀態，下次 LINE Login 也會覆寫
     if (result.reason === "invalid" || result.reason === "mismatch") await deleteVaultedSession(env, identity.sub);
     if (result.reason === "unavailable") {
-      if (result.rotated) {
-        // vault 的 token 已在本次輪替：存回輪替後的 token 再回 503，不改用 cookie（Supabase 此刻也查不到使用者）
-        const sealed = await sealRefreshToken(env.AUTH_SESSION_SECRET!, result.rotated.refresh_token);
-        if (await replaceVaultedToken(env, identity.sub, sealed)) return restoreUnavailable();
-        // vault 也寫不進去：新 token 改放 cookie，並刪掉 vault 內已失效的舊 token，
-        // 否則下次會先拿舊 token 換發，被 Supabase 當成重複使用而撤銷整條登入（刪除也失敗時才會發生）
-        await deleteVaultedSession(env, identity.sub);
-        return restoreUnavailable({ headers: { "Set-Cookie": refreshSessionCookie(sealed) } });
-      }
-      temporarilyUnavailable = true;
+      if (!result.rotated) return restoreUnavailable(cookieFailure ? { headers: clearCookie } : undefined);
+      // vault 的 token 已在本次輪替：存回輪替後的 token 再回 503
+      const sealed = await sealRefreshToken(env.AUTH_SESSION_SECRET!, result.rotated.refresh_token);
+      if (await replaceVaultedToken(env, identity.sub, sealed)) return restoreUnavailable(cookieFailure ? { headers: clearCookie } : undefined);
+      // vault 也寫不進去：新 token 改放 cookie（下次優先使用），並盡量刪掉 vault 內已失效的舊 token
+      await deleteVaultedSession(env, identity.sub);
+      return restoreUnavailable({ headers: { "Set-Cookie": refreshSessionCookie(sealed) } });
     }
   }
-
-  const sealedCookie = readRefreshSessionCookie(request);
-  if (!sealedCookie) {
-    if (temporarilyUnavailable) return restoreUnavailable();
-    return json({ error: "沒有可恢復的登入工作階段", code: "NO_PERSISTENT_SESSION" }, { status: 401 });
-  }
-  const result = await restoreSealedSession(env, sealedCookie, identity.sub);
-  if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
-  if (result.reason === "unavailable") {
-    if (!result.rotated) return restoreUnavailable();
-    const sealed = await sealRefreshToken(env.AUTH_SESSION_SECRET!, result.rotated.refresh_token);
-    return restoreUnavailable({ headers: { "Set-Cookie": refreshSessionCookie(sealed) } });
-  }
-  const clearCookie = { "Set-Cookie": clearRefreshSessionCookie() };
-  if (result.reason === "invalid") return json({ error: "登入工作階段無效", code: "INVALID_PERSISTENT_SESSION" }, { status: 401, headers: clearCookie });
-  if (result.reason === "expired") return json({ error: "會員登入工作階段已失效" }, { status: 401, headers: clearCookie });
-  return json({ error: "LIFF LINE 身分與保存的會員登入不一致", code: "LIFF_SESSION_MISMATCH" }, { status: 409, headers: clearCookie });
+  // 任一來源暫時讀不到時回 503，而不是「沒有工作階段」
+  if (vaulted.status === "unavailable") return restoreUnavailable(cookieFailure ? { headers: clearCookie } : undefined);
+  if (cookieFailure) return cookieFailure;
+  return json({ error: "沒有可恢復的登入工作階段", code: "NO_PERSISTENT_SESSION" }, { status: 401 });
 }
 
 export async function forgetLiffSession(): Promise<Response> {
