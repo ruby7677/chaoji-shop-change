@@ -30,6 +30,8 @@ beforeEach(async () => {
     sent: [],
     rejectTokens: [],
     patched: null,
+    // 換發 token 時模擬另一次 LINE Login 同時覆寫 vault（設為新的 sealed 值）
+    concurrentLogin: null,
     calls: []
   };
   restoreFetch = stubFetch((url, init, body) => {
@@ -46,17 +48,27 @@ beforeEach(async () => {
         if (upstream.vault === "down") return jsonResponse({}, 500);
         return jsonResponse(upstream.vault === "found" ? [{ sealed_refresh_token: upstream.sealed }] : []);
       }
+      // 更新與刪除只套用到內容仍符合 sealed_refresh_token 條件的列
+      const matches = upstream.vault === "found" && url.searchParams.get("sealed_refresh_token") === `eq.${upstream.sealed}`;
       if (method === "PATCH") {
         if (upstream.patchFails) return jsonResponse({}, 503);
+        if (!matches) return jsonResponse([]);
         upstream.patched = body.sealed_refresh_token;
+        upstream.sealed = body.sealed_refresh_token;
+        return jsonResponse([{ line_user_id: LINE_USER_ID }]);
       }
-      if (method === "DELETE" && upstream.deleteFails) return jsonResponse({}, 503);
-      return new Response(null, { status: method === "DELETE" ? 204 : 201 });
+      if (method === "DELETE") {
+        if (upstream.deleteFails) return jsonResponse({}, 503);
+        if (matches) upstream.vault = "missing";
+        return new Response(null, { status: 204 });
+      }
+      return new Response(null, { status: 201 });
     }
     // userLookup 為狀態碼時，refresh 回應不帶 user，改由 /auth/v1/user 查詢並回該狀態
     if (url.pathname === "/auth/v1/user") return jsonResponse({}, upstream.userLookup);
     if (url.pathname === "/auth/v1/token") {
       upstream.sent.push(body.refresh_token);
+      if (upstream.concurrentLogin) upstream.sealed = upstream.concurrentLogin;
       assert.ok([SHORT_REFRESH_TOKEN, ROTATED_TOKEN, COOKIE_TOKEN].includes(body.refresh_token), "restore sends a decrypted token to Supabase");
       if (upstream.refresh === "down") return jsonResponse({}, 503);
       if (upstream.refresh === "reject" || upstream.rejectTokens.includes(body.refresh_token)) return jsonResponse({ error: "invalid_grant" }, 400);
@@ -132,6 +144,7 @@ test("vault 資料無法解密時刪除並回 401", async () => {
   const response = await restore();
   assert.equal(response.status, 401);
   assert.ok(vaultDeleted());
+  assert.equal(upstream.vault, "missing", "the delete is filtered on the row that was read");
   assert.equal(upstream.calls.includes("POST /auth/v1/token"), false);
 });
 
@@ -225,4 +238,17 @@ test("cookie 換發時 Supabase 暫時故障就回 503，不改試較舊的 vaul
   const response = await restore({ cookie: await cookieHeader(COOKIE_TOKEN) });
   assert.equal(response.status, 503);
   assert.deepEqual(upstream.sent, [COOKIE_TOKEN]);
+});
+
+test("輪替期間另一次 LINE Login 已覆寫 vault 時，不蓋掉也不刪除那筆新 token，輪替後的 token 改存 cookie", async () => {
+  const newer = await sealRefreshToken(env.AUTH_SESSION_SECRET, COOKIE_TOKEN);
+  upstream.userLookup = 503;
+  upstream.concurrentLogin = newer;
+  const response = await restore();
+  assert.equal(response.status, 503);
+  assert.equal(upstream.patched, null, "the newer vault token is not overwritten");
+  assert.equal(upstream.vault, "found");
+  assert.equal(upstream.sealed, newer, "the newer vault token is not deleted");
+  const cookie = (response.headers.get("Set-Cookie") || "").split(";")[0];
+  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, cookie.split("=").slice(1).join("=")), ROTATED_TOKEN);
 });

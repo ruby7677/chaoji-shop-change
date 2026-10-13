@@ -268,14 +268,14 @@ export async function restoreLiffSession(request: Request, env: Env): Promise<Re
     const result = await restoreSealedSession(env, vaulted.sealed, identity.sub);
     if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
     // 只有確定無效（解不開、身分不符）才刪除；token 被拒可能是暫時狀態，下次 LINE Login 也會覆寫
-    if (result.reason === "invalid" || result.reason === "mismatch") await deleteVaultedSession(env, identity.sub);
+    if (result.reason === "invalid" || result.reason === "mismatch") await deleteVaultedSession(env, identity.sub, vaulted.sealed);
     if (result.reason === "unavailable") {
       if (!result.rotated) return restoreUnavailable(cookieFailure ? { headers: clearCookie } : undefined);
       // vault 的 token 已在本次輪替：存回輪替後的 token 再回 503
       const sealed = await sealRefreshToken(env.AUTH_SESSION_SECRET!, result.rotated.refresh_token);
-      if (await replaceVaultedToken(env, identity.sub, sealed)) return restoreUnavailable(cookieFailure ? { headers: clearCookie } : undefined);
+      if (await replaceVaultedToken(env, identity.sub, sealed, vaulted.sealed)) return restoreUnavailable(cookieFailure ? { headers: clearCookie } : undefined);
       // vault 也寫不進去：新 token 改放 cookie（下次優先使用），並盡量刪掉 vault 內已失效的舊 token
-      await deleteVaultedSession(env, identity.sub);
+      await deleteVaultedSession(env, identity.sub, vaulted.sealed);
       return restoreUnavailable({ headers: { "Set-Cookie": refreshSessionCookie(sealed) } });
     }
   }

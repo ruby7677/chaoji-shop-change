@@ -5,7 +5,7 @@ import { clearCheckoutFieldErrors, ensurePaymentMethodUI, loadBankAccounts, rend
 import { loadPoints, requireLineFriendshipForCheckout } from "./member-benefits.js";
 import { openOrders, showPaymentDialog } from "./member-orders.js";
 import { rememberCvsStore } from "./checkout-cvs-store.js";
-import { checkoutRequestKey, clearCheckoutRequestKey } from "./checkout-request-key.js";
+import { checkoutRequestKey, clearCheckoutRequestKey, markCheckoutRequestCompleted, recentCompletedCheckout } from "./checkout-request-key.js";
 import { ensureCheckoutCouponApplied, resetCheckoutCoupon } from "./checkout-coupon.js";
 import { whenAuthReady } from "./auth-ready.js";
 import { beginLineLogin, loadMember, profileIsComplete, saveProfile, showProfileDialog } from "./member-profile.js";
@@ -80,6 +80,11 @@ export async function submitOrder() {
   const store = details.pickupStore;
   await saveProfile({ full_name: details.fullName, phone: details.normalizedPhone, birthday: auth.profile?.birthday || null, address: details.deliveryMethod === "home_delivery" ? details.shippingAddress : (auth.profile?.address || null) });
   const orderRequest = JSON.stringify({ items:itemsForOrder.map((item) => ({ variant_id: item.id, quantity: item.quantity })), pickup_plan: pickupPlan, delivery_method: details.deliveryMethod, payment_method: details.paymentMethod, shipping_address: details.deliveryMethod === "home_delivery" ? details.shippingAddress : null, shipping_recipient_name: needsRecipient ? details.shippingRecipientName : null, shipping_phone: needsRecipient ? details.normalizedShippingPhone : null, pickup_store_city: store?.city ?? null, pickup_store_district: store?.district ?? null, pickup_store_name: store?.name ?? null, pickup_store_code: store?.code ?? null, bank_account_id: details.bankAccountId, coupon_code: document.querySelector("#checkout-coupon-code")?.value.trim() || null, points_to_redeem: Number(document.querySelector("#checkout-points")?.value || 0) });
+  // 剛建單成功但購物車來不及清除（中途重新整理）：先確認，避免以為失敗而重複下單
+  if (recentCompletedCheckout(orderRequest) && !window.confirm("剛才已建立相同內容的訂單，要再下一筆嗎？")) {
+    closeDialog(document.querySelector("#checkout-dialog"));
+    return openOrders();
+  }
   // 同一份內容的重送沿用同一個 key：上一次其實已建單時，資料庫會回傳原訂單
   const clientRequestId = checkoutRequestKey(orderRequest);
   const response = await fetch("/api/orders", {
@@ -89,6 +94,8 @@ export async function submitOrder() {
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || result.message || "訂單建立失敗");
+  // 已建單：key 立即標記完成，之後相同內容的購買不會再拿回這筆訂單
+  markCheckoutRequestCompleted();
   // 先把已購商品移出購物車並保存（本機與會員雲端），之後才清除 key：
   // 中途重新整理時購物車仍有這些商品，再次結帳會帶同一個 key 拿回原訂單，不會重複建單
   cart.splice(0, cart.length, ...cart.filter((item) => !itemsForOrder.includes(item)));

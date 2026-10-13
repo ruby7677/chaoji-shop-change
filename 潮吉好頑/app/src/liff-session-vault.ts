@@ -70,25 +70,37 @@ export async function storeVaultedSession(
   }
 }
 
-/** 只更新既有列的 token（輪替後查不到使用者時存回新 token）；不新增列，user_id 維持原本已驗證的值。 */
-export async function replaceVaultedToken(env: LiffSessionVaultEnv, lineUserId: string, sealed: string): Promise<boolean> {
+/**
+ * 只更新既有列的 token（輪替後查不到使用者時存回新 token）；不新增列，user_id 維持原本已驗證的值。
+ * 只在該列仍是 `expectedSealed`（本次讀到的那筆）時才更新：期間另一次 LINE Login 寫入的新 token 不會被蓋掉。
+ * 回傳是否真的更新到一列。
+ */
+export async function replaceVaultedToken(env: LiffSessionVaultEnv, lineUserId: string, sealed: string, expectedSealed: string): Promise<boolean> {
   if (!vaultReady(env)) return false;
   try {
-    const response = await fetchWithTimeout(vaultUrl(env, lineUserId), {
+    const url = vaultUrl(env, lineUserId);
+    url.searchParams.set("sealed_refresh_token", `eq.${expectedSealed}`);
+    url.searchParams.set("select", "line_user_id");
+    const response = await fetchWithTimeout(url, {
       method: "PATCH",
-      headers: serviceHeaders(env, "return=minimal"),
+      headers: serviceHeaders(env, "return=representation"),
       body: JSON.stringify({ sealed_refresh_token: sealed, updated_at: new Date().toISOString() })
     });
-    return response.ok;
+    if (!response.ok) return false;
+    const rows = await response.json() as unknown[];
+    return Array.isArray(rows) && rows.length > 0;
   } catch {
     return false;
   }
 }
 
-export async function deleteVaultedSession(env: LiffSessionVaultEnv, lineUserId: string): Promise<void> {
+/** 只刪除仍是 `expectedSealed` 的列；期間已被新的 LINE Login 覆寫時保留新 token。 */
+export async function deleteVaultedSession(env: LiffSessionVaultEnv, lineUserId: string, expectedSealed: string): Promise<void> {
   if (!vaultReady(env)) return;
   try {
-    await fetchWithTimeout(vaultUrl(env, lineUserId), { method: "DELETE", headers: serviceHeaders(env, "return=minimal") });
+    const url = vaultUrl(env, lineUserId);
+    url.searchParams.set("sealed_refresh_token", `eq.${expectedSealed}`);
+    await fetchWithTimeout(url, { method: "DELETE", headers: serviceHeaders(env, "return=minimal") });
   } catch {
     // Best-effort cleanup: a stale row only fails its next refresh and is removed then.
   }

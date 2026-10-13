@@ -1,7 +1,7 @@
 // 結帳請求識別碼：同內容重送沿用 key、內容改變換新 key、成功後清除，且不在瀏覽器保存收件人原文。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkoutRequestKey, clearCheckoutRequestKey, requestDigest } from "../../public/checkout-request-key.js";
+import { RECENT_COMPLETED_MS, checkoutRequestKey, clearCheckoutRequestKey, markCheckoutRequestCompleted, recentCompletedCheckout, requestDigest } from "../../public/checkout-request-key.js";
 
 function memoryStorage() {
   const data = new Map();
@@ -76,9 +76,45 @@ test("after a successful order the cart is settled before the request key is cle
     assert.ok(index >= 0, `missing: ${text}`);
     return index;
   };
+  const completed = at("markCheckoutRequestCompleted();");
+  assert.ok(at("if (!response.ok) throw") < completed && completed < at("cart.splice("), "the key is marked completed right after the order is created");
+  assert.ok(at("recentCompletedCheckout(orderRequest)") < at("fetch(\"/api/orders\""), "a just-completed identical order is confirmed before sending");
   const cleared = at("clearCheckoutRequestKey();");
   assert.ok(at("cart.splice(") < cleared, "purchased items leave the cart first");
   assert.ok(at("saveCart();") < cleared, "the cart is saved locally first");
   assert.ok(at("await syncMemberCartNow();") < cleared, "the member cloud cart is synced first");
   assert.ok(at("await loadPoints({ force: true })") > cleared, "a slow points reload cannot delay clearing past an unsaved cart");
+});
+
+test("a completed key is never reused, even if it was not cleared", () => {
+  const storage = memoryStorage();
+  const randomUUID = sequence();
+  const body = JSON.stringify({ quantity: 1 });
+  checkoutRequestKey(body, { storage, randomUUID });
+  markCheckoutRequestCompleted({ storage, now: 1000 });
+  assert.equal(checkoutRequestKey(body, { storage, randomUUID }), "key-2");
+  assert.equal(checkoutRequestKey(body, { storage, randomUUID }), "key-2", "the new pending key is reused for its own retries");
+});
+
+test("an identical order completed within the window is reported, later or different ones are not", () => {
+  const storage = memoryStorage();
+  const body = JSON.stringify({ quantity: 1 });
+  checkoutRequestKey(body, { storage, randomUUID: sequence() });
+  assert.equal(recentCompletedCheckout(body, { storage, now: 1000 }), false, "a pending (not completed) request is not reported");
+  markCheckoutRequestCompleted({ storage, now: 1000 });
+  assert.equal(recentCompletedCheckout(body, { storage, now: 1000 + RECENT_COMPLETED_MS - 1 }), true);
+  assert.equal(recentCompletedCheckout(body, { storage, now: 1000 + RECENT_COMPLETED_MS }), false);
+  assert.equal(recentCompletedCheckout(JSON.stringify({ quantity: 2 }), { storage, now: 1000 }), false);
+  clearCheckoutRequestKey({ storage });
+  assert.equal(recentCompletedCheckout(body, { storage, now: 1000 }), false, "a cleared key is not reported");
+});
+
+test("the completed marker survives a reload through sessionStorage", async () => {
+  const storage = memoryStorage();
+  const body = JSON.stringify({ quantity: 4 });
+  checkoutRequestKey(body, { storage, randomUUID: sequence() });
+  markCheckoutRequestCompleted({ storage, now: 5000 });
+  const fresh = await import(`../../public/checkout-request-key.js?reload=${Date.now()}`);
+  assert.equal(fresh.recentCompletedCheckout(body, { storage, now: 6000 }), true);
+  assert.notEqual(fresh.checkoutRequestKey(body, { storage, randomUUID: () => "after-reload" }), "key-1");
 });
