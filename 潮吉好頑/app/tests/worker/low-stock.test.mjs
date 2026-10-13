@@ -52,10 +52,18 @@ test("low stock alerts use the shared definition and reset recovered variants in
   assert.equal(seen.upserts, 1, "all alerted levels are written in one request");
 });
 
-test("the alert key carries the Taipei date and the alerted levels", async () => {
+test("the alert key carries the Taipei date and a fixed-length digest of the alerted levels", async () => {
+  const { createHash } = await import("node:crypto");
   const seen = fakeDb();
   await notifications.notifyLowStock(baseEnv, new Date("2026-10-13T17:00:00Z")); // 台灣 10/14 01:00
-  assert.deepEqual([...new Set(seen.claims.map((claim) => claim.p_event_key))], ["low-stock:2026-10-14:v-low-1"]);
+  assert.deepEqual([...new Set(seen.claims.map((claim) => claim.p_event_key))], [`low-stock:2026-10-14:${createHash("sha256").update("v-low-1").digest("hex")}`]);
+});
+
+test("a long low stock list still gets a short alert key", async () => {
+  const low = Array.from({ length: 1000 }, (_, n) => ({ ...LOW[0], id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` }));
+  const seen = fakeDb({ low });
+  await notifications.notifyLowStock(baseEnv, NOW);
+  assert.ok(seen.claims[0].p_event_key.length < 100);
 });
 
 test("levels are not recorded when no admin received the alert", async () => {

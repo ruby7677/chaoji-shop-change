@@ -213,8 +213,9 @@ export async function notifyLowStock(env: Env, now = new Date()) {
   }
   if (!toNotify.length) return;
   const lines = toNotify.map((variant) => `• ${variant.product_name || "商品"} · ${variant.name}：剩 ${variant.stock_on_hand} 件`);
-  // event key 帶台灣日期與內容：內容不同就是不同的通知紀錄，不會覆寫彼此；永久失敗的通知隔天換新 key 重送。
-  const eventKey = `low-stock:${taipeiDate(now)}:${toNotify.map((item) => `${item.id}-${item.stock_on_hand}`).join(",")}`;
+  // event key 帶台灣日期與內容摘要：內容不同就是不同的通知紀錄，不會覆寫彼此；永久失敗的通知隔天換新 key 重送。
+  // 內容用固定長度的 SHA-256，規格再多也不會超過唯一索引的長度上限。
+  const eventKey = `low-stock:${taipeiDate(now)}:${await sha256Hex(toNotify.map((item) => `${item.id}-${item.stock_on_hand}`).join(","))}`;
   const sent = await Promise.all(recipients.map((chatId) => notifyTelegram(env, eventKey, chatId, "low_stock", buildLowStockMessage(env.STORE_NAME, lines))));
   if (sent.some((result) => result.sent)) {
     // 一次寫回所有規格的通知水位（批次 upsert），不因規格數量增加子請求
@@ -241,6 +242,11 @@ export async function notifyBackupFailure(env: Env, reason: string, now = new Da
   // 取得 claim 後的錯誤由通知狀態機重試；這裡只記錄，不丟出
   await Promise.all(recipients.map((chatId) => deliverTelegramNotificationOrDirect(env, `backup-failed:${date}`, chatId, "backup_failed", message)
     .catch((error) => console.error("備份失敗通知未完成", error instanceof Error ? error.message : "unknown"))));
+}
+
+async function sha256Hex(text: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 /** 台灣日期（YYYY-MM-DD）。 */

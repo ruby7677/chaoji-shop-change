@@ -98,7 +98,7 @@ test("completing a cvs order stores the tracking number before the transition", 
   const calls = fakeAdmin();
   const response = await adminPost("transition", { target_status: "completed", shipment_tracking_number: " F1234-5678 " });
   assert.equal(response.status, 200);
-  // 轉換後的通知與低庫存檢查在 waitUntil 裡，這裡只看同步呼叫的兩支 RPC 順序。
+  // 轉換後的通知在 waitUntil 裡，這裡只看同步呼叫的兩支 RPC 順序。
   assert.deepEqual(calls.map(([name]) => name).slice(0, 2), ["admin_set_order_shipment_tracking", "admin_transition_order"]);
   assert.equal(calls[0][1].p_tracking_number, "F1234-5678");
 });
