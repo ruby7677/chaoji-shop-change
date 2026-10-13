@@ -171,22 +171,3 @@ export async function requestSupabaseRefresh(
   if (typeof payload?.access_token !== "string" || typeof payload.refresh_token !== "string") return { ok: false, retryable: true };
   return { ok: true, session: payload as SupabaseRefreshSession };
 }
-
-export async function refreshSupabaseSession(
-  supabaseUrl: string,
-  anonKey: string,
-  refreshToken: string
-): Promise<SupabaseRefreshSession | null> {
-  const response = await fetchWithTimeout(supabaseUrl + "/auth/v1/token?grant_type=refresh_token", {
-    method: "POST",
-    headers: {
-      apikey: anonKey,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ refresh_token: refreshToken })
-  });
-  if (!response.ok) return null;
-  const payload = await response.json() as Partial<SupabaseRefreshSession>;
-  if (typeof payload.access_token !== "string" || typeof payload.refresh_token !== "string") return null;
-  return payload as SupabaseRefreshSession;
-}

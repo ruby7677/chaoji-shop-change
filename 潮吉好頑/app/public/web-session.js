@@ -9,7 +9,8 @@ const HINT_COOKIE = "__Host-cj-web-hint=1";
 
 let refreshInFlight = null;
 
-async function post(path, body) {
+// 回傳 { session, retryable }：session 為成功結果或 null；retryable 表示網路、限流或服務暫時故障
+async function send(path, body) {
   try {
     const response = await fetch(path, {
       method: "POST",
@@ -18,11 +19,15 @@ async function post(path, body) {
       body: JSON.stringify(body || {})
     });
     const result = await response.json().catch(() => ({}));
-    if (!response.ok || typeof result.access_token !== "string") return null;
-    return result;
+    if (response.ok && typeof result.access_token === "string") return { session: result, retryable: false };
+    return { session: null, retryable: response.status === 429 || response.status >= 500 };
   } catch {
-    return null;
+    return { session: null, retryable: true };
   }
+}
+
+async function post(path, body) {
+  return (await send(path, body)).session;
 }
 
 export function hasWebSession() {
@@ -30,10 +35,10 @@ export function hasWebSession() {
   catch { return false; }
 }
 
-// 回傳 { access_token, expires_in, user_id, session_expires_at } 或 null
+// 回傳 { session, retryable }；session 為 { access_token, expires_in, user_id, session_expires_at } 或 null
 export function startWebSession(refreshToken) {
-  if (!refreshToken) return Promise.resolve(null);
-  return post("/api/auth/web-session/start", { refresh_token: refreshToken });
+  if (!refreshToken) return Promise.resolve({ session: null, retryable: false });
+  return send("/api/auth/web-session/start", { refresh_token: refreshToken });
 }
 
 // 同一分頁合併重複呼叫；跨分頁以 Web Locks 排隊，避免多個分頁同時用同一個 refresh token 換發

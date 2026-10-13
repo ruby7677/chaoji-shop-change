@@ -1,7 +1,7 @@
 // 一般瀏覽器登入續期（src/web-session.ts）：cookie 屬性、加密、12 小時上限與各種失敗處理。
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { baseEnv, ctx, jsonResponse, lineUser, loadWorker, stubFetch } from "./harness.mjs";
+import { baseEnv, ctx, deniedRateLimit, jsonResponse, lineUser, loadWorker, stubFetch } from "./harness.mjs";
 
 const worker = await loadWorker();
 let supabase;
@@ -9,15 +9,17 @@ let restoreFetch;
 let realNow;
 
 beforeEach(() => {
-  supabase = { mode: "ok", user: lineUser("user-1"), calls: [], rotation: 0 };
+  supabase = { mode: "ok", user: lineUser("user-1"), calls: [], rotation: 0, userLookup: null };
   realNow = Date.now;
   restoreFetch = stubFetch((url, _init, body) => {
+    // userLookup 為狀態碼時，refresh 回應不帶 user，改由 /auth/v1/user 查詢並回該狀態
+    if (url.pathname === "/auth/v1/user") return jsonResponse({}, supabase.userLookup);
     assert.equal(url.pathname, "/auth/v1/token", "only the Supabase token endpoint is called");
     supabase.calls.push(body.refresh_token);
     if (supabase.mode === "down") return jsonResponse({}, 503);
     if (supabase.mode === "reject") return jsonResponse({ error: "invalid_grant" }, 400);
     supabase.rotation += 1;
-    return jsonResponse({ access_token: `access-${supabase.rotation}`, refresh_token: `refresh-token-${supabase.rotation}`, expires_in: 3600, user: supabase.user });
+    return jsonResponse({ access_token: `access-${supabase.rotation}`, refresh_token: `refresh-token-${supabase.rotation}`, expires_in: 3600, user: supabase.userLookup ? undefined : supabase.user });
   });
 });
 
@@ -26,11 +28,11 @@ afterEach(() => {
   Date.now = realNow;
 });
 
-function call(path, { body = {}, cookie, header = true, method = "POST" } = {}) {
+function call(path, { body = {}, cookie, header = true, method = "POST", env = baseEnv } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (header) headers["X-CJ-Web-Session"] = "1";
   if (cookie) headers.Cookie = cookie;
-  return worker.fetch(new Request(`https://shop.test${path}`, { method, headers, body: method === "POST" ? JSON.stringify(body) : undefined }), baseEnv, ctx());
+  return worker.fetch(new Request(`https://shop.test${path}`, { method, headers, body: method === "POST" ? JSON.stringify(body) : undefined }), env, ctx());
 }
 
 const setCookies = (response) => response.headers.getSetCookie();
@@ -138,4 +140,42 @@ test("non-LINE accounts cannot start a web session", async () => {
 test("only POST is routed", async () => {
   const response = await call("/api/auth/web-session/refresh", { method: "GET" });
   assert.equal(response.status, 404);
+});
+
+test("a rate-limited refresh is refused before the token is rotated", async () => {
+  const { cookie } = await startSession();
+  const callsBefore = supabase.calls.length;
+  const response = await call("/api/auth/web-session/refresh", { cookie, env: { ...baseEnv, API_MEMBER_RATE_LIMITER: deniedRateLimit } });
+  assert.equal(response.status, 429);
+  assert.equal(supabase.calls.length, callsBefore, "the cookie's token is still the live one");
+  assert.equal(setCookies(response).length, 0);
+});
+
+test("a user lookup outage after rotation keeps the rotated token in the cookie", async () => {
+  const { cookie } = await startSession();
+  supabase.userLookup = 503;
+  const response = await call("/api/auth/web-session/refresh", { cookie });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "WEB_SESSION_UNAVAILABLE");
+  const rotatedCookie = sessionCookie(response);
+  assert.ok(rotatedCookie && rotatedCookie !== cookie, "the rotated token replaces the spent one");
+  supabase.userLookup = null;
+  const renewed = await call("/api/auth/web-session/refresh", { cookie: rotatedCookie });
+  assert.equal(renewed.status, 200);
+  assert.equal(supabase.calls.at(-1), "refresh-token-2", "the next renewal uses the token rotated during the outage");
+});
+
+test("a user lookup outage on start returns 503 without clearing cookies", async () => {
+  supabase.userLookup = 502;
+  const response = await call("/api/auth/web-session/start", { body: { refresh_token: "oauth-refresh-token" } });
+  assert.equal(response.status, 503);
+  assert.equal(setCookies(response).length, 0);
+});
+
+test("a rejected user lookup after rotation is still treated as an invalid session", async () => {
+  const { cookie } = await startSession();
+  supabase.userLookup = 401;
+  const response = await call("/api/auth/web-session/refresh", { cookie });
+  assert.equal(response.status, 401);
+  assert.ok(isCleared(response));
 });

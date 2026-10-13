@@ -70,6 +70,21 @@ export async function storeVaultedSession(
   }
 }
 
+/** 只更新既有列的 token（輪替後查不到使用者時存回新 token）；不新增列，user_id 維持原本已驗證的值。 */
+export async function replaceVaultedToken(env: LiffSessionVaultEnv, lineUserId: string, sealed: string): Promise<boolean> {
+  if (!vaultReady(env)) return false;
+  try {
+    const response = await fetchWithTimeout(vaultUrl(env, lineUserId), {
+      method: "PATCH",
+      headers: serviceHeaders(env, "return=minimal"),
+      body: JSON.stringify({ sealed_refresh_token: sealed, updated_at: new Date().toISOString() })
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function deleteVaultedSession(env: LiffSessionVaultEnv, lineUserId: string): Promise<void> {
   if (!vaultReady(env)) return;
   try {

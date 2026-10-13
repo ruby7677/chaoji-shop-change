@@ -122,7 +122,7 @@ test("POST /api/auth/web-session/start: a denied per-identity limit returns 429 
   assert.equal(userLimiter.calls[0], `web-session-start-user:${WEB_MEMBER_ID}`, "the per-identity key is keyed by the verified Supabase user id");
 });
 
-test("POST /api/auth/web-session/refresh: a denied per-identity limit returns 429 right after the Supabase refresh confirms a LINE member", async () => {
+test("POST /api/auth/web-session/refresh: a denied per-identity limit returns 429 before the token is rotated", async () => {
   // First establish a valid session cookie with both layers open.
   restoreFetch = stubFetch((url) => {
     if (url.pathname === "/auth/v1/token") {
@@ -149,6 +149,6 @@ test("POST /api/auth/web-session/refresh: a denied per-identity limit returns 42
     headers: { ...WEB_SESSION_HEADER, Cookie: cookie }
   }), env, ctx());
   assert.equal(response.status, 429);
-  assert.equal(calls.length, 1, "only the Supabase token refresh happens before the per-identity limiter runs");
-  assert.equal(userLimiter.calls[0], `web-session-refresh-user:${WEB_MEMBER_ID}`);
+  assert.equal(calls.length, 0, "the limiter runs before rotation so the cookie's token stays usable");
+  assert.equal(userLimiter.calls[0], `web-session-refresh-user:${WEB_MEMBER_ID}`, "keyed by the member id sealed in the cookie");
 });

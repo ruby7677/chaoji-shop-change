@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { LINE_USER_ID, baseEnv, ctx, jsonResponse, lineUser, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
 
 const worker = await loadWorker();
-const { sealRefreshToken } = await loadSourceModule("auth-session.ts");
+const { openRefreshToken, sealRefreshToken } = await loadSourceModule("auth-session.ts");
 const allow = { limit: async () => ({ success: true }) };
 const env = { ...baseEnv, LIFF_ID: "liff-test-id", LINE_LOGIN_CHANNEL_ID: "channel-test-id", API_AUTH_IP_RATE_LIMITER: allow, API_MEMBER_RATE_LIMITER: allow };
 // Supabase 目前發出的 refresh token 為 12 字元
@@ -21,6 +21,8 @@ beforeEach(async () => {
     vault: "found",
     sealed: await sealRefreshToken(env.AUTH_SESSION_SECRET, SHORT_REFRESH_TOKEN),
     refresh: "ok",
+    userLookup: null,
+    patched: null,
     calls: []
   };
   restoreFetch = stubFetch((url, init, body) => {
@@ -37,13 +39,16 @@ beforeEach(async () => {
         if (upstream.vault === "down") return jsonResponse({}, 500);
         return jsonResponse(upstream.vault === "found" ? [{ sealed_refresh_token: upstream.sealed }] : []);
       }
+      if (method === "PATCH") upstream.patched = body.sealed_refresh_token;
       return new Response(null, { status: method === "DELETE" ? 204 : 201 });
     }
+    // userLookup 為狀態碼時，refresh 回應不帶 user，改由 /auth/v1/user 查詢並回該狀態
+    if (url.pathname === "/auth/v1/user") return jsonResponse({}, upstream.userLookup);
     if (url.pathname === "/auth/v1/token") {
       assert.equal(body.refresh_token, SHORT_REFRESH_TOKEN, "restore sends the decrypted short token to Supabase");
       if (upstream.refresh === "down") return jsonResponse({}, 503);
       if (upstream.refresh === "reject") return jsonResponse({ error: "invalid_grant" }, 400);
-      return jsonResponse({ access_token: "access-new", refresh_token: "mnopqrstuvwx", expires_in: 3600, user: lineUser("user-1") });
+      return jsonResponse({ access_token: "access-new", refresh_token: "mnopqrstuvwx", expires_in: 3600, user: upstream.userLookup ? undefined : lineUser("user-1") });
     }
     throw new Error(`unexpected request: ${method} ${url}`);
   });
@@ -123,4 +128,39 @@ test("沒有保存的登入時回 401 NO_PERSISTENT_SESSION", async () => {
   const response = await restore();
   assert.equal(response.status, 401);
   assert.equal((await response.json()).code, "NO_PERSISTENT_SESSION");
+});
+
+test("token 已輪替但查不到使用者時，把新 token 存回 vault 並回 503，不刪 vault", async () => {
+  upstream.userLookup = 503;
+  const response = await restore();
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "SESSION_RESTORE_UNAVAILABLE");
+  assert.equal(vaultDeleted(), false);
+  assert.ok(upstream.patched, "the rotated token is written back to the vault row");
+  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, upstream.patched), "mnopqrstuvwx");
+});
+
+function remember() {
+  return worker.fetch(new Request("https://shop.test/api/auth/session/remember", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id_token: "liff-id-token", refresh_token: SHORT_REFRESH_TOKEN })
+  }), env, ctx());
+}
+
+for (const [label, setup] of [["LINE 驗證", () => { upstream.line = "down"; }], ["Supabase refresh", () => { upstream.refresh = "down"; }], ["使用者查詢", () => { upstream.userLookup = 503; }]]) {
+  test(`保存登入時${label}暫時故障回 503，不清除 cookie`, async () => {
+    setup();
+    const response = await remember();
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, "SESSION_REMEMBER_UNAVAILABLE");
+    assert.equal(response.headers.get("Set-Cookie"), null);
+  });
+}
+
+test("保存登入時 Supabase 拒絕 refresh token 回 401 並清除 cookie", async () => {
+  upstream.refresh = "reject";
+  const response = await remember();
+  assert.equal(response.status, 401);
+  assert.match(response.headers.get("Set-Cookie") || "", /Max-Age=0/);
 });

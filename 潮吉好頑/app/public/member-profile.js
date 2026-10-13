@@ -40,6 +40,9 @@ async function syncMemberIdentityOnce() {
   return identitySyncInFlight;
 }
 
+class MemberSessionRejected extends Error {}
+const MEMBER_LOAD_RETRY = Symbol("member-load-retry");
+
 export function loadMember() {
   if (memberLoadResolved) return Promise.resolve();
   if (memberLoadInFlight) return memberLoadInFlight;
@@ -47,7 +50,8 @@ export function loadMember() {
     if (!auth.accessToken || !auth.config?.authEnabled) return;
     try {
       const response = await fetch(`${auth.config.supabaseUrl}/auth/v1/user`, { headers: { apikey: auth.config.supabaseAnonKey, Authorization: `Bearer ${auth.accessToken}` } });
-      if (!response.ok) throw new Error("expired");
+      if (response.status === 401 || response.status === 403) throw new MemberSessionRejected();
+      if (!response.ok) throw new Error(`member lookup failed (${response.status})`);
       const user = await response.json();
       if ((auth.user?.id && auth.user.id !== user.id) || (cartSyncUserId && cartSyncUserId !== user.id)) resetMemberCartSyncState();
       if ((memberPointsCache.userId && memberPointsCache.userId !== user.id) || (lineFriendshipCache.userId && lineFriendshipCache.userId !== user.id)) clearMemberStateCache();
@@ -64,13 +68,15 @@ export function loadMember() {
       ]);
       updateMemberButton();
       if (!profileIsComplete()) showProfileDialog(true);
-    } catch {
-      clearStoredAuthSession();
+    } catch (error) {
+      // 只有 Supabase 確定拒絕 token 才登出；網路、限流或服務暫時故障保留登入，下次呼叫再載入
+      if (error instanceof MemberSessionRejected) { clearStoredAuthSession(); return; }
+      showToast("會員資料暫時無法載入，請稍後重新整理", "warning");
+      return MEMBER_LOAD_RETRY;
     }
   })();
   memberLoadInFlight = promise.then((result) => {
-    memberLoadResolved = true;
-    return result;
+    memberLoadResolved = result !== MEMBER_LOAD_RETRY;
   }).finally(() => {
     memberLoadInFlight = null;
   });

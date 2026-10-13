@@ -34,7 +34,7 @@ export interface WebSessionEnv {
 export interface WebSessionDeps<E extends WebSessionEnv> {
   json(data: unknown, init?: ResponseInit): Response;
   enforceRateLimit(limiter: RateLimit | undefined, key: string): Promise<Response | null>;
-  /** Returns the refreshed session's user id only when it carries a LINE identity. */
+  /** Returns the refreshed session's user id only when it carries a LINE identity; throws when Supabase cannot answer. */
   lineMemberId(env: E, session: SupabaseRefreshSession): Promise<string | null>;
 }
 
@@ -53,9 +53,9 @@ export function createWebSession<E extends WebSessionEnv>(deps: WebSessionDeps<E
     return response;
   }
 
-  function unavailable() {
-    // Supabase 暫時無法回應時保留 cookie，下次仍可續期。
-    return json({ error: "登入續期暫時無法完成，請稍後再試", code: "WEB_SESSION_UNAVAILABLE" }, { status: 503 });
+  function unavailable(cookies: string[] = []) {
+    // Supabase 暫時無法回應時保留 cookie（或換成已輪替的新 token），下次仍可續期。
+    return withCookies(json({ error: "登入續期暫時無法完成，請稍後再試", code: "WEB_SESSION_UNAVAILABLE" }, { status: 503 }), cookies);
   }
 
   function failure(code: WebSessionFailure, clearCookies: boolean) {
@@ -82,7 +82,7 @@ export function createWebSession<E extends WebSessionEnv>(deps: WebSessionDeps<E
     return null;
   }
 
-  // 第二層：Supabase 確認會員身分後才以會員 id 計數，同一帳號換 IP 也無法大量呼叫
+  // 第二層：以會員 id 計數，同一帳號換 IP 也無法大量呼叫（refresh 用 cookie 內已驗證的 id，在輪替前檢查）
   function verifiedUserRateLimit(env: E, action: string, userId: string) {
     return enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `web-session-${action}-user:${userId}`);
   }
@@ -99,7 +99,10 @@ export function createWebSession<E extends WebSessionEnv>(deps: WebSessionDeps<E
     const result = await requestSupabaseRefresh(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!, refreshToken);
     if (!result.ok) return result.retryable ? unavailable() : failure("INVALID_WEB_SESSION", true);
     const refreshed = result.session;
-    const userId = await lineMemberId(env, refreshed);
+    // OAuth token 只在此刻出現、事先無從得知會員 id，限流只能在輪替後；查詢暫時失敗時前端保留 token，在 Supabase 重複使用寬限內重送
+    let userId: string | null;
+    try { userId = await lineMemberId(env, refreshed); }
+    catch { return unavailable(); }
     if (!userId) return withCookies(json({ error: "本網站僅接受 LINE 會員登入" }, { status: 403 }), clearWebSessionCookies());
     const userRateLimitResponse = await verifiedUserRateLimit(env, "start", userId);
     if (userRateLimitResponse) return userRateLimitResponse;
@@ -115,13 +118,20 @@ export function createWebSession<E extends WebSessionEnv>(deps: WebSessionDeps<E
     if (!payload) return failure("INVALID_WEB_SESSION", true);
     const now = Date.now();
     if (payload.iat > now + CLOCK_SKEW_MS || now - payload.iat >= RENEWAL_CUTOFF_MS) return failure("WEB_SESSION_EXPIRED", true);
+    // 輪替前限流：限流後才輪替會讓新 token 隨 429 遺失，舊 token 又已失效
+    const userRateLimitResponse = await verifiedUserRateLimit(env, "refresh", payload.uid);
+    if (userRateLimitResponse) return userRateLimitResponse;
     const result = await requestSupabaseRefresh(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!, payload.rt);
     if (!result.ok) return result.retryable ? unavailable() : failure("INVALID_WEB_SESSION", true);
     const refreshed = result.session;
-    const userId = await lineMemberId(env, refreshed);
+    let userId: string | null;
+    try { userId = await lineMemberId(env, refreshed); }
+    catch {
+      // 已輪替但查不到使用者：新 token 由同一 cookie 的 token 換來，沿用 cookie 內的會員 id 與登入時間存回
+      const sealedRotated = await sealWebSession(env.AUTH_SESSION_SECRET!, { rt: refreshed.refresh_token, iat: payload.iat, uid: payload.uid });
+      return unavailable(webSessionCookies(sealedRotated));
+    }
     if (!userId || userId !== payload.uid) return failure("INVALID_WEB_SESSION", true);
-    const userRateLimitResponse = await verifiedUserRateLimit(env, "refresh", userId);
-    if (userRateLimitResponse) return userRateLimitResponse;
     // Keep the original login time so renewals never extend the 12-hour cap.
     return issue(env, refreshed, userId, payload.iat);
   }

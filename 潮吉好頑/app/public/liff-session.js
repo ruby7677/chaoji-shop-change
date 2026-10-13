@@ -257,9 +257,10 @@ function applyWebSession(result) {
 export async function ensureWebSession() {
   if (!auth.config?.authEnabled) return;
   if (auth.refreshToken) {
-    const started = await startWebSession(auth.refreshToken);
-    if (started) applyWebSession(started);
-    else { auth.refreshToken = null; persistEphemeralAuthSession({ includeRefresh: false }); }
+    const { session, retryable } = await startWebSession(auth.refreshToken);
+    if (session) applyWebSession(session);
+    // 暫時故障保留 refresh token，下次呼叫再交給 Worker；只有確定被拒才丟棄
+    else if (!retryable) { auth.refreshToken = null; persistEphemeralAuthSession({ includeRefresh: false }); }
     return;
   }
   if (auth.accessToken && !accessTokenExpiresSoon(auth.accessToken)) return;

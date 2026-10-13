@@ -2,7 +2,7 @@
 // 通用 503（不洩漏內部錯誤訊息），同時仍帶安全 header。
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { baseEnv, ctx, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
+import { baseEnv, ctx, jsonResponse, lineUser, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
 
 let restoreFetch = () => {};
 afterEach(() => restoreFetch());
@@ -52,7 +52,11 @@ test("fetchWithTimeout combines a caller-supplied signal with the timeout signal
 
 test("an uncaught upstream failure returns a generic 503 with security headers instead of leaking the error", async () => {
   const worker = await loadWorker();
-  restoreFetch = stubFetch(() => { throw new Error("network is down"); });
+  // 會員驗證通過後，路由本身的資料庫請求失敗才會落到最外層的錯誤處理
+  restoreFetch = stubFetch((url) => {
+    if (url.pathname === "/auth/v1/user") return jsonResponse(lineUser("user-1"));
+    throw new Error("network is down");
+  });
   const response = await worker.fetch(new Request("https://shop.test/api/cart", { headers: { Authorization: "Bearer member-token" } }), baseEnv, ctx());
   assert.equal(response.status, 503);
   const body = await response.json();

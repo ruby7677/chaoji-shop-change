@@ -65,12 +65,26 @@ test("a failed renewal resolves to null", async () => {
 });
 
 test("startWebSession posts the OAuth refresh token once and ignores empty input", async () => {
-  assert.equal(await webSession.startWebSession(null), null);
+  assert.deepEqual(await webSession.startWebSession(null), { session: null, retryable: false });
   assert.equal(fetches.length, 0);
-  const result = await webSession.startWebSession("oauth-token");
-  assert.equal(result.access_token, "new-access");
+  const { session } = await webSession.startWebSession("oauth-token");
+  assert.equal(session.access_token, "new-access");
   assert.equal(fetches[0].path, "/api/auth/web-session/start");
   assert.deepEqual(JSON.parse(fetches[0].init.body), { refresh_token: "oauth-token" });
+});
+
+for (const [status, retryable] of [[503, true], [429, true], [401, false], [403, false]]) {
+  test(`a ${status} start ${retryable ? "is retryable so the OAuth token is kept" : "is a definite rejection"}`, async () => {
+    reply = { status, body: { error: "x" } };
+    assert.deepEqual(await webSession.startWebSession("oauth-token"), { session: null, retryable });
+  });
+}
+
+test("a network failure on start is retryable", async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+  try { assert.deepEqual(await webSession.startWebSession("oauth-token"), { session: null, retryable: true }); }
+  finally { globalThis.fetch = realFetch; }
 });
 
 // auth-expiry keeps module state, so these run in order against one set of deps.

@@ -1,6 +1,6 @@
 // LINE 身分驗證、LIFF 持久登入（vault／cookie）與會員／管理員授權檢查。
-import { type SupabaseRefreshSession, clearRefreshSessionCookie, openRefreshToken, readRefreshSessionCookie, refreshSessionCookie, refreshSupabaseSession, requestSupabaseRefresh, sealRefreshToken } from "./auth-session";
-import { deleteVaultedSession, readVaultedSession, storeVaultedSession } from "./liff-session-vault";
+import { type SupabaseRefreshSession, clearRefreshSessionCookie, openRefreshToken, readRefreshSessionCookie, refreshSessionCookie, requestSupabaseRefresh, sealRefreshToken } from "./auth-session";
+import { deleteVaultedSession, readVaultedSession, replaceVaultedToken, storeVaultedSession } from "./liff-session-vault";
 import { type AuthUser, type Env } from "./env";
 import { bearerToken, enforceRateLimit, fetchWithTimeout, json, serviceHeaders } from "./http";
 
@@ -100,14 +100,21 @@ export async function verifyLiffIdentity(request: Request, env: Env): Promise<Re
   return json({ verified: true, sessionMatch, displayName: typeof identity.name === "string" ? identity.name : null });
 }
 
+/** Supabase 暫時無法回應（429、5xx、逾時）時拋出，呼叫端不可把它當成登入失效；確定不是有效使用者才回 null。 */
 export async function refreshedAuthUser(env: Env, session: SupabaseRefreshSession): Promise<AuthUser | null> {
+  // refresh 回應通常已帶 user，優先使用，少一次可能失敗的查詢
   if (session.user && typeof session.user === "object") return session.user as AuthUser;
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return null;
   const response = await fetchWithTimeout(env.SUPABASE_URL + "/auth/v1/user", {
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: "Bearer " + session.access_token }
   });
+  if (isTransientStatus(response.status)) throw new Error(`Supabase 使用者查詢暫時失敗（${response.status}）`);
   if (!response.ok) return null;
   return await response.json() as AuthUser;
+}
+
+function isTransientStatus(status: number) {
+  return status === 429 || status >= 500;
 }
 
 function sessionBridgeReady(env: Env) {
@@ -147,21 +154,28 @@ export async function rememberLiffSession(request: Request, env: Env): Promise<R
     return json({ error: "登入工作階段資料不完整" }, { status: 400 });
   }
 
-  const identity = await verifyLiffIdToken(env, idToken);
+  const checked = await checkLiffIdToken(env, idToken);
+  if (checked.status === "unavailable") return sessionUnavailable("SESSION_REMEMBER_UNAVAILABLE");
+  const identity = checked.status === "valid" ? checked.identity : null;
   if (!identity?.sub) return json({ error: "LIFF LINE 身分驗證失敗" }, { status: 401 });
   // 第二層：LINE 驗證通過後以該帳號計數，同一帳號換 IP 也無法大量呼叫
   const userRateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `session-remember-user:${identity.sub}`);
   if (userRateLimitResponse) return userRateLimitResponse;
-  const refreshed = await refreshSupabaseSession(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!, refreshToken);
-  if (!refreshed) {
+  // 暫時性故障不清 cookie：前端保留 refresh token 稍後重試，不把會員登出
+  const refreshed = await requestSupabaseRefresh(env.SUPABASE_URL!, env.SUPABASE_ANON_KEY!, refreshToken);
+  if (!refreshed.ok) {
+    if (refreshed.retryable) return sessionUnavailable("SESSION_REMEMBER_UNAVAILABLE");
     return json({ error: "會員登入工作階段已失效" }, { status: 401, headers: { "Set-Cookie": clearRefreshSessionCookie() } });
   }
-  const user = await validateRefreshedLineSession(env, refreshed, identity.sub);
+  // token 已輪替但查不到使用者：這個 token 尚未驗證過身分，不能保存；前端在 Supabase 的重複使用寬限內重送仍可換發
+  let user: AuthUser | null;
+  try { user = await validateRefreshedLineSession(env, refreshed.session, identity.sub); }
+  catch { return sessionUnavailable("SESSION_REMEMBER_UNAVAILABLE"); }
   if (!user) {
     return json({ error: "LIFF LINE 身分與會員登入不一致" }, { status: 409, headers: { "Set-Cookie": clearRefreshSessionCookie() } });
   }
 
-  return persistedSessionResponse(env, identity.sub, user, refreshed);
+  return persistedSessionResponse(env, identity.sub, user, refreshed.session);
 }
 
 // The vault is the canonical store once available. Keeping the same refresh
@@ -179,7 +193,9 @@ async function persistedSessionResponse(env: Env, lineUserId: string, user: Auth
 
 type SealedSessionResult =
   | { ok: true; user: AuthUser; refreshed: SupabaseRefreshSession }
-  | { ok: false; reason: "invalid" | "expired" | "mismatch" | "unavailable" };
+  // rotated：token 已輪替但查不到使用者，呼叫端要把新 token 存回原處，否則舊 token 已失效、會員被迫重新登入
+  | { ok: false; reason: "unavailable"; rotated?: SupabaseRefreshSession }
+  | { ok: false; reason: "invalid" | "expired" | "mismatch" };
 
 async function restoreSealedSession(env: Env, sealed: string, lineUserId: string): Promise<SealedSessionResult> {
   const refreshToken = await openRefreshToken(env.AUTH_SESSION_SECRET!, sealed);
@@ -188,14 +204,18 @@ async function restoreSealedSession(env: Env, sealed: string, lineUserId: string
   if (!refreshed.ok) return { ok: false, reason: refreshed.retryable ? "unavailable" : "expired" };
   let user: AuthUser | null;
   try { user = await validateRefreshedLineSession(env, refreshed.session, lineUserId); }
-  catch { return { ok: false, reason: "unavailable" }; }
+  catch { return { ok: false, reason: "unavailable", rotated: refreshed.session }; }
   if (!user) return { ok: false, reason: "mismatch" };
   return { ok: true, user, refreshed: refreshed.session };
 }
 
 // LINE／Supabase 暫時無法回應：保留 vault 與 cookie，前端稍後重試，不可改走 OAuth
-function restoreUnavailable() {
-  return json({ error: "登入暫時無法恢復，請稍後再試", code: "SESSION_RESTORE_UNAVAILABLE", retryable: true }, { status: 503 });
+function sessionUnavailable(code: "SESSION_RESTORE_UNAVAILABLE" | "SESSION_REMEMBER_UNAVAILABLE", init: ResponseInit = {}) {
+  return json({ error: "登入暫時無法恢復，請稍後再試", code, retryable: true }, { ...init, status: 503 });
+}
+
+function restoreUnavailable(init?: ResponseInit) {
+  return sessionUnavailable("SESSION_RESTORE_UNAVAILABLE", init);
 }
 
 export async function restoreLiffSession(request: Request, env: Env): Promise<Response> {
@@ -231,7 +251,14 @@ export async function restoreLiffSession(request: Request, env: Env): Promise<Re
     if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
     // 只有確定無效（解不開、身分不符）才刪除；token 被拒可能是暫時狀態，下次 LINE Login 也會覆寫
     if (result.reason === "invalid" || result.reason === "mismatch") await deleteVaultedSession(env, identity.sub);
-    if (result.reason === "unavailable") temporarilyUnavailable = true;
+    if (result.reason === "unavailable") {
+      if (result.rotated) {
+        // vault 的 token 已在本次輪替：存回輪替後的 token 再回 503，不改用 cookie（Supabase 此刻也查不到使用者）
+        await replaceVaultedToken(env, identity.sub, await sealRefreshToken(env.AUTH_SESSION_SECRET!, result.rotated.refresh_token));
+        return restoreUnavailable();
+      }
+      temporarilyUnavailable = true;
+    }
   }
 
   const sealedCookie = readRefreshSessionCookie(request);
@@ -241,7 +268,11 @@ export async function restoreLiffSession(request: Request, env: Env): Promise<Re
   }
   const result = await restoreSealedSession(env, sealedCookie, identity.sub);
   if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
-  if (result.reason === "unavailable") return restoreUnavailable();
+  if (result.reason === "unavailable") {
+    if (!result.rotated) return restoreUnavailable();
+    const sealed = await sealRefreshToken(env.AUTH_SESSION_SECRET!, result.rotated.refresh_token);
+    return restoreUnavailable({ headers: { "Set-Cookie": refreshSessionCookie(sealed) } });
+  }
   const clearCookie = { "Set-Cookie": clearRefreshSessionCookie() };
   if (result.reason === "invalid") return json({ error: "登入工作階段無效", code: "INVALID_PERSISTENT_SESSION" }, { status: 401, headers: clearCookie });
   if (result.reason === "expired") return json({ error: "會員登入工作階段已失效" }, { status: 401, headers: clearCookie });
@@ -252,13 +283,24 @@ export async function forgetLiffSession(): Promise<Response> {
   return json({ ok: true }, { headers: { "Set-Cookie": clearRefreshSessionCookie() } });
 }
 
+function memberAuthUnavailable() {
+  return json({ error: "會員驗證暫時無法完成，請稍後再試", code: "AUTH_UNAVAILABLE" }, { status: 503 });
+}
+
 export async function requireUser(request: Request, env: Env): Promise<{ authorization: string; user: AuthUser } | Response> {
   const authorization = bearerToken(request);
   if (!authorization) return json({ error: "需要會員登入" }, { status: 401 });
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return json({ error: "會員系統尚未設定" }, { status: 503 });
-  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/auth/v1/user`, {
-    headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authorization }
-  });
+  // 只有 Supabase 確定拒絕 token 才回 401；限流、5xx 與逾時回 503，前端不會因此把會員登出
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(`${env.SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authorization }
+    });
+  } catch {
+    return memberAuthUnavailable();
+  }
+  if (isTransientStatus(response.status)) return memberAuthUnavailable();
   if (!response.ok) return json({ error: "登入已過期，請重新登入" }, { status: 401 });
   const user = await response.json() as AuthUser;
   if (env.LINE_AUTH_ENABLED === "true" && !hasLineIdentity(user, env)) return json({ error: "本網站僅接受 LINE 會員登入" }, { status: 403 });
