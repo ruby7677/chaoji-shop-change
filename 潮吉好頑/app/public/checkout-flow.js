@@ -3,8 +3,9 @@ import { auth, closeDialog, showDialog, showToast } from "./app-core.js";
 import { cart, cartGroups, cartItemsForScope, checkoutCartItems, renderCart, saveCart, selectedCartDeliveryMethod, settleMemberCart, syncMemberCartNow, toggleCart } from "./cart.js";
 import { clearCheckoutFieldErrors, ensurePaymentMethodUI, loadBankAccounts, renderCheckoutBenefits, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields, validateCheckoutDetails } from "./checkout-form.js";
 import { loadPoints, requireLineFriendshipForCheckout } from "./member-benefits.js";
-import { showPaymentDialog } from "./member-orders.js";
+import { openOrders, showPaymentDialog } from "./member-orders.js";
 import { rememberCvsStore } from "./checkout-cvs-store.js";
+import { checkoutRequestKey, clearCheckoutRequestKey } from "./checkout-request-key.js";
 import { ensureCheckoutCouponApplied, resetCheckoutCoupon } from "./checkout-coupon.js";
 import { whenAuthReady } from "./auth-ready.js";
 import { beginLineLogin, profileIsComplete, saveProfile, showProfileDialog } from "./member-profile.js";
@@ -72,16 +73,25 @@ export async function submitOrder() {
   const needsRecipient = ["home_delivery", "cvs_delivery"].includes(details.deliveryMethod);
   const store = details.pickupStore;
   await saveProfile({ full_name: details.fullName, phone: details.normalizedPhone, birthday: auth.profile?.birthday || null, address: details.deliveryMethod === "home_delivery" ? details.shippingAddress : (auth.profile?.address || null) });
+  const orderRequest = JSON.stringify({ items:itemsForOrder.map((item) => ({ variant_id: item.id, quantity: item.quantity })), pickup_plan: pickupPlan, delivery_method: details.deliveryMethod, payment_method: details.paymentMethod, shipping_address: details.deliveryMethod === "home_delivery" ? details.shippingAddress : null, shipping_recipient_name: needsRecipient ? details.shippingRecipientName : null, shipping_phone: needsRecipient ? details.normalizedShippingPhone : null, pickup_store_city: store?.city ?? null, pickup_store_district: store?.district ?? null, pickup_store_name: store?.name ?? null, pickup_store_code: store?.code ?? null, bank_account_id: details.bankAccountId, coupon_code: document.querySelector("#checkout-coupon-code")?.value.trim() || null, points_to_redeem: Number(document.querySelector("#checkout-points")?.value || 0) });
+  // 同一份內容的重送沿用同一個 key：上一次其實已建單時，資料庫會回傳原訂單
+  const clientRequestId = checkoutRequestKey(orderRequest);
   const response = await fetch("/api/orders", {
     method: "POST",
     headers: { Authorization: `Bearer ${auth.accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ items: itemsForOrder.map((item) => ({ variant_id: item.id, quantity: item.quantity })), pickup_plan: pickupPlan, delivery_method: details.deliveryMethod, payment_method: details.paymentMethod, shipping_address: details.deliveryMethod === "home_delivery" ? details.shippingAddress : null, shipping_recipient_name: needsRecipient ? details.shippingRecipientName : null, shipping_phone: needsRecipient ? details.normalizedShippingPhone : null, pickup_store_city: store?.city ?? null, pickup_store_district: store?.district ?? null, pickup_store_name: store?.name ?? null, pickup_store_code: store?.code ?? null, bank_account_id: details.bankAccountId, coupon_code: document.querySelector("#checkout-coupon-code")?.value.trim() || null, points_to_redeem: Number(document.querySelector("#checkout-points")?.value || 0) })
+    body: JSON.stringify({ ...JSON.parse(orderRequest), client_request_id: clientRequestId })
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || result.message || "訂單建立失敗");
+  clearCheckoutRequestKey();
   if (store) rememberCvsStore(store);
   await loadPoints({ force: true }).catch(() => {});
   cart.splice(0, cart.length, ...cart.filter((item) => !itemsForOrder.includes(item)));
   saveCart(); await syncMemberCartNow(); renderCart(); activeCheckoutItems = null; activeCheckoutScope = null; closeDialog(document.querySelector("#checkout-dialog"));
+  // 訂單已建立但明細暫時讀不到：改開我的訂單，不讓客人以為失敗而重新下單
+  if (!result.order) {
+    showToast("訂單已建立，請在我的訂單查看匯款資訊", "success");
+    return openOrders();
+  }
   showPaymentDialog(result.order);
 }

@@ -11,6 +11,8 @@ const MAX_ITEM_QUANTITY = 100;
 
 const MAX_CART_ITEMS = 50;
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const LINE_FRIEND_VERIFICATION_TTL_SECONDS = 15 * 60;
 
 function lineFriendVerificationIsFresh(value: string | null | undefined) {
@@ -87,7 +89,9 @@ async function loadOrder(env: Env, orderId: string, memberId: string, authorizat
   const response = await fetchWithTimeout(url, { headers: memberHeaders(env, authorization) });
   if (!response.ok) return null;
   const rows = await response.json() as MemberOrderRow[];
-  if (!rows[0] || !await attachBankAccounts(env, rows)) return null;
+  if (!rows[0]) return null;
+  // 收款帳戶查詢失敗時仍回傳訂單（帳戶為 null），付款畫面會顯示「匯款帳號暫時無法載入」。
+  await attachBankAccounts(env, rows);
   return rows[0];
 }
 
@@ -230,8 +234,10 @@ export async function createOrder(request: Request, env: Env): Promise<Response>
   if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "資料庫尚未設定" }, { status: 503 });
   const contentLength = Number(request.headers.get("Content-Length") || 0);
   if (Number.isFinite(contentLength) && contentLength > MAX_JSON_REQUEST_BYTES) return json({ error: databaseErrors.REQUEST_BODY_TOO_LARGE }, { status: 413 });
-  let body: { items?: Array<{ variant_id: string; quantity: number }>; pickup_plan?: "together" | "split"; delivery_method?: "store_pickup" | "home_delivery" | "cvs_delivery"; payment_method?: "bank_transfer"; shipping_address?: string; shipping_recipient_name?: string; shipping_phone?: string; pickup_store_city?: string; pickup_store_district?: string; pickup_store_name?: string; pickup_store_code?: string; coupon_code?: string; points_to_redeem?: number; bank_account_id?: string; payment_last_five?: string };
+  let body: { items?: Array<{ variant_id: string; quantity: number }>; pickup_plan?: "together" | "split"; delivery_method?: "store_pickup" | "home_delivery" | "cvs_delivery"; payment_method?: "bank_transfer"; shipping_address?: string; shipping_recipient_name?: string; shipping_phone?: string; pickup_store_city?: string; pickup_store_district?: string; pickup_store_name?: string; pickup_store_code?: string; coupon_code?: string; points_to_redeem?: number; bank_account_id?: string; payment_last_five?: string; client_request_id?: string };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
+  // 同一次結帳嘗試的識別碼：重送時資料庫回傳原訂單，避免重複下單（202610130001）
+  if (body.client_request_id != null && !UUID_PATTERN.test(String(body.client_request_id))) return json({ error: "請求格式錯誤" }, { status: 400 });
   if (!Array.isArray(body.items) || body.items.length === 0) return json({ error: "購物車不可為空" }, { status: 400 });
   if (body.pickup_plan && body.pickup_plan !== "together") return json({ error: "現貨與預購需分開結帳，不提供單筆分批取貨" }, { status: 400 });
   if (body.items.length > MAX_ORDER_ITEMS) return json({ error: "購物車品項數量超過上限" }, { status: 400 });
@@ -286,7 +292,8 @@ export async function createOrder(request: Request, env: Env): Promise<Response>
       p_pickup_store_city: pickupStore.city,
       p_pickup_store_district: pickupStore.district,
       p_pickup_store_name: pickupStore.name,
-      p_pickup_store_code: pickupStore.code
+      p_pickup_store_code: pickupStore.code,
+      p_client_request_id: body.client_request_id ?? null
     })
   });
   if (!response.ok) return databaseError(response);
@@ -294,7 +301,8 @@ export async function createOrder(request: Request, env: Env): Promise<Response>
   await invalidateCatalogCache(request);
   const orderId = await response.json() as string;
   const order = await loadOrder(env, orderId, user.id, authorization);
-  if (!order) return json({ error: "訂單已建立，但明細載入失敗，請至我的訂單查看" }, { status: 502 });
+  // 訂單已建立：明細讀不到也回 201，前端改導向我的訂單，避免客人以為失敗而重新下單。
+  if (!order) return json({ order: null, order_id: orderId, detail_unavailable: true }, { status: 201 });
   return json({ order }, { status: 201 });
 }
 

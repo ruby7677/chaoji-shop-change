@@ -406,4 +406,8 @@ select
     and not has_function_privilege('authenticated', to_regprocedure('public.admin_set_order_shipment_tracking(uuid,uuid,text)'), 'EXECUTE'), false) as shipment_tracking_rpc_service_only,
   -- 202610110002：結帳套用優惠碼試算只給已登入會員。
   coalesce(has_function_privilege('authenticated', to_regprocedure('public.preview_checkout_coupon(jsonb,text)'), 'EXECUTE')
-    and not has_function_privilege('anon', to_regprocedure('public.preview_checkout_coupon(jsonb,text)'), 'EXECUTE'), false) as coupon_preview_rpc_member_only;
+    and not has_function_privilege('anon', to_regprocedure('public.preview_checkout_coupon(jsonb,text)'), 'EXECUTE'), false) as coupon_preview_rpc_member_only,
+  -- 202610130001：冪等建單入口（15 參數）只給已登入會員；同會員同 client_request_id 只能有一筆訂單。
+  coalesce(has_function_privilege('authenticated', to_regprocedure('public.create_delivery_order(jsonb,text,text,text,integer,uuid,text,text,text,text,text,text,text,text,uuid)'), 'EXECUTE')
+    and not has_function_privilege('anon', to_regprocedure('public.create_delivery_order(jsonb,text,text,text,integer,uuid,text,text,text,text,text,text,text,text,uuid)'), 'EXECUTE'), false) as idempotent_order_rpc_member_only,
+  to_regclass('public.orders_member_client_request_key') is not null as order_client_request_unique;

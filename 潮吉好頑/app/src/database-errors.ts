@@ -55,6 +55,7 @@ export const databaseErrors: Record<string, string> = {
   PENDING_ORDER_LIMIT: "目前待處理訂單已達上限，請等待客服確認",
   PURCHASE_LIMIT_EXCEEDED: "已達此商品的會員限購數量",
   DUPLICATE_ORDER_ITEM: "購物車中不可重複相同商品規格",
+  CLIENT_REQUEST_CONFLICT: "結帳內容已變更，請重新整理後再送出訂單",
   REQUEST_BODY_TOO_LARGE: "請求內容過大，請縮減購物車或欄位內容",
   ADMIN_REQUIRED: "僅限管理員使用",
   REQUIRED_FIELDS_MISSING: "請填寫所有必填欄位",
