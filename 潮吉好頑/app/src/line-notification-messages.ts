@@ -89,7 +89,7 @@ export const NOTIFICATION_COPY = {
     bullet: "• "
   },
   backupFailed: {
-    title: "每週資料備份失敗",
+    title: "每日資料備份失敗",
     dateLabel: "備份日期",
     reasonLabel: "原因",
     note: "請到 Cloudflare Worker 紀錄查看，並確認 Supabase 與 R2（chaoji-backups）狀態。"

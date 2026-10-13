@@ -1,4 +1,4 @@
-// 每週資料備份（src/database-backup.ts）：一次呼叫 backup_snapshot() 並原樣寫入 R2；只在每週排程執行，失敗會丟錯、不寫出 service key。
+// 每日資料備份（src/database-backup.ts）：一次呼叫 backup_snapshot() 並原樣寫入 R2；只在每日備份排程執行，失敗會丟錯、不寫出 service key。
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -7,7 +7,7 @@ import { baseEnv, ctx, fakeR2, jsonResponse, loadSourceModule, loadWorker, stubF
 const backup = await loadSourceModule("database-backup");
 const worker = await loadWorker();
 const NOW = new Date(Date.UTC(2026, 9, 11, 19, 0));
-const KEY = "weekly/2026-10-12/snapshot.json";
+const KEY = "daily/2026-10-12/snapshot.json";
 const SNAPSHOT = { taken_at: "2026-10-11T19:00:00Z", tables: { orders: [{ id: "o1" }] } };
 
 let restoreFetch = () => {};
@@ -51,7 +51,7 @@ test("does nothing without the BACKUPS binding or Supabase settings", async () =
   assert.equal(calls.length, 0);
 });
 
-test("the weekly cron runs the backup with its scheduled time, and wrangler.jsonc schedules it", async () => {
+test("the daily backup cron runs the backup with its scheduled time, and wrangler.jsonc schedules it", async () => {
   const calls = stubSnapshot();
   const bucket = fakeR2();
   const context = ctx();
@@ -63,7 +63,7 @@ test("the weekly cron runs the backup with its scheduled time, and wrangler.json
   assert.ok(config.includes(`"${backup.BACKUP_CRON}"`));
 });
 
-test("a failing weekly backup is logged, not thrown out of the scheduled handler", async () => {
+test("a failing daily backup is logged, not thrown out of the scheduled handler", async () => {
   stubSnapshot(() => new Response("boom", { status: 500 }));
   const originalError = console.error;
   const logged = [];
@@ -157,7 +157,7 @@ test("slow R2 parts do not abort a body that is still within the backup budget",
 });
 
 // 備份失敗通知：先排入通知佇列；資料庫無法使用（佇列寫不進去）時直接送 Telegram；成功時不通知。
-async function runWeekly(env, handler) {
+async function runDaily(env, handler) {
   const seen = { claims: [], direct: [] };
   restoreFetch = stubFetch((url, init, body) => {
     if (url.hostname === "api.telegram.org") { seen.direct.push(body); return jsonResponse({ ok: true }); }
@@ -183,21 +183,21 @@ async function runWeekly(env, handler) {
   return seen;
 }
 
-test("a failed weekly backup queues one Telegram alert per admin with the reason", async () => {
-  const seen = await runWeekly({ ...baseEnv, BACKUPS: fakeR2() }, { snapshot: () => new Response("boom", { status: 500 }) });
+test("a failed daily backup queues one Telegram alert per admin with the reason", async () => {
+  const seen = await runDaily({ ...baseEnv, BACKUPS: fakeR2() }, { snapshot: () => new Response("boom", { status: 500 }) });
   assert.deepEqual(seen.claims.map((claim) => claim.p_recipient_id), ["111", "222"]);
   for (const claim of seen.claims) {
     assert.equal(claim.p_channel, "telegram");
     assert.equal(claim.p_event_type, "backup_failed");
     assert.equal(claim.p_event_key, "backup-failed:2026-10-12");
-    assert.match(claim.p_payload.text, /每週資料備份失敗[\s\S]*備份日期：2026-10-12[\s\S]*原因：backup_snapshot failed: HTTP 500/);
+    assert.match(claim.p_payload.text, /每日資料備份失敗[\s\S]*備份日期：2026-10-12[\s\S]*原因：backup_snapshot failed: HTTP 500/);
     assert.ok(!claim.p_payload.text.includes("service-key"));
   }
   assert.equal(seen.direct.length, 0);
 });
 
 test("when the database cannot queue the alert, it is sent to Telegram directly", async () => {
-  const seen = await runWeekly({ ...baseEnv, BACKUPS: fakeR2() }, {
+  const seen = await runDaily({ ...baseEnv, BACKUPS: fakeR2() }, {
     snapshot: () => new Response("down", { status: 503 }),
     claim: () => new Response("down", { status: 503 })
   });
@@ -227,19 +227,19 @@ test("a lost completion after Telegram accepted the alert is not sent again dire
 });
 
 test("a missing BACKUPS binding is reported as a failure", async () => {
-  const seen = await runWeekly({ ...baseEnv }, { snapshot: () => jsonResponse({}) });
+  const seen = await runDaily({ ...baseEnv }, { snapshot: () => jsonResponse({}) });
   assert.equal(seen.claims.length, 2);
   assert.match(seen.claims[0].p_payload.text, /缺少 Supabase 設定或 BACKUPS 綁定/);
 });
 
-test("a successful weekly backup sends no alert", async () => {
+test("a successful daily backup sends no alert", async () => {
   const bucket = fakeR2();
-  const seen = await runWeekly({ ...baseEnv, BACKUPS: bucket }, { snapshot: () => jsonResponse(SNAPSHOT) });
+  const seen = await runDaily({ ...baseEnv, BACKUPS: bucket }, { snapshot: () => jsonResponse(SNAPSHOT) });
   assert.ok(bucket.objects.has(KEY));
   assert.equal(seen.claims.length + seen.direct.length, 0);
 });
 
 test("the alert stays quiet when Telegram notifications are disabled", async () => {
-  const seen = await runWeekly({ ...baseEnv, TELEGRAM_NOTIFY_ENABLED: "false", BACKUPS: fakeR2() }, { snapshot: () => new Response("boom", { status: 500 }) });
+  const seen = await runDaily({ ...baseEnv, TELEGRAM_NOTIFY_ENABLED: "false", BACKUPS: fakeR2() }, { snapshot: () => new Response("boom", { status: 500 }) });
   assert.equal(seen.claims.length + seen.direct.length, 0);
 });

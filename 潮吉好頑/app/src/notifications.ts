@@ -193,7 +193,7 @@ export async function notifyLowStock(env: Env) {
 const BIRTHDAY_COUPON_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 /**
- * 每週備份失敗時通知 Telegram 管理員。資料庫可能正是失敗原因：寫不進通知佇列（notification_deliveries）時改為直接送出。
+ * 每日備份失敗時通知 Telegram 管理員。資料庫可能正是失敗原因：寫不進通知佇列（notification_deliveries）時改為直接送出。
  * 同一台灣日只排入佇列一次；不丟錯。
  */
 export async function notifyBackupFailure(env: Env, reason: string, now = new Date()) {

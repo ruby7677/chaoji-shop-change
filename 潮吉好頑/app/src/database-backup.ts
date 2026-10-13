@@ -1,13 +1,13 @@
-// 每週資料備份：呼叫 backup_snapshot()（migration 202610100001）在同一個資料庫快照內讀出所有營運資料表，
+// 每日資料備份：呼叫 backup_snapshot()（migration 202610100001，202610130002 補 Auth 身分與 schema 版本）在同一個資料庫快照內讀出所有營運資料表，
 // 邊讀邊寫入私有 R2 bucket（BACKUPS，沒有公開網域）。分表分頁讀取會讀到不同時間點的資料，還原時可能違反外鍵。
-// 由專用的每週 Cron Trigger 呼叫（見 wrangler.jsonc 與 index.ts）；回應本體不解析，CPU 與記憶體用量都很低。
+// 由專用的每日 Cron Trigger 呼叫（見 wrangler.jsonc 與 index.ts）；回應本體不解析，CPU 與記憶體用量都很低。
 // 舊備份由 bucket 的生命週期規則自動刪除（見 SECURITY_OPERATIONS_CHECKLIST.md）。
 import type { Env } from "./env";
 import { fetchWithTimeout, serviceHeaders } from "./http";
 import { notifyBackupFailure, taipeiDate } from "./notifications";
 
-/** 每週日 19:00 UTC（台灣週一 03:00，離峰）；必須與 wrangler.jsonc 的 crons 項目一致。 */
-export const BACKUP_CRON = "0 19 * * SUN";
+/** 每天 19:00 UTC（台灣隔日 03:00，離峰）；必須與 wrangler.jsonc 的 crons 項目一致。 */
+export const BACKUP_CRON = "0 19 * * *";
 
 /**
  * 整次備份的時間上限：逾時訊號在取得回應後仍作用於本體讀取，而讀取期間會等待 R2 分段上傳，
@@ -31,7 +31,7 @@ export async function runDatabaseBackup(env: Env, now = new Date()): Promise<str
     throw new Error(`backup_snapshot failed: HTTP ${response.status}`);
   }
   if (!response.body) throw new Error("backup_snapshot returned no body");
-  const key = `weekly/${taipeiDate(now)}/snapshot.json`;
+  const key = `daily/${taipeiDate(now)}/snapshot.json`;
   await storeStream(env.BACKUPS, key, response.body);
   return key;
 }
@@ -77,8 +77,8 @@ export async function storeStream(bucket: R2Bucket, key: string, body: ReadableS
   }
 }
 
-/** 每週排程入口：執行備份，失敗（含缺少設定）時記錄並通知 Telegram 管理員；不丟錯。 */
-export async function runWeeklyBackup(env: Env, now: Date) {
+/** 每日排程入口：執行備份，失敗（含缺少設定）時記錄並通知 Telegram 管理員；不丟錯。 */
+export async function runDailyBackup(env: Env, now: Date) {
   try {
     if (!await runDatabaseBackup(env, now)) throw new Error("缺少 Supabase 設定或 BACKUPS 綁定");
   } catch (error) {

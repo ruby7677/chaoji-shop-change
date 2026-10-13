@@ -18,7 +18,7 @@ import { previewCheckoutCoupon } from "./coupon-preview";
 import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFriendship, memberPoints, replaceMemberCart, submitOrderPayment } from "./member-api";
 import { notifyLowStock, notifyOrderEvent, notifyOrderEventToMember, runScheduledNotifications, testTelegramNotification } from "./notifications";
 import { isKeepaliveHour, pingSupabase } from "./supabase-keepalive";
-import { BACKUP_CRON, runWeeklyBackup } from "./database-backup";
+import { BACKUP_CRON, runDailyBackup } from "./database-backup";
 
 const productShowcase = createProductShowcase<Env>({ json, serviceHeaders, requireAdmin, databaseError, securityHeaders: SECURITY_HEADERS });
 
@@ -156,8 +156,8 @@ export default {
   },
 
   scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    // 每週備份（週日 19:00 UTC＝台灣週一 03:00）獨立一次執行，不和通知排程共用子請求額度
-    if (_controller.cron === BACKUP_CRON) return ctx.waitUntil(runWeeklyBackup(env, new Date(_controller.scheduledTime)));
+    // 每日備份（19:00 UTC＝台灣隔日 03:00）獨立一次執行，不和通知排程共用子請求額度
+    if (_controller.cron === BACKUP_CRON) return ctx.waitUntil(runDailyBackup(env, new Date(_controller.scheduledTime)));
     const task = _controller.cron === "*/5 * * * *"
       ? retryDueNotificationDeliveries(env)
       // 每小時：通知排程，並補齊尚未記錄寬高的商品主圖（補完後只剩一次查詢）

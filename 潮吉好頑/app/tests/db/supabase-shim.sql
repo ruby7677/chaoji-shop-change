@@ -29,6 +29,20 @@ create table if not exists auth.users (
   created_at timestamptz not null default now()
 );
 
+-- 與 Supabase 相同的欄位（備份快照只讀 provider／provider_id／identity_data->>'sub'／created_at）。
+create table if not exists auth.identities (
+  id uuid primary key default gen_random_uuid(),
+  provider_id text not null,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  identity_data jsonb not null default '{}'::jsonb,
+  provider text not null,
+  last_sign_in_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  email text,
+  unique (provider_id, provider)
+);
+
 -- 與 Supabase 相同：由 PostgREST 設定的 request.jwt.claims 取得呼叫者。
 create or replace function auth.uid() returns uuid
 language sql stable
