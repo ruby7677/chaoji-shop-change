@@ -90,7 +90,7 @@ Supabase Dashboard → Authentication → URL Configuration：
 
 `SUPABASE_SERVICE_ROLE_KEY` 只能由 Worker 使用，不得出現在 `public`、瀏覽器原始碼或 Git。
 
-Cloudflare Cron 每 5 分鐘會領取到期的 LINE／Telegram 通知重試；每小時另執行取消訂單通知補掃、生日券發送與低庫存檢查。通知 claim 有 lease 與 fencing token，可避免舊 worker 完成結果覆蓋新 attempt；外部 API 逾時仍可能重複送達，不能宣稱 exactly-once。生日券發送函式具冪等性。管理員也可在後台「優惠券」分頁按「立即執行生日券發送」。
+Cloudflare Cron 每 5 分鐘會領取到期的 LINE／Telegram 通知重試；每小時另執行取消訂單通知補掃與生日券發送；低庫存檢查每天只在台灣 10:00 那一輪執行一次（該輪不做其他通知工作），後台調整庫存或訂單狀態時不即時發送。通知 claim 有 lease 與 fencing token，可避免舊 worker 完成結果覆蓋新 attempt；外部 API 逾時仍可能重複送達，不能宣稱 exactly-once。生日券發送函式具冪等性。管理員也可在後台「優惠券」分頁按「立即執行生日券發送」。
 
 管理員訂單搜尋支援訂單編號、會員姓名／手機與匯款末五碼，狀態篩選包含賣貨便待核對；搜尋、篩選與分頁都由資料庫 RPC 執行，避免只在目前頁面過濾。
 

@@ -16,7 +16,7 @@ import { type Env } from "./env";
 import { MAX_JSON_REQUEST_BYTES, SECURITY_HEADERS, enforceRateLimit, json, serviceHeaders, withSecurityHeaders } from "./http";
 import { previewCheckoutCoupon } from "./coupon-preview";
 import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFriendship, memberPoints, replaceMemberCart, submitOrderPayment } from "./member-api";
-import { notifyLowStock, notifyOrderEvent, notifyOrderEventToMember, runScheduledNotifications, testTelegramNotification } from "./notifications";
+import { notifyOrderEvent, notifyOrderEventToMember, runScheduledNotifications, testTelegramNotification } from "./notifications";
 import { isKeepaliveHour, pingSupabase } from "./supabase-keepalive";
 import { BACKUP_CRON, runDailyBackup } from "./database-backup";
 import { notifyMissedCreatedOrders, scheduledRetryBatch, scheduledSweepBudget } from "./order-created-sweep";
@@ -96,7 +96,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   const orderTransitionMatch = url.pathname.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/transition$/i);
   if (request.method === "POST" && orderTransitionMatch) {
     const response = await transitionAdminOrder(request, env, orderTransitionMatch[1]);
-    if (response.ok) ctx.waitUntil(Promise.allSettled([notifyOrderEvent(env, orderTransitionMatch[1], "status_changed"), notifyLowStock(env)]));
+    if (response.ok) ctx.waitUntil(Promise.allSettled([notifyOrderEvent(env, orderTransitionMatch[1], "status_changed")]));
     return response;
   }
   const orderFulfillmentMatch = url.pathname.match(/^\/api\/admin\/orders\/([0-9a-f-]{36})\/fulfillment$/i);
@@ -134,9 +134,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   if (request.method === "PATCH" && variantMatch) return updateVariant(request, env, variantMatch[1]);
   const inventoryMatch = url.pathname.match(/^\/api\/admin\/variants\/([0-9a-f-]{36})\/inventory$/i);
   if (request.method === "POST" && inventoryMatch) {
-    const response = await adjustInventory(request, env, inventoryMatch[1]);
-    if (response.ok) ctx.waitUntil(notifyLowStock(env));
-    return response;
+    return adjustInventory(request, env, inventoryMatch[1]);
   }
   const showcaseResponse = await productShowcase.route(request, env, url, ctx);
   if (showcaseResponse) return showcaseResponse;
