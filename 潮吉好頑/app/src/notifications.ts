@@ -183,9 +183,30 @@ async function deliverOrderEvent(
   return { handled, memberReached };
 }
 
-export async function notifyLowStock(env: Env) {
+// 低庫存通知最多每 24 小時一次（管理員要求）；期間的變化累積到下一次通知
+export const LOW_STOCK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** 最近一次低庫存通知是否在 24 小時內；讀不到紀錄時視為「是」，等下一次排程再試。 */
+async function lowStockRecentlyNotified(env: Env, now: Date) {
+  const url = new URL(`${env.SUPABASE_URL}/rest/v1/notification_deliveries`);
+  url.searchParams.set("select", "created_at");
+  url.searchParams.set("channel", "eq.telegram");
+  url.searchParams.set("event_type", "eq.low_stock");
+  url.searchParams.set("created_at", `gt.${new Date(now.getTime() - LOW_STOCK_INTERVAL_MS).toISOString()}`);
+  url.searchParams.set("limit", "1");
+  try {
+    const response = await fetchWithTimeout(url, { headers: serviceHeaders(env) });
+    if (!response.ok) return true;
+    return (await response.json() as unknown[]).length > 0;
+  } catch {
+    return true;
+  }
+}
+
+export async function notifyLowStock(env: Env, now = new Date()) {
   const recipients = telegramAdminRecipients(env);
   if (!telegramNotificationEnabled(env) || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY || !recipients.length) return;
+  if (await lowStockRecentlyNotified(env, now)) return;
   const base = env.SUPABASE_URL;
   const headers = serviceHeaders(env);
   // 低庫存唯一定義在資料庫 low_stock_variants（商品與規格都上架、庫存 ≤ 安全庫存），與後台統計、清單一致。
@@ -210,12 +231,16 @@ export async function notifyLowStock(env: Env) {
   if (!toNotify.length) return;
   const lines = toNotify.map((variant) => `• ${variant.product_name || "商品"} · ${variant.name}：剩 ${variant.stock_on_hand} 件`);
   // 以台灣日期去重：同一台灣日內相同庫存狀態只通知一次（原本用 UTC 日期，台灣早上 8 點才換日）。
-  const eventKey = `low-stock:${taipeiDate(new Date())}:${toNotify.map((item) => `${item.id}-${item.stock_on_hand}`).join(",")}`;
+  const eventKey = `low-stock:${taipeiDate(now)}:${toNotify.map((item) => `${item.id}-${item.stock_on_hand}`).join(",")}`;
   const sent = await Promise.all(recipients.map((chatId) => notifyTelegram(env, eventKey, chatId, "low_stock", buildLowStockMessage(env.STORE_NAME, lines))));
   if (sent.some((result) => result.sent)) {
-    for (const variant of toNotify) {
-      await fetchWithTimeout(`${base}/rest/v1/line_low_stock_states`, { method: "POST", headers: serviceHeaders(env, "resolution=merge-duplicates,return=minimal"), body: JSON.stringify({ variant_id: variant.id, last_notified_stock: variant.stock_on_hand, last_notified_at: new Date().toISOString(), updated_at: new Date().toISOString() }) });
-    }
+    // 一次寫回所有規格的通知水位（批次 upsert），不因規格數量增加子請求
+    const notifiedAt = now.toISOString();
+    await fetchWithTimeout(`${base}/rest/v1/line_low_stock_states?on_conflict=variant_id`, {
+      method: "POST",
+      headers: serviceHeaders(env, "resolution=merge-duplicates,return=minimal"),
+      body: JSON.stringify(toNotify.map((variant) => ({ variant_id: variant.id, last_notified_stock: variant.stock_on_hand, last_notified_at: notifiedAt, updated_at: notifiedAt })))
+    });
   }
 }
 
