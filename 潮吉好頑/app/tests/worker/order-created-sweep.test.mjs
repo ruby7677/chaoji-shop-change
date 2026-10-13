@@ -27,7 +27,7 @@ function fakeDb({ missing = [], current = {}, rpcFail = false } = {}) {
       seen.notificationLoads.push(orderId);
       return jsonResponse([{
         id: orderId, order_number: "CJ1", status: "pending_payment", delivery_method: "store_pickup", shipping_fee_notified_at: null,
-        subtotal: 100, coupon_discount: 0, point_discount: 0, amount_due: 100, deposit_due: 100, payment_deadline: NOW.toISOString(),
+        subtotal: 100, coupon_discount: 0, point_discount: 0, amount_due: 100, deposit_due: 100, payment_deadline: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
         profiles: { full_name: "會員", line_user_id: LINE_USER_ID }, order_items: [], ...current
       }]);
     }
@@ -62,7 +62,8 @@ test("every missing order is resent to all its recipients", async () => {
 for (const [label, current] of [
   ["cancelled", { status: "cancelled" }],
   ["paid", { status: "pending_review" }],
-  ["told its home fee", { delivery_method: "home_delivery", shipping_fee_notified_at: NOW.toISOString() }]
+  ["told its home fee", { delivery_method: "home_delivery", shipping_fee_notified_at: NOW.toISOString() }],
+  ["past its payment deadline", { payment_deadline: new Date(Date.now() - 1000).toISOString() }]
 ]) {
   test(`an order that was ${label} after the lookup is not sent a created notice`, async () => {
     const seen = fakeDb({ missing: [id(1)], current });
@@ -105,10 +106,21 @@ test("a failed lookup sends nothing", async () => {
   assert.deepEqual(seen.notificationLoads, []);
 });
 
-test("the sweep always keeps room for at least one order after a full retry batch", async () => {
+for (const admins of [1, 2, 4, 6]) {
+  test(`with ${admins} Telegram admin(s) a full retry batch still leaves room for one resend`, () => {
+    const env = { ...baseEnv, TELEGRAM_ADMIN_CHAT_IDS: Array.from({ length: admins }, (_, n) => String(100 + n)).join(",") };
+    const batch = sweep.scheduledRetryBatch(env);
+    const retried = 2 * batch;
+    const perOrder = 1 + 3 * (1 + admins);
+    assert.ok(sweep.scheduledSweepBudget(retried) >= 1 + perOrder, "the sweep can query and resend one order");
+    assert.ok(2 + 3 * retried + sweep.scheduledSweepBudget(retried) <= 50, "retry plus sweep fit in Workers Free");
+  });
+}
+
+test("the retry batch never exceeds the shared per-channel cap", async () => {
   const { RETRY_BATCH_PER_CHANNEL } = await loadSourceModule("notification-delivery.ts");
-  assert.ok(sweep.scheduledSweepBudget(2 * RETRY_BATCH_PER_CHANNEL) >= 1 + PER_ORDER, "a busy retry run still leaves room for one resend");
-  assert.ok(2 + 3 * 2 * RETRY_BATCH_PER_CHANNEL + sweep.scheduledSweepBudget(2 * RETRY_BATCH_PER_CHANNEL) <= 50, "retry plus sweep fit in Workers Free");
+  assert.ok(sweep.scheduledRetryBatch({ ...baseEnv, TELEGRAM_ADMIN_CHAT_IDS: "1" }) <= RETRY_BATCH_PER_CHANNEL);
+  assert.ok(sweep.scheduledRetryBatch({ ...baseEnv, TELEGRAM_ADMIN_CHAT_IDS: Array.from({ length: 30 }, (_, n) => String(n + 1)).join(",") }) >= 1);
 });
 
 test("the 5-minute schedule sweeps with what the retry run left over", async () => {
@@ -116,5 +128,14 @@ test("the 5-minute schedule sweeps with what the retry run left over", async () 
   const source = await readFile(new URL("../../src/index.ts", import.meta.url), "utf8");
   const scheduled = source.slice(source.indexOf("scheduled("));
   const fiveMinute = scheduled.slice(scheduled.indexOf("\"*/5 * * * *\""), scheduled.indexOf(": Promise.all(["));
+  assert.ok(fiveMinute.includes("retryDueNotificationDeliveries(env, scheduledRetryBatch(env))"));
   assert.ok(fiveMinute.includes("notifyMissedCreatedOrders(env, scheduledSweepBudget(retried)"));
+});
+
+test("the hourly schedule no longer retries notifications alongside its other jobs", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../../src/index.ts", import.meta.url), "utf8");
+  const scheduled = source.slice(source.indexOf("scheduled("));
+  const hourly = scheduled.slice(scheduled.indexOf(": Promise.all(["), scheduled.indexOf("ctx.waitUntil(task)"));
+  assert.ok(!hourly.includes("retryDueNotificationDeliveries"));
 });

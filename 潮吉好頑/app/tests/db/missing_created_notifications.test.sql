@@ -30,6 +30,8 @@ select tests.assert((select count(*) = 0 from public.missing_created_notificatio
                     'with LINE disabled the Telegram record is enough');
 select tests.assert((select count(*) = 1 from public.missing_created_notifications(now() - interval '1 day', now() + interval '1 minute', false, array['111', '222'], 10)),
                     'a second Telegram admin without a record is still missing');
+select tests.assert((select count(*) = 0 from public.missing_created_notifications(now() - interval '1 day', now() + interval '1 minute', false, array['111', null, ''], 10)),
+                    'null or empty Telegram entries are not expected recipients');
 select public.claim_notification_delivery('line', 'created:' || (select id from t_order), (select line_user_id from public.profiles where id = tests.id('member_a')), 'order_created', '{}'::jsonb, 120);
 select tests.assert((select count(*) = 0 from public.missing_created_notifications(now() - interval '1 day', now() + interval '1 minute', true, array['111'], 10)),
                     'an order recorded for every recipient is not returned');

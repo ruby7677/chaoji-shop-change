@@ -45,11 +45,13 @@ export function createdNoticeRecipients(env: Env, memberLineUserId: string | nul
 }
 
 /**
- * 補發建單通知：以這次讀到的訂單重新確認仍待付款、宅配運費尚未通知，才送「訂單已成立」；
+ * 補發建單通知：以這次讀到的訂單重新確認仍待付款、宅配運費尚未通知、付款期限未到，才送「訂單已成立」；
  * 掃描後才被取消、付款或通知運費的訂單不會收到過期訊息。
  */
 export async function resendCreatedNotice(env: Env, orderId: string): Promise<boolean> {
-  return (await deliverOrderEvent(env, orderId, "created", { stillDue: (order) => order.status === "pending_payment" && !order.shipping_fee_notified_at })).handled;
+  return (await deliverOrderEvent(env, orderId, "created", {
+    stillDue: (order) => order.status === "pending_payment" && !order.shipping_fee_notified_at && Date.parse(order.payment_deadline) > Date.now()
+  })).handled;
 }
 
 async function notifyLine(env: Env, eventKey: string, recipientId: string, eventType: string, message: string | LinePushMessage): Promise<DeliveryResult> {

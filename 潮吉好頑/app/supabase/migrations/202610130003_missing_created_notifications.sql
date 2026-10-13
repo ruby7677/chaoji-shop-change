@@ -35,7 +35,8 @@ as $function$
            where d.channel = 'line' and d.event_key = 'created:' || o.id and d.recipient_id = p.line_user_id))
        or exists (
          select 1 from unnest(coalesce(p_telegram_recipients, '{}'::text[])) r(recipient_id)
-          where not exists (
+          where nullif(r.recipient_id, '') is not null
+            and not exists (
             select 1 from public.notification_deliveries d
              where d.channel = 'telegram' and d.event_key = 'created:' || o.id and d.recipient_id = r.recipient_id))
      )

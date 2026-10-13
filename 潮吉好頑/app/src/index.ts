@@ -19,7 +19,7 @@ import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFr
 import { notifyLowStock, notifyOrderEvent, notifyOrderEventToMember, runScheduledNotifications, testTelegramNotification } from "./notifications";
 import { isKeepaliveHour, pingSupabase } from "./supabase-keepalive";
 import { BACKUP_CRON, runDailyBackup } from "./database-backup";
-import { notifyMissedCreatedOrders, scheduledSweepBudget } from "./order-created-sweep";
+import { notifyMissedCreatedOrders, scheduledRetryBatch, scheduledSweepBudget } from "./order-created-sweep";
 
 const productShowcase = createProductShowcase<Env>({ json, serviceHeaders, requireAdmin, databaseError, securityHeaders: SECURITY_HEADERS });
 
@@ -163,12 +163,13 @@ export default {
     if (_controller.cron === BACKUP_CRON) return ctx.waitUntil(runDailyBackup(env, new Date(_controller.scheduledTime)));
     // 每 5 分鐘：通知重試，剩下的子請求額度（Workers Free 每次 50）補發回應遺失訂單的建單通知
     const task = _controller.cron === "*/5 * * * *"
-      ? retryDueNotificationDeliveries(env)
+      ? retryDueNotificationDeliveries(env, scheduledRetryBatch(env))
         .then((retried) => notifyMissedCreatedOrders(env, scheduledSweepBudget(retried), new Date(_controller.scheduledTime)))
         .then(() => undefined)
         .catch((error) => console.error("通知重試或建單通知補發失敗", error))
-      // 每小時：通知排程，並補齊尚未記錄寬高的商品主圖（補完後只剩一次查詢）
-      : Promise.all([retryDueNotificationDeliveries(env), runScheduledNotifications(env), backfillProductImageDimensions(env).catch((error) => console.error("商品主圖寬高補齊失敗", error))]).then(() => undefined);
+      // 每小時：通知排程，並補齊尚未記錄寬高的商品主圖（補完後只剩一次查詢）。
+      // 通知重試只在 5 分鐘排程執行（整點也會另外觸發一次），不和這裡共用 Workers Free 每次 50 個子請求的額度
+      : Promise.all([runScheduledNotifications(env), backfillProductImageDimensions(env).catch((error) => console.error("商品主圖寬高補齊失敗", error))]).then(() => undefined);
     ctx.waitUntil(task);
     // 每日一次唯讀保活（每小時排程在固定時刻觸發），與通知任務互不影響。
     if (_controller.cron !== "*/5 * * * *" && isKeepaliveHour(_controller.scheduledTime)) ctx.waitUntil(pingSupabase(env));

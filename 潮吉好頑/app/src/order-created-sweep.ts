@@ -5,6 +5,7 @@
 // 與其他通知相同為「至少一次」：服務商已收下但完成紀錄寫入失敗時，重試仍可能再送一次。
 import { type Env } from "./env";
 import { fetchWithTimeout, serviceHeaders } from "./http";
+import { RETRY_BATCH_PER_CHANNEL } from "./notification-delivery";
 import { createdNoticeRecipients, resendCreatedNotice } from "./notifications";
 
 // 建立不到這段時間的訂單交給正常流程（回應後的 waitUntil）處理
@@ -19,6 +20,12 @@ const SUBREQUESTS_PER_RUN = 48;
 /** 同一次排程的通知重試用掉後，留給補發的子請求數：重試查詢每管道 1 次，每筆補送最多 3 次。 */
 export function scheduledSweepBudget(retried: number) {
   return Math.max(SUBREQUESTS_PER_RUN - 2 - 3 * retried, 0);
+}
+
+/** 先替補發保留查詢＋一筆訂單（依目前收件人數）的額度，剩下的才給重試：回傳每個管道可重試的筆數（至少 1）。 */
+export function scheduledRetryBatch(env: Env) {
+  const reserve = 1 + 1 + 3 * createdNoticeRecipients(env, PROBE_LINE_USER).length;
+  return Math.min(RETRY_BATCH_PER_CHANNEL, Math.max(1, Math.floor((SUBREQUESTS_PER_RUN - 2 - reserve) / (3 * 2))));
 }
 
 /**
