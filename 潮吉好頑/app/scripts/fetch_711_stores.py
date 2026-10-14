@@ -109,6 +109,26 @@ def post_with_retry(session, data: dict[str, str]) -> ET.Element | None:
     return None
 
 
+def fetch_city_rows(post, city_id: str, city: str, delay: float) -> tuple[list[list[str]], list[str]]:
+    """抓一個縣市；回傳（門市列, 失敗項目）。官方回應可解析但沒有鄉鎮、或整個縣市沒有任何門市，都視為失敗而不是「沒有資料」。"""
+    towns = post({"commandid": "GetTown", "cityid": city_id, "cityname": city})
+    town_nodes = towns.findall(".//GeoPosition") if towns is not None else []
+    if not town_nodes:
+        return [], [city]
+    rows, failed = [], []
+    for town in town_nodes:
+        town_name = text_of(town, "TownName")
+        stores = post({"commandid": "SearchStore", "city": city, "town": town_name, "roadname": "", "ID": "", "StoreName": ""})
+        if stores is None:
+            failed.append(f"{city}{town_name}")
+        else:
+            rows += [[city, town_name, text_of(s, "POIID"), text_of(s, "POIName"), text_of(s, "Address")] for s in stores.findall(".//GeoPosition")]
+        time.sleep(delay)
+    if not rows and not failed:
+        failed.append(city)
+    return rows, failed
+
+
 def fetch_raw_rows(delay: float) -> tuple[list[list[str]], list[str]]:
     import requests
     session = requests.Session()
@@ -116,18 +136,9 @@ def fetch_raw_rows(delay: float) -> tuple[list[list[str]], list[str]]:
     rows, failed = [], []
     for city_id, city in CITIES:
         print(f"處理 {city}…")
-        towns = post_with_retry(session, {"commandid": "GetTown", "cityid": city_id, "cityname": city})
-        if towns is None:
-            failed.append(city)
-            continue
-        for town in towns.findall(".//GeoPosition"):
-            town_name = text_of(town, "TownName")
-            stores = post_with_retry(session, {"commandid": "SearchStore", "city": city, "town": town_name, "roadname": "", "ID": "", "StoreName": ""})
-            if stores is None:
-                failed.append(f"{city}{town_name}")
-            else:
-                rows += [[city, town_name, text_of(s, "POIID"), text_of(s, "POIName"), text_of(s, "Address")] for s in stores.findall(".//GeoPosition")]
-            time.sleep(delay)
+        city_rows, city_failed = fetch_city_rows(lambda data: post_with_retry(session, data), city_id, city, delay)
+        rows += city_rows
+        failed += city_failed
     return rows, failed
 
 

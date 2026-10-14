@@ -1,5 +1,6 @@
 """fetch_711_stores.py 的路名抽取與整理（不連線）。執行：python -m unittest discover tests/scripts"""
 import importlib.util
+import xml.etree.ElementTree as ET
 import unittest
 from pathlib import Path
 
@@ -35,6 +36,37 @@ class FinalRows(unittest.TestCase):
             ["台北市", "中山區", "000001", "民權東路", "甲", "台北市中山區民權東路二段96號"],
             ["高雄市", "苓雅區", "000002", "四維路", "乙", "高雄市苓雅區四維路1號"],
         ])
+
+
+def xml(*items):
+    root = ET.Element("root")
+    for fields in items:
+        node = ET.SubElement(root, "GeoPosition")
+        for tag, value in fields.items():
+            ET.SubElement(node, tag).text = value
+    return root
+
+
+class FetchCity(unittest.TestCase):
+    def run_city(self, responses):
+        calls = iter(responses)
+        return module.fetch_city_rows(lambda _data: next(calls), "01", "台北市", 0)
+
+    def test_collects_stores(self):
+        rows, failed = self.run_city([xml({"TownName": "中山區"}), xml({"POIID": "000001", "POIName": "甲", "Address": "台北市中山區民權東路1號"})])
+        self.assertEqual((rows, failed), ([["台北市", "中山區", "000001", "甲", "台北市中山區民權東路1號"]], []))
+
+    def test_empty_town_list_is_a_failure(self):
+        self.assertEqual(self.run_city([xml()]), ([], ["台北市"]))
+        self.assertEqual(self.run_city([None]), ([], ["台北市"]))
+
+    def test_failed_town_request_is_reported(self):
+        rows, failed = self.run_city([xml({"TownName": "中山區"}, {"TownName": "大安區"}), None, xml({"POIID": "000002", "POIName": "乙", "Address": "x"})])
+        self.assertEqual(failed, ["台北市中山區"])
+        self.assertEqual(len(rows), 1)
+
+    def test_city_with_no_stores_at_all_is_a_failure(self):
+        self.assertEqual(self.run_city([xml({"TownName": "中山區"}), xml()]), ([], ["台北市"]))
 
 
 if __name__ == "__main__":
