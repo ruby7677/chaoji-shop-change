@@ -1,16 +1,17 @@
 /* 後台「7-11 門市」分頁（admin-cvs-stores.js）；沿用 admin-shell.css 的 CSS 變數。 */
-#admin-dialog.admin-app .cvs-admin { display: grid; gap: 12px; margin-top: 8px; }
+/* minmax(0, 1fr)：網格欄預設不會比內容最小寬度窄，長檔名或路徑會把整欄撐出螢幕 */
+#admin-dialog.admin-app .cvs-admin { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 8px; }
 #admin-dialog.admin-app .cvs-admin h3 { margin: 12px 0 0; font-size: 16px; }
 #admin-dialog.admin-app .cvs-admin h4 { margin: 16px 0 8px; font-size: 14px; }
-#admin-dialog.admin-app .cvs-admin-card { padding: 16px; border: 1px solid var(--admin-border); border-radius: 14px; background: #fff; }
+#admin-dialog.admin-app .cvs-admin-card { min-width: 0; padding: 16px; border: 1px solid var(--admin-border); border-radius: 14px; background: #fff; }
 #admin-dialog.admin-app .cvs-admin-status { display: grid; gap: 4px; margin: 0; font-size: 15px; }
 #admin-dialog.admin-app .cvs-admin-status small { color: var(--admin-text-muted); font-size: 13px; }
-#admin-dialog.admin-app .cvs-admin-note { margin: 10px 0 0; color: var(--admin-text-muted); font-size: 13px; }
-#admin-dialog.admin-app .cvs-admin-note code { font-size: 12px; }
+#admin-dialog.admin-app .cvs-admin-note { overflow-wrap: anywhere; margin: 10px 0 0; color: var(--admin-text-muted); font-size: 13px; }
+#admin-dialog.admin-app .cvs-admin-note code { font-size: 12px; overflow-wrap: anywhere; }
 #admin-dialog.admin-app .cvs-admin .form-actions { margin-top: 12px; }
 
-#admin-dialog.admin-app .cvs-admin-file { display: grid; gap: 8px; font-weight: 700; }
-#admin-dialog.admin-app .cvs-admin-file input { min-height: 44px; padding: 8px 10px; border: 1px dashed #141414; border-radius: 10px; background: var(--admin-surface-subtle); font-size: 16px; }
+#admin-dialog.admin-app .cvs-admin-file { display: grid; gap: 8px; min-width: 0; font-weight: 700; }
+#admin-dialog.admin-app .cvs-admin-file input { box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; padding: 8px 10px; border: 1px dashed #141414; border-radius: 10px; background: var(--admin-surface-subtle); font-size: 16px; }
 
 #admin-dialog.admin-app .cvs-admin-history { display: grid; margin: 0; padding: 0; list-style: none; }
 #admin-dialog.admin-app .cvs-admin-history > li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--admin-border); }
