@@ -12,6 +12,8 @@ import { publicCatalog, runtimeConfig } from "./catalog";
 import { serveProductImage, uploadProductImage } from "./product-image-primary";
 import { databaseError, databaseErrors } from "./database-errors";
 import { canonicalRedirect } from "./canonical-host";
+import { listCvsStores, publishCvsStores, rollbackCvsStores, stageCvsCity } from "./cvs-stores-admin";
+import { isCvsStoresRequest, serveCvsStores } from "./cvs-stores-serve";
 import { type Env } from "./env";
 import { MAX_JSON_REQUEST_BYTES, SECURITY_HEADERS, enforceRateLimit, json, serviceHeaders, withSecurityHeaders } from "./http";
 import { previewCheckoutCoupon } from "./coupon-preview";
@@ -135,9 +137,14 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   if (request.method === "POST" && inventoryMatch) {
     return adjustInventory(request, env, inventoryMatch[1]);
   }
+  if (request.method === "GET" && url.pathname === "/api/admin/cvs-stores") return listCvsStores(request, env);
+  if (request.method === "PUT" && url.pathname === "/api/admin/cvs-stores/stage") return stageCvsCity(request, env);
+  if (request.method === "POST" && url.pathname === "/api/admin/cvs-stores/publish") return publishCvsStores(request, env);
+  if (request.method === "POST" && url.pathname === "/api/admin/cvs-stores/rollback") return rollbackCvsStores(request, env);
   const showcaseResponse = await productShowcase.route(request, env, url, ctx);
   if (showcaseResponse) return showcaseResponse;
   if (url.pathname.startsWith("/api/")) return json({ error: "找不到 API" }, { status: 404 });
+  if (isCvsStoresRequest(request, url)) return serveCvsStores(request, env, url);
   if (isShareMetaRequest(request, url)) return withSecurityHeaders(await withShareMeta(request, env, url, ctx));
   return withSecurityHeaders(await env.ASSETS.fetch(request));
 }

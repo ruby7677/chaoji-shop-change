@@ -17,6 +17,8 @@ let adminManagementOptionsInFlight = null;
 const adminSections = ["overview", "orders", "members", "products", "inventory", "discounts", "audit", "notifications", "settings"];
 const ADMIN_MANAGEMENT_OPTIONS_SECTIONS = new Set(["products", "inventory", "discounts"]);
 const ADMIN_MANAGEMENT_OPTIONS_TTL_MS = 5 * 60 * 1000;
+// 不走 /api/admin/dashboard 的分頁（例如 7-11 門市）自行載入：模組載入時以分頁名稱註冊，切換分頁與重新整理時呼叫
+export const adminTabHooks = new Map();
 const adminSectionLoaded = new Set();
 const adminSectionInFlight = new Map();
 // 進行中請求送出的查詢條件（分頁、搜尋、篩選），用來判斷新的強制重新載入能否共用它
@@ -342,6 +344,12 @@ export async function loadAdminSection(tabOrSection, { force = false } = {}) {
 export function switchAdminTab(tab) {
   document.querySelectorAll("[data-admin-tab]").forEach((button) => button.classList.toggle("active", button.dataset.adminTab === tab));
   document.querySelectorAll("[data-admin-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.adminPanel !== tab));
+  const hook = adminTabHooks.get(tab);
+  if (hook) {
+    document.querySelector("#admin-error")?.classList.add("hidden");
+    Promise.resolve(hook()).catch(() => {});
+    return;
+  }
   loadAdminSection(tab).catch(() => {});
 }
 
@@ -359,7 +367,10 @@ export async function refreshAdminSections(sections) {
 }
 
 export async function loadAdminData(section) {
-  return loadAdminSection(section || document.querySelector("[data-admin-tab].active")?.dataset.adminTab || "overview", { force: true });
+  const tab = section || document.querySelector("[data-admin-tab].active")?.dataset.adminTab || "overview";
+  const hook = adminTabHooks.get(tab);
+  if (hook) return hook();
+  return loadAdminSection(tab, { force: true });
 }
 
 export function applyAdminQuickFilter(filter) {

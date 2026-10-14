@@ -43,7 +43,8 @@ async function importAdminModules() {
     import("./admin-catalog-panel.js"),
     import("./admin-product-image.js"),
     import("./admin-stock-adjust.js"),
-    import("./admin-form-errors.js")
+    import("./admin-form-errors.js"),
+    import("./admin-cvs-stores.js")
   ]);
   [adminApp, adminShellModule, adminProductGallery, adminProductsTable, adminOrdersPanel, adminMembersPanel, adminSystemPanel, adminCatalogPanel, adminProductImage, adminStockAdjust, adminFormErrors] = modules;
 }
