@@ -243,16 +243,23 @@ async function hasScheduledRetry(env: NotificationDeliveryEnv, id: string) {
 
 const ORDER_EVENT_KEY = /^(created|fulfillment_updated):([0-9a-fA-F-]{36})(?::(.+))?$/;
 
-type OrderSnapshot = { updated_at: string; status: string; delivery_method: string | null; shipping_fee_notified_at: string | null };
+type OrderSnapshot = { updated_at: string; status: string; delivery_method: string | null; shipping_fee_notified_at: string | null; payment_deadline: string | null };
+
+/**
+ * 「訂單已成立」通知是否仍該送出：仍待付款、宅配運費尚未通知、付款期限未到。
+ * 已取消、已回報匯款或確認付款、運費通知已取代「請先不要匯款」、已逾期的訂單都不再催款。
+ * 建單補發與通知重試共用這個判斷。
+ */
+export function createdNoticeStillDue(order: { status: string; shipping_fee_notified_at?: string | null; payment_deadline?: string | null }, now = Date.now()) {
+  return order.status === "pending_payment" && !order.shipping_fee_notified_at && Date.parse(order.payment_deadline || "") > now;
+}
 
 /** Whether a queued order notice still matches the order, so retrying it cannot contradict a newer notice. */
 function orderNoticeIsCurrent(kind: string, savedAt: string | undefined, order: OrderSnapshot | undefined) {
   if (!order) return false;
   // 出貨資訊通知引用當下金額，訂單之後只要再更新就過期。
   if (kind === "fulfillment_updated") return Date.parse(order.updated_at) === Date.parse(savedAt || "");
-  // 建單通知：取消後不再催款；現貨宅配運費確認後，「請先不要匯款」已被運費通知取代。
-  if (order.status === "cancelled") return false;
-  return !(order.delivery_method === "home_delivery" && order.shipping_fee_notified_at);
+  return createdNoticeStillDue(order);
 }
 
 /**
@@ -263,7 +270,7 @@ async function supersededAttempt(env: NotificationDeliveryEnv, claim: Notificati
   const match = ORDER_EVENT_KEY.exec(claim.event_key || "");
   if (!match || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set("select", "updated_at,status,delivery_method,shipping_fee_notified_at");
+  url.searchParams.set("select", "updated_at,status,delivery_method,shipping_fee_notified_at,payment_deadline");
   url.searchParams.set("id", `eq.${match[2]}`);
   let rows: OrderSnapshot[] | null = null;
   try {

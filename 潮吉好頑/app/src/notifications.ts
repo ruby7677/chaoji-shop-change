@@ -1,6 +1,6 @@
-// 訂單事件、低庫存、生日券通知與每小時排程補送；實際發送與重試狀態機在 notification-delivery.ts。
+// 訂單事件、低庫存、生日券通知與每小時排程；實際發送與重試狀態機在 notification-delivery.ts。
 import { NOTIFICATION_COPY, type LinePushMessage, type OrderNotificationEventType, buildBackupFailureMessage, buildBirthdayCouponMessage, buildLineBirthdayFlexMessage, buildLineOrderFlexMessage, buildLowStockMessage, buildOrderNotificationMessage, buildTelegramOrderNotificationMessage, buildTelegramTestMessage, routeOrderNotificationRecipients } from "./line-notification-messages";
-import { type DeliveryResult, deliverLineNotification, deliverTelegramNotification, deliverTelegramNotificationOrDirect } from "./notification-delivery";
+import { type DeliveryResult, createdNoticeStillDue, deliverLineNotification, deliverTelegramNotification, deliverTelegramNotificationOrDirect } from "./notification-delivery";
 import { requireAdmin } from "./auth";
 import { type Env } from "./env";
 import { fetchWithTimeout, json, serviceHeaders } from "./http";
@@ -45,13 +45,11 @@ export function createdNoticeRecipients(env: Env, memberLineUserId: string | nul
 }
 
 /**
- * 補發建單通知：以這次讀到的訂單重新確認仍待付款、宅配運費尚未通知、付款期限未到，才送「訂單已成立」；
+ * 補發建單通知：以這次讀到的訂單重新確認仍該送「訂單已成立」（與通知重試相同的 createdNoticeStillDue）；
  * 掃描後才被取消、付款或通知運費的訂單不會收到過期訊息。
  */
 export async function resendCreatedNotice(env: Env, orderId: string): Promise<boolean> {
-  return (await deliverOrderEvent(env, orderId, "created", {
-    stillDue: (order) => order.status === "pending_payment" && !order.shipping_fee_notified_at && Date.parse(order.payment_deadline) > Date.now()
-  })).handled;
+  return (await deliverOrderEvent(env, orderId, "created", { stillDue: (order) => createdNoticeStillDue(order) })).handled;
 }
 
 async function notifyLine(env: Env, eventKey: string, recipientId: string, eventType: string, message: string | LinePushMessage): Promise<DeliveryResult> {
@@ -273,67 +271,10 @@ export async function notifyBirthdayCoupons(env: Env) {
   }
 }
 
-const CANCELLED_ORDER_SWEEP_PAGE_SIZE = 50;
-
-const CANCELLED_ORDER_SWEEP_MAX_PAGES = 4;
-
-async function notifyRecentlyCancelledOrders(env: Env) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return;
-  // Only cancelled orders not yet handed to the delivery state machine are
-  // walked; `cancellation_notified_at` is set once every recipient has a claim
-  // row, after which the 5-minute retry cron owns failures. Orders whose claims
-  // could not be recorded stay unmarked and are offered again next hour. The
-  // keyset cursor skips them within this run, and the page cap keeps a backlog
-  // from exhausting one invocation's subrequests.
-  const headers = serviceHeaders(env);
-  let lastCancelledAt: string | null = null;
-  let lastId: string | null = null;
-  for (let page = 0; page < CANCELLED_ORDER_SWEEP_MAX_PAGES; page += 1) {
-    const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-    url.searchParams.set("select", "id,cancelled_at");
-    url.searchParams.set("status", "eq.cancelled");
-    url.searchParams.set("cancelled_at", "not.is.null");
-    url.searchParams.set("cancellation_notified_at", "is.null");
-    url.searchParams.set("order", "cancelled_at.asc,id.asc");
-    url.searchParams.set("limit", String(CANCELLED_ORDER_SWEEP_PAGE_SIZE));
-    if (lastCancelledAt && lastId) {
-      url.searchParams.set("or", `(cancelled_at.gt.${lastCancelledAt},and(cancelled_at.eq.${lastCancelledAt},id.gt.${lastId}))`);
-    }
-    const response = await fetchWithTimeout(url, { headers });
-    if (!response.ok) return;
-    const rows = await response.json() as Array<{ id?: string; cancelled_at?: string | null }>;
-    const validRows = rows.filter((row): row is { id: string; cancelled_at: string } => typeof row.id === "string" && typeof row.cancelled_at === "string");
-    if (!validRows.length) return;
-    const outcomes = await Promise.allSettled(validRows.map((row) => notifyOrderEvent(env, row.id, "status_changed")));
-    const handledIds = validRows
-      .filter((_row, index) => {
-        const outcome = outcomes[index];
-        return outcome.status === "fulfilled" && outcome.value;
-      })
-      .map((row) => row.id);
-    if (handledIds.length) {
-      const markUrl = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-      markUrl.searchParams.set("id", `in.(${handledIds.join(",")})`);
-      markUrl.searchParams.set("status", "eq.cancelled");
-      markUrl.searchParams.set("cancellation_notified_at", "is.null");
-      await fetchWithTimeout(markUrl, {
-        method: "PATCH",
-        headers: serviceHeaders(env, "return=minimal"),
-        body: JSON.stringify({ cancellation_notified_at: new Date().toISOString() })
-      });
-    }
-    if (validRows.length < CANCELLED_ORDER_SWEEP_PAGE_SIZE) return;
-    const last = validRows[validRows.length - 1];
-    lastCancelledAt = last.cancelled_at;
-    lastId = last.id;
-  }
-}
-
 export async function runScheduledNotifications(env: Env, now = new Date()) {
-  // 台灣 10 點那一輪只做每日低庫存通知，取消通知與生日券留到下一個整點：
-  // 各自在不同次執行，各有 Workers Free 每次 50 個子請求的額度
+  // 台灣 10 點那一輪只做每日低庫存通知，生日券留到下一個整點：各自在不同次執行，各有 Workers Free 每次 50 個子請求的額度。
+  // 取消通知補送依額度逐筆處理，在每 5 分鐘排程（order-cancelled-sweep.ts）。
   if (taipeiHour(now) === LOW_STOCK_DIGEST_TAIPEI_HOUR) return notifyLowStock(env, now);
-  await notifyRecentlyCancelledOrders(env);
   await notifyBirthdayCoupons(env);
 }
 

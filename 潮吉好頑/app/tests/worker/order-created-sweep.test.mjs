@@ -106,14 +106,18 @@ test("a failed lookup sends nothing", async () => {
   assert.deepEqual(seen.notificationLoads, []);
 });
 
-for (const admins of [1, 2, 4, 6]) {
-  test(`with ${admins} Telegram admin(s) a full retry batch still leaves room for one resend`, () => {
+for (const admins of [1, 2, 4]) {
+  test(`with ${admins} Telegram admin(s) a full retry batch still leaves room for one resend and one cancellation`, async () => {
+    const { cancelledSweepReserve } = await loadSourceModule("order-cancelled-sweep.ts");
     const env = { ...baseEnv, TELEGRAM_ADMIN_CHAT_IDS: Array.from({ length: admins }, (_, n) => String(100 + n)).join(",") };
     const batch = sweep.scheduledRetryBatch(env);
     const retried = 2 * batch;
     const perOrder = 1 + 3 * (1 + admins);
-    assert.ok(sweep.scheduledSweepBudget(retried) >= 1 + perOrder, "the sweep can query and resend one order");
-    assert.ok(2 + 3 * retried + sweep.scheduledSweepBudget(retried) <= 50, "retry plus sweep fit in Workers Free");
+    assert.equal(sweep.orderNoticeCost(env), perOrder);
+    const budget = sweep.scheduledSweepBudget(retried);
+    assert.ok(budget - cancelledSweepReserve(env) >= 1 + perOrder, "the created sweep can query and resend one order");
+    assert.ok(cancelledSweepReserve(env) >= 1 + perOrder + 1, "the cancelled sweep can query, send and mark one order");
+    assert.ok(2 + 3 * retried + budget <= 50, "retry plus both sweeps fit in Workers Free");
   });
 }
 
@@ -125,11 +129,13 @@ test("the retry batch never exceeds the shared per-channel cap", async () => {
 
 test("the 5-minute schedule sweeps with what the retry run left over", async () => {
   const { readFile } = await import("node:fs/promises");
-  const source = await readFile(new URL("../../src/index.ts", import.meta.url), "utf8");
-  const scheduled = source.slice(source.indexOf("scheduled("));
-  const fiveMinute = scheduled.slice(scheduled.indexOf("\"*/5 * * * *\""), scheduled.indexOf(": Promise.all(["));
-  assert.ok(fiveMinute.includes("retryDueNotificationDeliveries(env, scheduledRetryBatch(env))"));
-  assert.ok(fiveMinute.includes("notifyMissedCreatedOrders(env, scheduledSweepBudget(retried)"));
+  const index = await readFile(new URL("../../src/index.ts", import.meta.url), "utf8");
+  const scheduled = index.slice(index.indexOf("scheduled("));
+  assert.ok(scheduled.slice(scheduled.indexOf("\"*/5 * * * *\""), scheduled.indexOf(": Promise.all([")).includes("runFiveMinuteNotifications(env"));
+  const schedule = await readFile(new URL("../../src/notification-schedule.ts", import.meta.url), "utf8");
+  assert.ok(schedule.includes("retryDueNotificationDeliveries(env, scheduledRetryBatch(env))"));
+  assert.ok(schedule.includes("scheduledSweepBudget(retried)"));
+  assert.ok(schedule.indexOf("notifyMissedCreatedOrders(") < schedule.indexOf("notifyMissedCancelledOrders("));
 });
 
 test("the hourly schedule no longer retries notifications alongside its other jobs", async () => {

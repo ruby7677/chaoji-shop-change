@@ -17,14 +17,23 @@ const PROBE_LINE_USER = "probe";
 // Workers Free 每次執行 50 個子請求，保留 2 次餘裕
 const SUBREQUESTS_PER_RUN = 48;
 
-/** 同一次排程的通知重試用掉後，留給補發的子請求數：重試查詢每管道 1 次，每筆補送最多 3 次。 */
+/** 一筆訂單通知最多用掉的子請求：讀訂單 1 次，每位收件人 claim、送出、完成各 1 次（依目前收件人數）。 */
+export function orderNoticeCost(env: Env) {
+  return 1 + 3 * createdNoticeRecipients(env, PROBE_LINE_USER).length;
+}
+
+/** 同一次排程的通知重試用掉後，留給補發與取消補送的子請求數：重試查詢每管道 1 次，每筆補送最多 3 次。 */
 export function scheduledSweepBudget(retried: number) {
   return Math.max(SUBREQUESTS_PER_RUN - 2 - 3 * retried, 0);
 }
 
-/** 先替補發保留查詢＋一筆訂單（依目前收件人數）的額度，剩下的才給重試：回傳每個管道可重試的筆數（至少 1）。 */
+/**
+ * 先替建單補發與取消補送各保留查詢＋一筆訂單的額度（取消補送多 1 次標記），剩下的才給重試：
+ * 回傳每個管道可重試的筆數（至少 1）。
+ */
 export function scheduledRetryBatch(env: Env) {
-  const reserve = 1 + 1 + 3 * createdNoticeRecipients(env, PROBE_LINE_USER).length;
+  const cost = orderNoticeCost(env);
+  const reserve = (1 + cost) + (1 + cost + 1);
   return Math.min(RETRY_BATCH_PER_CHANNEL, Math.max(1, Math.floor((SUBREQUESTS_PER_RUN - 2 - reserve) / (3 * 2))));
 }
 
@@ -36,7 +45,7 @@ export async function notifyMissedCreatedOrders(env: Env, budget: number, now = 
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return 0;
   const recipients = createdNoticeRecipients(env, PROBE_LINE_USER);
   if (!recipients.length) return 0;
-  const limit = Math.floor((budget - 1) / (1 + 3 * recipients.length));
+  const limit = Math.floor((budget - 1) / orderNoticeCost(env));
   if (limit < 1) return 0;
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/missing_created_notifications`, {
     method: "POST",

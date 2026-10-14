@@ -95,12 +95,33 @@ function restore({ cookie } = {}) {
 
 const vaultDeleted = () => upstream.calls.includes("DELETE /rest/v1/liff_session_vault");
 
-test("vault 內的 12 字元 refresh token 可直接恢復登入並重新保存", async () => {
+test("vault 內的 12 字元 refresh token 可直接恢復登入，並以條件更新存回輪替後的 token", async () => {
   const response = await restore();
   assert.equal(response.status, 200);
   assert.equal((await response.json()).access_token, "access-new");
-  assert.ok(upstream.calls.includes("POST /rest/v1/liff_session_vault"));
+  assert.equal(upstream.calls.includes("POST /rest/v1/liff_session_vault"), false, "a vault restore never upserts");
+  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, upstream.patched), ROTATED_TOKEN);
+  assert.match(response.headers.get("Set-Cookie") || "", /Max-Age=0/, "the vault holds the token, so no cookie copy");
   assert.equal(vaultDeleted(), false);
+});
+
+test("恢復成功但期間另一次 LINE Login 已存入新 token 時，不蓋掉那筆，輪替後的 token 改存 cookie", async () => {
+  const newer = await sealRefreshToken(env.AUTH_SESSION_SECRET, COOKIE_TOKEN);
+  upstream.concurrentLogin = newer;
+  const response = await restore();
+  assert.equal(response.status, 200);
+  assert.equal(upstream.patched, null);
+  assert.equal(upstream.sealed, newer, "the newer login's token stays in the vault");
+  const cookie = (response.headers.get("Set-Cookie") || "").split(";")[0];
+  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, cookie.split("=").slice(1).join("=")), ROTATED_TOKEN);
+});
+
+test("恢復成功但 vault 暫時寫不進去時，輪替後的 token 改存 cookie", async () => {
+  upstream.patchFails = true;
+  const response = await restore();
+  assert.equal(response.status, 200);
+  const cookie = (response.headers.get("Set-Cookie") || "").split(";")[0];
+  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, cookie.split("=").slice(1).join("=")), ROTATED_TOKEN);
 });
 
 for (const mode of ["down", "timeout"]) {

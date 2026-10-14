@@ -70,13 +70,15 @@ export async function storeVaultedSession(
   }
 }
 
+export type VaultReplaceResult = "replaced" | "stale" | "unavailable";
+
 /**
- * 只更新既有列的 token（輪替後查不到使用者時存回新 token）；不新增列，user_id 維持原本已驗證的值。
+ * 只更新既有列的 token（恢復登入輪替後存回新 token）；不新增列，user_id 維持原本已驗證的值。
  * 只在該列仍是 `expectedSealed`（本次讀到的那筆）時才更新：期間另一次 LINE Login 寫入的新 token 不會被蓋掉。
- * 回傳是否真的更新到一列。
+ * replaced：更新到一列；stale：該列已被換掉或刪除；unavailable：vault 暫時寫不進去。
  */
-export async function replaceVaultedToken(env: LiffSessionVaultEnv, lineUserId: string, sealed: string, expectedSealed: string): Promise<boolean> {
-  if (!vaultReady(env)) return false;
+export async function replaceVaultedToken(env: LiffSessionVaultEnv, lineUserId: string, sealed: string, expectedSealed: string): Promise<VaultReplaceResult> {
+  if (!vaultReady(env)) return "unavailable";
   try {
     const url = vaultUrl(env, lineUserId);
     url.searchParams.set("sealed_refresh_token", `eq.${expectedSealed}`);
@@ -86,11 +88,11 @@ export async function replaceVaultedToken(env: LiffSessionVaultEnv, lineUserId: 
       headers: serviceHeaders(env, "return=representation"),
       body: JSON.stringify({ sealed_refresh_token: sealed, updated_at: new Date().toISOString() })
     });
-    if (!response.ok) return false;
+    if (!response.ok) return "unavailable";
     const rows = await response.json() as unknown[];
-    return Array.isArray(rows) && rows.length > 0;
+    return Array.isArray(rows) && rows.length > 0 ? "replaced" : "stale";
   } catch {
-    return false;
+    return "unavailable";
   }
 }
 
