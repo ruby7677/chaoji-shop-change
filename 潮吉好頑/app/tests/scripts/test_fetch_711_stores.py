@@ -17,6 +17,18 @@ class RoadName(unittest.TestCase):
     def test_district_name_starting_with_a_road_marker(self):
         self.assertEqual(module.road_name("高雄市路竹區路科十路11號1樓"), "路科十路")
 
+    def test_first_road_wins_when_the_address_names_two(self):
+        self.assertEqual(module.road_name("台北市中山區中原街37號.吉林路168巷22號"), "中原街")
+        self.assertEqual(module.road_name("桃園市八德區中興街42號興仁路46號48號"), "中興街")
+
+    def test_admin_unit_before_the_road_is_dropped_but_road_names_containing_it_are_kept(self):
+        self.assertEqual(module.road_name("新北市三峽區鳶山里21鄰復興路447號"), "復興路")
+        self.assertEqual(module.road_name("南投縣仁愛鄉大同村定遠新村路18-1號"), "定遠新村路")
+        self.assertEqual(module.road_name("台中市豐原區南村里豐東路412號"), "豐東路")
+        self.assertEqual(module.road_name("屏東縣車城鄉新街村保新路25之2號"), "保新路")
+        self.assertEqual(module.road_name("台中市大里區大里路97號1樓"), "大里路")
+        self.assertEqual(module.road_name("台中市南區美村路二段188號"), "美村路")
+
     def test_village_and_place_name_fallbacks(self):
         self.assertEqual(module.road_name("南投縣仁愛鄉定遠新村26之1號"), "定遠新村")
         self.assertEqual(module.road_name("苗栗縣大湖鄉下員坑39之1號"), "下員坑")

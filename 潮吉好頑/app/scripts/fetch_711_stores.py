@@ -33,7 +33,7 @@ CITIES = [
     ("01", "台北市"), ("02", "基隆市"), ("03", "新北市"), ("04", "桃園市"), ("05", "新竹市"), ("06", "新竹縣"),
     ("07", "苗栗縣"), ("08", "台中市"), ("10", "彰化縣"), ("11", "南投縣"), ("12", "雲林縣"), ("13", "嘉義市"),
     ("14", "嘉義縣"), ("15", "台南市"), ("17", "高雄市"), ("19", "屏東縣"), ("20", "宜蘭縣"), ("21", "花蓮縣"),
-    ("22", "台東縣"), ("23", "澎湖縣"), ("24", "金門縣"), ("25", "連江縣"),
+    ("22", "台東縣"), ("23", "澎湖縣"), ("24", "連江縣"), ("25", "金門縣"),  # 官方 24 是連江（馬祖）、25 才是金門；舊腳本對調，這兩縣因此一直抓不到
 ]
 CITY_ORDER = {name: index for index, name in enumerate(
     ["台北市", "新北市", "桃園市", "台中市", "台南市", "高雄市", "基隆市", "新竹市", "新竹縣", "苗栗縣", "彰化縣",
@@ -49,19 +49,29 @@ ROAD_MARKERS = ["路", "街", "大道", "巷"]
 VILLAGE_MARKERS = ["村", "里"]
 
 
+ROAD_PATTERN = re.compile(r"(?<=.)(大道|路|街|巷)")  # 標記前至少要有一個字：「路竹區路科十路」不能只剩「路」
+
+
+def strip_admin_prefix(cleaned: str) -> str:
+    """去掉路名前的里／村（「中正里大安路」→「大安路」、「新街村保新路」→「保新路」、「南村里豐東路」→「豐東路」）。
+    取最後一個「後面仍剩至少兩個字的路名、且前面沒有門牌數字」的里／村；「大里路」「美村路二段」因此不受影響。"""
+    stripped = cleaned
+    for match in re.finditer(r"[里村]", cleaned):
+        prefix, rest = cleaned[:match.end()], cleaned[match.end():]
+        if re.search(r"\d", prefix):
+            break
+        if ROAD_PATTERN.search(rest):
+            stripped = rest
+    return stripped
+
+
 def road_name(address: str) -> str:
-    """從地址抽出路、街、大道、巷；沒有時依序取村／里、號碼前的地名，都沒有回空字串。"""
+    """從地址抽出路、街、大道、巷（取最先出現的）；沒有時依序取村／里、號碼前的地名，都沒有回空字串。"""
     cleaned = NEIGHBOR_PATTERN.sub("", DISTRICT_PATTERN.sub("", CITY_PATTERN.sub("", address)))
-    for marker in ROAD_MARKERS:
-        # 從第 2 個字開始找：路名至少要有一個字在標記前，否則「路竹區路科十路」會只剩「路」
-        position = cleaned.find(marker, 1)
-        if position != -1:
-            name = cleaned[:position + len(marker)]
-            # 去掉路名前的里／村；剩下不到 2 字（如「大里路」）就不截斷
-            for admin in ("里", "村"):
-                if admin in name and len(name[name.rfind(admin) + 1:]) >= 2:
-                    name = name[name.rfind(admin) + 1:]
-            return name.strip()
+    cleaned = strip_admin_prefix(cleaned)
+    road = ROAD_PATTERN.search(cleaned)
+    if road:
+        return cleaned[:road.end()].strip()
     for marker in VILLAGE_MARKERS:
         if marker in cleaned:
             end = cleaned.find(marker)
@@ -129,9 +139,25 @@ def fetch_city_rows(post, city_id: str, city: str, delay: float) -> tuple[list[l
     return rows, failed
 
 
-def fetch_raw_rows(delay: float) -> tuple[list[list[str]], list[str]]:
+def system_trust_session():
+    """requests 預設用 certifi 的憑證包，驗證 emap.pcsc.com.tw 會失敗；改用作業系統的憑證庫（仍然驗證憑證，不關閉 TLS 檢查）。"""
+    import ssl
+
     import requests
+    from requests.adapters import HTTPAdapter
+
+    class SystemTrustAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            kwargs["ssl_context"] = ssl.create_default_context()
+            super().init_poolmanager(*args, **kwargs)
+
     session = requests.Session()
+    session.mount("https://", SystemTrustAdapter())
+    return session
+
+
+def fetch_raw_rows(delay: float) -> tuple[list[list[str]], list[str]]:
+    session = system_trust_session()
     session.get(BASE_URL, timeout=30)
     rows, failed = [], []
     for city_id, city in CITIES:
