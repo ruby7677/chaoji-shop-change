@@ -2,7 +2,7 @@
 // 儲存配置與驗證規則見 cvs-stores.ts。Workers Free 每次請求只有 50 個子請求、10ms CPU，
 // 所以一個請求只處理一個縣市（≤128KB），發佈只靠 R2 list 回傳的伺服器端 metadata，不重讀各縣市檔內容。
 import { requireAdmin } from "./auth";
-import { CVS_CITY_SLUGS, CVS_KEEP_VERSIONS, CVS_MAX_SHRINK_RATIO, CVS_POINTER_KEY, CVS_PREFIX, CVS_SLUGS, CVS_VERSION_PATTERN, cvsVersionKey, validateCityData, type CvsManifest, type CvsPointer } from "./cvs-stores";
+import { CVS_CITY_SLUGS, CVS_KEEP_VERSIONS, CVS_MAX_SHRINK_RATIO, CVS_POINTER_KEY, CVS_PREFIX, CVS_SLUGS, CVS_VERSION_PATTERN, cvsVersionKey, validateCityData, type CvsCodes, type CvsManifest, type CvsPointer } from "./cvs-stores";
 import { type Env } from "./env";
 import { MAX_JSON_REQUEST_BYTES, json } from "./http";
 
@@ -37,10 +37,16 @@ function versionOf(key: string) {
   return match ? match[1] : null;
 }
 
-async function readPointer(bucket: R2Bucket): Promise<CvsPointer | null> {
+async function readPointer(bucket: R2Bucket): Promise<(CvsPointer & { publishedBy: string }) | null> {
   const object = await bucket.get(CVS_POINTER_KEY);
   if (!object) return null;
-  try { return await object.json<CvsPointer>(); } catch { return null; }
+  try { return { ...await object.json<CvsPointer>(), publishedBy: object.customMetadata?.publishedBy || "" }; } catch { return null; }
+}
+
+async function readCodes(bucket: R2Bucket, version: string): Promise<CvsCodes> {
+  const object = await bucket.get(cvsVersionKey(version, "codes"));
+  if (!object) return {};
+  try { return await object.json<CvsCodes>(); } catch { return {}; }
 }
 
 /** 暫存單一縣市：驗證後存成 <version>/<slug>.json，筆數與鄉鎮區由伺服器計算並記在 customMetadata。 */
@@ -58,11 +64,18 @@ export async function stageCvsCity(request: Request, env: Env): Promise<Response
   if (!checked.ok) return json({ error: `${city}：${checked.error}` }, { status: 400 });
   // 已發佈的版本不可再改寫（目前版本或回復目標都可能指向它）
   if (await ready.bucket.head(cvsVersionKey(version, "manifest"))) return json({ error: "此版本已發佈，請重新選擇檔案上傳" }, { status: 409 });
-  const { data, count, districts } = checked.value;
+  const { data, count, districts, codes } = checked.value;
+  // 店號在整份清單內必須唯一：和這個版本已暫存的其他縣市比對（重傳同一縣市時先扣掉它自己舊的）
+  const staged = await readCodes(ready.bucket, version);
+  delete staged[slug];
+  const taken = new Set(Object.values(staged).flat());
+  const clash = codes.find((code) => taken.has(code));
+  if (clash) return json({ error: `${city}：店號 ${clash} 與其他縣市重複` }, { status: 400 });
   await ready.bucket.put(cvsVersionKey(version, slug), JSON.stringify(data), {
     httpMetadata: JSON_TYPE,
     customMetadata: { city, count: String(count), districts: JSON.stringify(districts) }
   });
+  await ready.bucket.put(cvsVersionKey(version, "codes"), JSON.stringify({ ...staged, [slug]: codes }), { httpMetadata: JSON_TYPE });
   return json({ ok: true, version, city, count });
 }
 
@@ -99,20 +112,26 @@ export async function publishCvsStores(request: Request, env: Env): Promise<Resp
   if (listing.truncated) return json({ error: "暫存內容異常，請重新上傳" }, { status: 409 });
   if (listing.objects.some((object) => object.key === cvsVersionKey(version, "manifest"))) return json({ error: "此版本已發佈" }, { status: 409 });
   const staged = stagedFromList(listing.objects, prefix);
+  const codes = await readCodes(bucket, version);
   const bySlug = new Map(staged.map((city) => [city.slug, city]));
   const missing = Object.entries(CVS_CITY_SLUGS).filter(([, slug]) => !bySlug.has(slug)).map(([city]) => city);
   if (missing.length) return json({ error: `還有縣市尚未上傳：${missing.join("、")}` }, { status: 409 });
+  // 暫存的店號清單必須和各縣市檔的筆數一致，且全版本不重複（stage 已檢查；這裡再確認沒有被中途改壞）
+  const allCodes = staged.flatMap((city) => codes[city.slug] || []);
+  if (staged.some((city) => (codes[city.slug] || []).length !== city.count) || new Set(allCodes).size !== allCodes.length) {
+    return json({ error: "暫存內容不一致或店號重複，請重新上傳" }, { status: 409 });
+  }
   const total = staged.reduce((sum, city) => sum + city.count, 0);
   if (pointer && pointer.total > 0 && (pointer.total - total) / pointer.total > CVS_MAX_SHRINK_RATIO) {
     return json({ error: `新版門市共 ${total} 間，比目前的 ${pointer.total} 間少超過 ${CVS_MAX_SHRINK_RATIO * 100}%，已拒絕發佈` }, { status: 409 });
   }
   const index = Object.entries(CVS_CITY_SLUGS).map(([city, slug]) => [city, slug, (bySlug.get(slug) as StagedCity).districts]);
   const publishedAt = new Date().toISOString();
-  const manifest: CvsManifest = { version, total, cities: Object.fromEntries(staged.map((city) => [city.slug, city.count])), publishedAt, publishedBy: admin.user.id };
+  const manifest: CvsManifest = { version, total, cities: Object.fromEntries(staged.map((city) => [city.slug, city.count])), publishedAt };
   await bucket.put(cvsVersionKey(version, "index"), JSON.stringify(index), { httpMetadata: JSON_TYPE });
   await bucket.put(cvsVersionKey(version, "manifest"), JSON.stringify(manifest), { httpMetadata: JSON_TYPE, customMetadata: { total: String(total), publishedAt, publishedBy: admin.user.id } });
-  const next: CvsPointer = { version, total, publishedAt, publishedBy: admin.user.id };
-  await bucket.put(CVS_POINTER_KEY, JSON.stringify(next), { httpMetadata: JSON_TYPE });
+  const next: CvsPointer = { version, total, publishedAt };
+  await bucket.put(CVS_POINTER_KEY, JSON.stringify(next), { httpMetadata: JSON_TYPE, customMetadata: { publishedBy: admin.user.id } });
   await pruneVersions(bucket, version).catch((error) => console.error("門市舊版本清理失敗", error));
   return json({ ok: true, version, total });
 }
@@ -154,8 +173,8 @@ export async function rollbackCvsStores(request: Request, env: Env): Promise<Res
   const manifestObject = await bucket.get(cvsVersionKey(version, "manifest"));
   if (!manifestObject) return json({ error: "找不到這個版本（可能已被清除）" }, { status: 404 });
   const manifest = await manifestObject.json<CvsManifest>();
-  const next: CvsPointer = { version, total: manifest.total, publishedAt: new Date().toISOString(), publishedBy: admin.user.id };
-  await bucket.put(CVS_POINTER_KEY, JSON.stringify(next), { httpMetadata: JSON_TYPE });
+  const next: CvsPointer = { version, total: manifest.total, publishedAt: new Date().toISOString() };
+  await bucket.put(CVS_POINTER_KEY, JSON.stringify(next), { httpMetadata: JSON_TYPE, customMetadata: { publishedBy: admin.user.id } });
   return json({ ok: true, version, total: manifest.total });
 }
 

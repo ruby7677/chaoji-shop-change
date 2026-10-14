@@ -2,8 +2,10 @@
 // 結帳門市清單預設是 public/cvs-stores/ 的靜態檔；後台上傳後改存 R2（PRODUCT_IMAGES bucket 的 cvs-stores/ 前綴）：
 //   cvs-stores/<version>/<slug>.json   各縣市（暫存時 customMetadata 記伺服器計算的筆數與鄉鎮區）
 //   cvs-stores/<version>/index.json    發佈時由各縣市 metadata 組成
-//   cvs-stores/<version>/manifest.json 發佈紀錄（上傳者、時間、筆數）；有它才算已發佈
+//   cvs-stores/<version>/codes.json    暫存時累計各縣市店號（跨縣市店號唯一性由伺服器檢查）
+//   cvs-stores/<version>/manifest.json 發佈紀錄（時間、筆數）；有它才算已發佈
 //   cvs-stores/current.json            指標，最後才寫入；刪除＝回到 repo 靜態檔（baseline）
+// 上傳的管理員 ID 只放在 manifest／指標的 customMetadata：這個 bucket 有公開網域，檔案內容讀得到，metadata 讀不到。
 // 縣市白名單與 public/cvs-stores-data.js 的 CITY_SLUGS 相同（Worker 不能 import public/），tests/worker/cvs-stores.test.mjs 比對兩邊一致。
 
 export const CVS_CITY_SLUGS: Record<string, string> = {
@@ -34,12 +36,14 @@ const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
 export type CvsStore = [string, string, string];
 export type CvsCityData = Record<string, CvsStore[]>;
-export type CvsPointer = { version: string; total: number; publishedAt: string; publishedBy: string };
-export type CvsManifest = { version: string; total: number; cities: Record<string, number>; publishedAt: string; publishedBy: string };
+export type CvsPointer = { version: string; total: number; publishedAt: string };
+export type CvsManifest = { version: string; total: number; cities: Record<string, number>; publishedAt: string };
+/** 各縣市暫存的店號：{ slug: [店號, ...] } */
+export type CvsCodes = Record<string, string[]>;
 
 export const cvsVersionKey = (version: string, name: string) => `${CVS_PREFIX}${version}/${name}.json`;
 
-export type ValidatedCity = { data: CvsCityData; count: number; districts: string[] };
+export type ValidatedCity = { data: CvsCityData; count: number; districts: string[]; codes: string[] };
 
 function cleanText(value: unknown, max: number, min = 1) {
   if (typeof value !== "string") return null;
@@ -76,5 +80,5 @@ export function validateCityData(raw: unknown): { ok: true; value: ValidatedCity
     count += list.length;
     if (count > MAX_STORES_PER_CITY) return { ok: false, error: "單一縣市門市數量過多" };
   }
-  return { ok: true, value: { data, count, districts: Object.keys(data) } };
+  return { ok: true, value: { data, count, districts: Object.keys(data), codes: [...codes] } };
 }

@@ -99,13 +99,16 @@ test("staging rejects an unknown city, a bad version and an already published ve
 test("publishing needs every city; the pointer is written last from server-side counts", async () => {
   asAdmin();
   const env = newEnv();
-  for (const city of Object.keys(CITY_SLUGS).slice(1)) await call(env, "PUT", "/api/admin/cvs-stores/stage", { version: V1, city, data: cityData(3) });
+  for (const [index, city] of Object.keys(CITY_SLUGS).entries()) {
+    if (index === 0) continue;
+    await call(env, "PUT", "/api/admin/cvs-stores/stage", { version: V1, city, data: cityData(3, index * 100) });
+  }
   const missing = await publish(env, V1);
   assert.equal(missing.status, 409);
   assert.match((await missing.json()).error, /台北市/);
   assert.equal(await env.PRODUCT_IMAGES.head(POINTER), null);
 
-  await call(env, "PUT", "/api/admin/cvs-stores/stage", { version: V1, city: "台北市", data: cityData(3) });
+  await call(env, "PUT", "/api/admin/cvs-stores/stage", { version: V1, city: "台北市", data: cityData(3, 0) });
   env.PRODUCT_IMAGES.events.length = 0;
   const response = await publish(env, V1);
   assert.deepEqual(await response.json(), { ok: true, version: V1, total: 66 });
@@ -114,10 +117,42 @@ test("publishing needs every city; the pointer is written last from server-side 
   const index = await (await env.PRODUCT_IMAGES.get(`cvs-stores/${V1}/index.json`)).json();
   assert.equal(index.length, 22);
   assert.deepEqual(index[0], ["台北市", "taipei", ["甲區", "乙區"]]);
-  const pointer = await (await env.PRODUCT_IMAGES.get(POINTER)).json();
+  const pointerObject = await env.PRODUCT_IMAGES.get(POINTER);
+  const pointer = await pointerObject.json();
   assert.equal(pointer.version, V1);
   assert.equal(pointer.total, 66);
-  assert.equal(pointer.publishedBy, ADMIN_ID);
+  // 這個 bucket 有公開網域：上傳者 ID 只放 metadata，檔案內容不含
+  assert.equal(pointerObject.customMetadata.publishedBy, ADMIN_ID);
+  for (const key of [POINTER, `cvs-stores/${V1}/manifest.json`]) {
+    assert.doesNotMatch(await (await env.PRODUCT_IMAGES.get(key)).arrayBuffer().then((buffer) => new TextDecoder().decode(buffer)), new RegExp(ADMIN_ID), key);
+  }
+});
+
+test("a store code used in two cities is refused at staging, but re-staging a city with its own codes is fine", async () => {
+  asAdmin();
+  const env = newEnv();
+  const stage = (city, data) => call(env, "PUT", "/api/admin/cvs-stores/stage", { version: V1, city, data });
+  assert.equal((await stage("台北市", cityData(3, 0))).status, 200);
+  const clash = await stage("新北市", cityData(3, 1));
+  assert.equal(clash.status, 400);
+  assert.match((await clash.json()).error, /重複/);
+  assert.equal(await env.PRODUCT_IMAGES.head(`cvs-stores/${V1}/new-taipei.json`), null, "the clashing city is not stored");
+  assert.equal((await stage("台北市", cityData(3, 1))).status, 200, "a retry of the same city replaces its own earlier codes");
+  assert.equal((await stage("新北市", cityData(3, 100))).status, 200);
+});
+
+test("publishing refuses a version whose staged codes were tampered with", async () => {
+  asAdmin();
+  const env = newEnv();
+  await stageAll(env, V1);
+  const codes = await (await env.PRODUCT_IMAGES.get(`cvs-stores/${V1}/codes.json`)).json();
+  codes["new-taipei"] = [...codes.taipei];
+  await env.PRODUCT_IMAGES.put(`cvs-stores/${V1}/codes.json`, JSON.stringify(codes));
+  const response = await publish(env, V1);
+  assert.equal(response.status, 409);
+  assert.equal(await env.PRODUCT_IMAGES.head(POINTER), null);
+  await env.PRODUCT_IMAGES.delete(`cvs-stores/${V1}/codes.json`);
+  assert.equal((await publish(env, V1)).status, 409, "missing codes also stop the publish");
 });
 
 test("a new version that shrinks by more than 5% is refused and the old one stays live", async () => {
@@ -193,6 +228,7 @@ test("the admin list shows the current version, history and unfinished staging",
   await call(env, "PUT", "/api/admin/cvs-stores/stage", { version: "20261005000000-abcdef", city: "台北市", data: cityData(2) });
   const body = await (await call(env, "GET", "/api/admin/cvs-stores")).json();
   assert.equal(body.current.version, V1);
+  assert.equal(body.current.publishedBy, ADMIN_ID);
   assert.deepEqual(body.published.map((v) => [v.version, v.total, v.is_current]), [[V1, 44, true]]);
   assert.deepEqual(body.staged.map((v) => [v.version, v.cities]), [["20261005000000-abcdef", ["台北市"]]]);
   assert.equal(body.city_count, 22);
