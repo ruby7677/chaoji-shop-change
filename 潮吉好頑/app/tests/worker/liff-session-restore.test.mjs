@@ -74,6 +74,7 @@ beforeEach(async () => {
     if (url.pathname === "/auth/v1/token") {
       upstream.sent.push(body.refresh_token);
       if (upstream.concurrentLogin) upstream.sealed = upstream.concurrentLogin;
+      if (upstream.concurrentDelete) { upstream.vault = "missing"; upstream.concurrentDelete = false; }
       assert.ok([SHORT_REFRESH_TOKEN, ROTATED_TOKEN, COOKIE_TOKEN].includes(body.refresh_token), "restore sends a decrypted token to Supabase");
       if (upstream.refresh === "down") return jsonResponse({}, 503);
       if (upstream.refresh === "reject" || upstream.rejectTokens.includes(body.refresh_token)) return jsonResponse({ error: "invalid_grant" }, 400);
@@ -122,6 +123,20 @@ test("兩次恢復同時進行時，後到的不把同一條 token 鏈另存 coo
   assert.equal(second.status, 200);
   for (const response of [first, second]) assert.match(response.headers.get("Set-Cookie") || "", /Max-Age=0/, "no device keeps a private copy of the shared chain");
   assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, upstream.sealed), ROTATED_TOKEN, "the vault holds the live token for both devices");
+});
+
+test("恢復成功但 vault 期間已被刪除時，輪替後的 token 是唯一副本，改存 cookie", async () => {
+  // 另一個並行恢復在 503 fallback 時刪掉了 vault：條件更新找不到列（stale），再讀一次也沒有
+  upstream.concurrentDelete = true;
+  const response = await restore();
+  assert.equal(response.status, 200);
+  assert.equal(upstream.vault, "missing");
+  const cookie = (response.headers.get("Set-Cookie") || "").split(";")[0];
+  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, cookie.split("=").slice(1).join("=")), ROTATED_TOKEN);
+  upstream.sent = [];
+  const next = await restore({ cookie });
+  assert.equal(next.status, 200, "the next restore still has a token");
+  assert.deepEqual(upstream.sent, [ROTATED_TOKEN]);
 });
 
 test("恢復成功但 vault 暫時寫不進去時，輪替後的 token 改存 cookie", async () => {
@@ -294,4 +309,13 @@ test("同一會員兩次恢復同時進行且都成功時，vault 最後保存�
   assert.deepEqual(upstream.sent, [SHORT_REFRESH_TOKEN, SHORT_REFRESH_TOKEN], "both requests read the same vault token");
   assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, upstream.sealed), ROTATED_TOKEN, "the vault ends with the live rotated token");
   assert.equal(vaultDeleted(), false);
+});
+
+test("輪替後查不到使用者且 vault 期間已被刪除時，輪替後的 token 改存 cookie 並回 503", async () => {
+  upstream.userLookup = 503;
+  upstream.concurrentDelete = true;
+  const response = await restore();
+  assert.equal(response.status, 503);
+  const cookie = (response.headers.get("Set-Cookie") || "").split(";")[0];
+  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, cookie.split("=").slice(1).join("=")), ROTATED_TOKEN);
 });
