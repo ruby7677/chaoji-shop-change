@@ -32,8 +32,17 @@ const runWorkerFirst = async () => {
 
 test("public/_headers applies exactly the Worker's security headers to every static path", async () => {
   const rules = parseHeaders(await appFile("public/_headers"));
-  assert.deepEqual([...rules.keys()], ["/*"]);
+  assert.equal([...rules.keys()][0], "/*");
   assert.deepEqual(Object.fromEntries(rules.get("/*")), SECURITY_HEADERS);
+});
+
+test("only the rarely changing images get a browser cache lifetime; scripts and styles keep revalidating", async () => {
+  const rules = parseHeaders(await appFile("public/_headers"));
+  const cached = [...rules.keys()].filter((path) => path !== "/*");
+  assert.deepEqual(cached.sort(), ["/Logo.png", "/Logo.webp", "/logo.jpg", "/og-share.jpg"]);
+  for (const path of cached) {
+    assert.deepEqual(Object.fromEntries(rules.get(path)), { "Cache-Control": "public, max-age=604800" }, path);
+  }
 });
 
 test("run_worker_first sends share-preview pages and the API to the Worker", async () => {
