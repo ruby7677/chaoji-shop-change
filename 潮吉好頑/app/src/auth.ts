@@ -184,35 +184,11 @@ export async function rememberLiffSession(request: Request, env: Env): Promise<R
 async function persistedSessionResponse(env: Env, lineUserId: string, user: AuthUser, refreshed: SupabaseRefreshSession) {
   const sealed = await sealRefreshToken(env.AUTH_SESSION_SECRET!, refreshed.refresh_token);
   const vaulted = await storeVaultedSession(env, lineUserId, user.id, sealed);
-  return sessionResponse(user, refreshed, vaulted ? clearRefreshSessionCookie() : refreshSessionCookie(sealed));
-}
-
-/**
- * 把本次由 vault 輪替後的 token 存回 vault；回傳 vault 是否仍保有可恢復的 token（false＝呼叫端要改放 cookie）。
- * 只在 vault 仍是本次讀到的那筆時才更新，期間存入的新 token 不會被蓋掉。
- * stale 時再讀一次：vault 已被另一次恢復或 LINE Login 換成別的 token，就捨棄本次的 token、不放 cookie——
- * 並行恢復時它可能和 vault 是同一條 token 鏈，之後 vault 再輪替，cookie 裡的舊 token 會被 Supabase 視為重複使用而撤銷整條登入；
- * vault 已被刪除或讀不到時，本次的 token 是唯一的副本，改放 cookie。
- */
-async function vaultKeepsRotatedToken(env: Env, lineUserId: string, sealed: string, expectedSealed: string) {
-  const replaced = await replaceVaultedToken(env, lineUserId, sealed, expectedSealed);
-  if (replaced !== "stale") return replaced === "replaced";
-  return (await readVaultedSession(env, lineUserId)).status === "found";
-}
-
-// 由 vault 恢復成功：vault 仍保有 token 時清掉 cookie，否則輪替後的 token 改放 cookie（下次優先使用）。
-async function vaultRestoredResponse(env: Env, lineUserId: string, expectedSealed: string, user: AuthUser, refreshed: SupabaseRefreshSession) {
-  const sealed = await sealRefreshToken(env.AUTH_SESSION_SECRET!, refreshed.refresh_token);
-  const kept = await vaultKeepsRotatedToken(env, lineUserId, sealed, expectedSealed);
-  return sessionResponse(user, refreshed, kept ? clearRefreshSessionCookie() : refreshSessionCookie(sealed));
-}
-
-function sessionResponse(user: AuthUser, refreshed: SupabaseRefreshSession, cookie: string) {
   return json({
     access_token: refreshed.access_token,
     expires_in: Number(refreshed.expires_in || 0),
     user_id: user.id
-  }, { headers: { "Set-Cookie": cookie } });
+  }, { headers: { "Set-Cookie": vaulted ? clearRefreshSessionCookie() : refreshSessionCookie(sealed) } });
 }
 
 type SealedSessionResult =
@@ -290,14 +266,14 @@ export async function restoreLiffSession(request: Request, env: Env): Promise<Re
   const vaulted = await readVaultedSession(env, identity.sub);
   if (vaulted.status === "found") {
     const result = await restoreSealedSession(env, vaulted.sealed, identity.sub);
-    if (result.ok) return vaultRestoredResponse(env, identity.sub, vaulted.sealed, result.user, result.refreshed);
+    if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
     // 只有確定無效（解不開、身分不符）才刪除；token 被拒可能是暫時狀態，下次 LINE Login 也會覆寫
     if (result.reason === "invalid" || result.reason === "mismatch") await deleteVaultedSession(env, identity.sub, vaulted.sealed);
     if (result.reason === "unavailable") {
       if (!result.rotated) return restoreUnavailable(cookieFailure ? { headers: clearCookie } : undefined);
       // vault 的 token 已在本次輪替：存回輪替後的 token 再回 503
       const sealed = await sealRefreshToken(env.AUTH_SESSION_SECRET!, result.rotated.refresh_token);
-      if (await vaultKeepsRotatedToken(env, identity.sub, sealed, vaulted.sealed)) return restoreUnavailable(cookieFailure ? { headers: clearCookie } : undefined);
+      if (await replaceVaultedToken(env, identity.sub, sealed, vaulted.sealed)) return restoreUnavailable(cookieFailure ? { headers: clearCookie } : undefined);
       // vault 也寫不進去：新 token 改放 cookie（下次優先使用），並盡量刪掉 vault 內已失效的舊 token
       await deleteVaultedSession(env, identity.sub, vaulted.sealed);
       return restoreUnavailable({ headers: { "Set-Cookie": refreshSessionCookie(sealed) } });
