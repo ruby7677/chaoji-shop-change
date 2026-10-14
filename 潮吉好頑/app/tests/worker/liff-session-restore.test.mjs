@@ -105,15 +105,23 @@ test("vault 內的 12 字元 refresh token 可直接恢復登入，並以條件�
   assert.equal(vaultDeleted(), false);
 });
 
-test("恢復成功但期間另一次 LINE Login 已存入新 token 時，不蓋掉那筆，輪替後的 token 改存 cookie", async () => {
+test("恢復成功但期間另一次 LINE Login 已存入新 token 時，不蓋掉那筆，也不把本次的 token 另存 cookie", async () => {
   const newer = await sealRefreshToken(env.AUTH_SESSION_SECRET, COOKIE_TOKEN);
   upstream.concurrentLogin = newer;
   const response = await restore();
   assert.equal(response.status, 200);
   assert.equal(upstream.patched, null);
   assert.equal(upstream.sealed, newer, "the newer login's token stays in the vault");
-  const cookie = (response.headers.get("Set-Cookie") || "").split(";")[0];
-  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, cookie.split("=").slice(1).join("=")), ROTATED_TOKEN);
+  assert.match(response.headers.get("Set-Cookie") || "", /Max-Age=0/, "the vault is the only copy");
+});
+
+test("兩次恢復同時進行時，後到的不把同一條 token 鏈另存 cookie；之後 vault 再輪替也不會用到舊 token", async () => {
+  // Supabase 規則：只有目前有效的 token（或寬限期內它的父代）能換發，提交更舊的 token 會撤銷整條登入
+  const [first, second] = await Promise.all([restore(), restore()]);
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  for (const response of [first, second]) assert.match(response.headers.get("Set-Cookie") || "", /Max-Age=0/, "no device keeps a private copy of the shared chain");
+  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, upstream.sealed), ROTATED_TOKEN, "the vault holds the live token for both devices");
 });
 
 test("恢復成功但 vault 暫時寫不進去時，輪替後的 token 改存 cookie", async () => {
@@ -266,7 +274,7 @@ test("cookie 換發時 Supabase 暫時故障就回 503，不改試較舊的 vaul
   assert.deepEqual(upstream.sent, [COOKIE_TOKEN]);
 });
 
-test("輪替期間另一次 LINE Login 已覆寫 vault 時，不蓋掉也不刪除那筆新 token，輪替後的 token 改存 cookie", async () => {
+test("輪替期間另一次 LINE Login 已覆寫 vault 時，不蓋掉也不刪除那筆新 token，也不把輪替後的 token 另存 cookie", async () => {
   const newer = await sealRefreshToken(env.AUTH_SESSION_SECRET, COOKIE_TOKEN);
   upstream.userLookup = 503;
   upstream.concurrentLogin = newer;
@@ -275,8 +283,7 @@ test("輪替期間另一次 LINE Login 已覆寫 vault 時，不蓋掉也不刪�
   assert.equal(upstream.patched, null, "the newer vault token is not overwritten");
   assert.equal(upstream.vault, "found");
   assert.equal(upstream.sealed, newer, "the newer vault token is not deleted");
-  const cookie = (response.headers.get("Set-Cookie") || "").split(";")[0];
-  assert.equal(await openRefreshToken(env.AUTH_SESSION_SECRET, cookie.split("=").slice(1).join("=")), ROTATED_TOKEN);
+  assert.equal(response.headers.get("Set-Cookie"), null, "the vault's newer token is used next time");
 });
 
 test("同一會員兩次恢復同時進行且都成功時，vault 最後保存的是輪替後仍有效的 token", async () => {

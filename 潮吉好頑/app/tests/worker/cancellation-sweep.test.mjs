@@ -12,7 +12,7 @@ afterEach(() => restoreFetch());
 
 /** orders：{ id: { cancelledAt, lineUserId } }。列表依 cancelled_at 由新到舊、套用時間窗與 limit。 */
 function fakeSupabase(orders) {
-  const state = { marked: new Set(), logs: new Map(), failClaimFor: null, events: [], listQueries: [], fetches: 0 };
+  const state = { marked: new Set(), logs: new Map(), failClaimFor: null, events: [], listQueries: [], createdLookups: 0, fetches: 0 };
   restoreFetch = stubFetch((url, init, body) => {
     state.fetches += 1;
     const method = init.method || "GET";
@@ -56,15 +56,16 @@ function fakeSupabase(orders) {
       if (body.p_sent) state.logs.set(body.p_id, "sent");
       return jsonResponse(true);
     }
+    if (path === "/rest/v1/rpc/missing_created_notifications") state.createdLookups += 1;
     // 通知重試（claim_due_notification_deliveries）與建單補發（missing_created_notifications）在這裡都沒有積壓
     return jsonResponse([]);
   });
   return state;
 }
 
-async function runCron(cron, env = baseEnv) {
+async function runCron(cron, env = baseEnv, scheduledTime = NOW) {
   const context = ctx();
-  worker.scheduled({ cron, scheduledTime: NOW }, env, context);
+  worker.scheduled({ cron, scheduledTime }, env, context);
   await context.settle();
 }
 const runFiveMinute = (env) => runCron("*/5 * * * *", env);
@@ -135,6 +136,22 @@ for (const [label, env, perRun] of [
     });
   }
 }
+
+test("with too many recipients for both sweeps in one run, they take turns every 5 minutes", async () => {
+  // LINE＋6 個 Telegram：每筆 1＋3×7＝22，建單補發要 23、取消補送要 24，46 的額度放不下兩者
+  const env = { ...baseEnv, TELEGRAM_ADMIN_CHAT_IDS: "1,2,3,4,5,6" };
+  const state = fakeSupabase(backlog(5));
+  const slot = 5 * 60 * 1000;
+  const start = Math.floor(NOW / slot / 2) * slot * 2;
+  for (const [index, scheduledTime] of [start, start + slot, start + 2 * slot, start + 3 * slot].entries()) {
+    state.fetches = 0;
+    await runCron("*/5 * * * *", env, scheduledTime);
+    assert.ok(state.fetches <= 50, `run ${index + 1} used ${state.fetches} subrequests`);
+  }
+  assert.equal(state.createdLookups, 2, "the created sweep runs every other slot");
+  // 建單補發這裡沒有積壓、只用掉查詢 1 次，取消補送每次都用剩下的額度送 1 筆
+  assert.equal(state.marked.size, 4, "the cancelled sweep goes first on the other slots and uses what is left on these");
+});
 
 test("the newest cancellations are sent first", async () => {
   const state = fakeSupabase(backlog(10));

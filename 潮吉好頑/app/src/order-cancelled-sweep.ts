@@ -33,7 +33,7 @@ async function markCancellationNotified(env: Env, orderId: string) {
 
 /**
  * 在可用子請求數內補送取消通知，最近取消的先送（舊訂單一直失敗也不會擋住新的取消）。
- * 依序處理，每筆送完就標記；回傳標記的筆數。
+ * 依序處理，每筆送完就標記；回傳處理的筆數（含沒送成、留到下次的）。
  */
 export async function notifyMissedCancelledOrders(env: Env, budget: number, now = new Date()): Promise<number> {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return 0;
@@ -53,16 +53,13 @@ export async function notifyMissedCancelledOrders(env: Env, budget: number, now 
     .map((row) => row.id)
     .filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id))
     .slice(0, limit);
-  let marked = 0;
   for (const orderId of orderIds) {
     try {
       // 有收件人沒取得 claim 就不標記，下次排程再送
-      if (!await notifyOrderEvent(env, orderId, "status_changed")) continue;
-      await markCancellationNotified(env, orderId);
-      marked += 1;
+      if (await notifyOrderEvent(env, orderId, "status_changed")) await markCancellationNotified(env, orderId);
     } catch (error) {
       console.error("取消通知補送失敗", orderId, error instanceof Error ? error.message : "unknown");
     }
   }
-  return marked;
+  return orderIds.length;
 }
