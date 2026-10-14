@@ -5,7 +5,7 @@ import { type Env } from "./env";
 import { SECURITY_HEADERS, json } from "./http";
 
 const PATH = /^\/cvs-stores\/([a-z-]+)\.json$/;
-// 後台發佈後，已開啟結帳頁的客人最多 5 分鐘內換到新版
+// 瀏覽器與 Cloudflare 邊緣各快取 5 分鐘、結帳頁內再快取 5 分鐘，後台發佈後客人約 10 分鐘內換到新版
 const CACHE_CONTROL = "public, max-age=300";
 
 function jsonResponse(body: BodyInit | null) {

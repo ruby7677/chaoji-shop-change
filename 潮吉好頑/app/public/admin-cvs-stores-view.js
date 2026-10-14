@@ -41,7 +41,7 @@ export function previewHtml(plan, fileName) {
     <div class="cvs-admin-table-wrap"><table class="cvs-admin-table"><thead><tr><th scope="col">縣市</th><th scope="col">原有</th><th scope="col">新版</th><th scope="col">新增</th><th scope="col">移除</th><th scope="col">變更</th></tr></thead><tbody>${cityRows}</tbody></table></div>
     ${storeList("新增的門市", plan.addedList, "is-added")}${storeList("移除的門市", plan.removedList, "is-removed")}
     <div class="form-actions"><button class="primary-button" type="button" data-cvs-publish ${blocked ? "disabled" : ""}>確認並發佈</button><button class="secondary-button" type="button" data-cvs-cancel>取消</button></div>
-    <p class="cvs-admin-note">發佈後客人結帳最多 5 分鐘內換成新清單；已選好的舊門市仍可送出訂單。</p>
+    <p class="cvs-admin-note">發佈後客人結帳約 10 分鐘內換成新清單；已選好的舊門市仍可送出訂單。</p>
   </div>`;
 }
 

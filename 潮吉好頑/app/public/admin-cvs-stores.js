@@ -68,7 +68,7 @@ async function publish(button) {
   const confirmed = await adminConfirm({
     title: "發佈新的門市清單？",
     details: [["門市總數", `${plan.total} 間（原 ${plan.beforeTotal} 間）`], ["新增／移除／變更", `${plan.added}／${plan.removed}／${plan.changed}`]],
-    message: "客人結帳會在最多 5 分鐘內換成新清單；之後可在這裡回復舊版。",
+    message: "客人結帳會在約 10 分鐘內換成新清單；之後可在這裡回復舊版。",
     confirmLabel: "發佈",
     trigger: button
   });
@@ -99,7 +99,7 @@ async function rollback(version, button) {
   const toBaseline = version === null;
   const confirmed = await adminConfirm({
     title: toBaseline ? "回到內建的門市清單？" : "回復到這個版本？",
-    message: toBaseline ? "結帳會改用網站程式內附的門市清單（上傳過的版本仍保留，之後可再回復）。" : "結帳會在最多 5 分鐘內換回這一版。",
+    message: toBaseline ? "結帳會改用網站程式內附的門市清單（上傳過的版本仍保留，之後可再回復）。" : "結帳會在約 10 分鐘內換回這一版。",
     confirmLabel: "確認回復",
     danger: true,
     trigger: button
