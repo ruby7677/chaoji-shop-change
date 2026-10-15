@@ -8,11 +8,11 @@ const TIMING_KEY = "cj-boot-timing";
 const HISTORY_KEY = "cj-boot-timing-history";
 export const HISTORY_LIMIT = 10;
 
-// 報告列出的請求：短標籤 → 判斷網址的條件
+// 報告列出的請求：短標籤、判斷網址的條件、選項（span：另列開始→結束時間，看請求是不是太晚才發出）
 export const TRACKED_REQUESTS = [
   ["SDK", (url) => url.hostname === "static.line-scdn.net"],
   ["設定", (url) => url.pathname === "/api/config"],
-  ["型錄", (url) => url.pathname === "/api/catalog"],
+  ["型錄", (url) => url.pathname === "/api/catalog", { span: true }],
   ["恢復", (url) => url.pathname === "/api/auth/session/restore"],
   ["身分", (url) => url.pathname === "/auth/v1/user"],
   ["Profile", (url) => url.pathname === "/rest/v1/profiles"],
@@ -24,6 +24,8 @@ export const TRACKED_REQUESTS = [
 // markBoot 標籤 → 報告用的短標籤
 const PHASE_LABELS = new Map([
   ["JS 載入完成", "JS"],
+  ["型錄", "型錄"],
+  ["型錄失敗", "型錄失敗"],
   ["LIFF 初始化", "LIFF"],
   ["畫面顯示（遮罩關閉）", "遮罩"],
   ["LINE 登入恢復（背景）", "登入"],
@@ -85,16 +87,24 @@ export function coloFromRay(ray) {
   return colo ? colo.toUpperCase() : "未知";
 }
 
+/**
+ * 單一資源的取得方式：cached（未發請求）、revalidated（304，只傳標頭）、downloaded（傳了內容）。
+ * 304 的 encodedBodySize 依瀏覽器不同可能是 0（Chromium）或快取內容大小，兩種都要算重驗證；有 responseStatus 時以它為準。
+ */
+export function scriptFetchKind(entry) {
+  if (entry.transferSize === 0) return "cached";
+  if (entry.responseStatus === 304) return "revalidated";
+  if (entry.transferSize > 0 && entry.encodedBodySize === 0) return "revalidated";
+  if (entry.encodedBodySize > 0 && entry.transferSize < entry.encodedBodySize) return "revalidated";
+  return "downloaded";
+}
+
 /** 同源 JS：個數、304 重驗證／下載／快取，以及第一個開始與最後一個完成的時間。 */
 export function summarizeScripts(entries, origin) {
   const scripts = entries.filter((entry) => entry.name.startsWith(origin) && new URL(entry.name).pathname.endsWith(".js"));
   if (!scripts.length) return null;
   const counts = { revalidated: 0, downloaded: 0, cached: 0 };
-  for (const entry of scripts) {
-    if (entry.transferSize === 0) counts.cached += 1;
-    else if (entry.encodedBodySize > 0 && entry.transferSize < entry.encodedBodySize) counts.revalidated += 1;
-    else counts.downloaded += 1;
-  }
+  for (const entry of scripts) counts[scriptFetchKind(entry)] += 1;
   return {
     count: scripts.length,
     ...counts,
@@ -103,15 +113,20 @@ export function summarizeScripts(entries, origin) {
   };
 }
 
-/** 每個追蹤請求的耗時（ms）；同一請求出現多次（重試、重複下載）以「+」相連，依追蹤順序排列。 */
+/**
+ * 每個追蹤請求的耗時（ms）；同一請求出現多次（重試、重複下載）以「+」相連，依追蹤順序排列。
+ * 設了 span 的請求在耗時後加上（開始→結束），例如「型錄221(400→621)」。
+ */
 export function requestDurations(entries, tracked = TRACKED_REQUESTS) {
   const durations = [];
-  for (const [label, matches] of tracked) {
+  for (const [label, matches, options = {}] of tracked) {
     const times = [];
     for (const entry of entries) {
       let url;
       try { url = new URL(entry.name); } catch { continue; }
-      if (matches(url)) times.push(Math.round(entry.responseEnd - entry.startTime));
+      if (!matches(url)) continue;
+      const duration = Math.round(entry.responseEnd - entry.startTime);
+      times.push(options.span ? `${duration}(${Math.round(entry.startTime)}→${Math.round(entry.responseEnd)})` : duration);
     }
     if (times.length) durations.push(`${label}${times.join("+")}`);
   }

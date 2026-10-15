@@ -1,7 +1,7 @@
 // 開機計時（?cj_timing=1）：機房代碼、同源 JS 的重驗證／下載／快取統計、追蹤請求耗時、歷次中位數與報告格式。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { coloFromRay, formatBootReport, historyMedians, lcpLabel, parseHistory, requestDurations, summarizeScripts } from "../../public/boot-timing.js";
+import { coloFromRay, formatBootReport, historyMedians, lcpLabel, parseHistory, requestDurations, scriptFetchKind, summarizeScripts } from "../../public/boot-timing.js";
 
 const ORIGIN = "https://shop.test";
 const entry = (name, startTime, responseEnd, transferSize = 500, encodedBodySize = 4000) => ({ name, startTime, responseEnd, transferSize, encodedBodySize });
@@ -23,6 +23,15 @@ test("same-origin scripts are split into revalidated, downloaded and cached", ()
   assert.deepEqual(summary, { count: 3, revalidated: 1, downloaded: 1, cached: 1, start: 90, end: 410 });
 });
 
+test("a 304 counts as revalidated whether the browser reports the cached body size or zero", () => {
+  // Chromium 回 304 時 encodedBodySize 是 0，只傳了標頭
+  assert.equal(scriptFetchKind({ transferSize: 300, encodedBodySize: 0 }), "revalidated");
+  assert.equal(scriptFetchKind({ transferSize: 300, encodedBodySize: 15000 }), "revalidated");
+  assert.equal(scriptFetchKind({ transferSize: 15300, encodedBodySize: 15000, responseStatus: 304 }), "revalidated");
+  assert.equal(scriptFetchKind({ transferSize: 15300, encodedBodySize: 15000, responseStatus: 200 }), "downloaded");
+  assert.equal(scriptFetchKind({ transferSize: 0, encodedBodySize: 15000 }), "cached");
+});
+
 test("no same-origin scripts gives no summary", () => {
   assert.equal(summarizeScripts([entry("https://static.line-scdn.net/liff/edge/2/sdk.js", 1, 2)], ORIGIN), null);
 });
@@ -36,6 +45,10 @@ test("tracked requests show durations in tracking order, repeats joined with +",
     entry(`${ORIGIN}/api/products`, 1, 2)
   ]);
   assert.deepEqual(durations, ["設定50", "恢復1200+400", "身分150"]);
+});
+
+test("the catalog request also shows when it started and finished", () => {
+  assert.deepEqual(requestDurations([entry(`${ORIGIN}/api/catalog`, 400.4, 621.2)]), ["型錄221(400→621)"]);
 });
 
 test("history medians skip runs missing a phase", () => {
@@ -57,7 +70,7 @@ test("stored history drops invalid counts and times instead of trusting them", (
 
 test("the report fits a phone screen: short labels, 4 items per line, P50 across runs", () => {
   const text = formatBootReport({
-    marks: [["JS 載入完成", 420], ["設定", 716], ["LIFF 初始化", 900], ["畫面顯示（遮罩關閉）", 1036], ["LINE 登入恢復（背景）", 1822]],
+    marks: [["JS 載入完成", 420], ["設定", 716], ["型錄", 850], ["LIFF 初始化", 900], ["畫面顯示（遮罩關閉）", 1036], ["LINE 登入恢復（背景）", 1822]],
     notes: ["登入恢復200 SJC"],
     scripts: { count: 44, revalidated: 0, downloaded: 44, cached: 0, start: 188, end: 855 },
     requests: ["設定29", "型錄188+162", "恢復849", "身分116", "點數600"],
@@ -67,7 +80,8 @@ test("the report fits a phone screen: short labels, 4 items per line, P50 across
   });
   assert.equal(text, [
     "計時 #3（navigate）",
-    "JS420・LIFF900・遮罩1036・登入1822",
+    "JS420・型錄850・LIFF900・遮罩1036",
+    "登入1822",
     "JS×44 188→855 下44驗0快0",
     "設定29・型錄188+162・恢復849・身分116",
     "點數600",
