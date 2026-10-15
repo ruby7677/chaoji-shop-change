@@ -14,6 +14,7 @@ import { loadProducts, openProductDetail, products, renderHeroSpotlight, renderP
 import { markAuthSettled, whenAuthReady } from "./auth-ready.js";
 import { markBoot, reportBootTiming } from "./boot-timing.js";
 import { failAuthBoot, finishAuthBoot, startAuthBoot } from "./auth-boot.js";
+import { prefetchedCatalogSource } from "./catalog-prefetch.js";
 import { restoreAuthReturnState } from "./auth-return-state.js";
 import { activeCheckoutScope, openCheckout, showCheckoutError, submitOrder } from "./checkout-flow.js";
 import { applyCheckoutCoupon, handleCouponInputChange, removeCheckoutCoupon } from "./checkout-coupon.js";
@@ -204,7 +205,11 @@ async function bootstrapAuth() {
     markBoot("JS 載入完成");
     const bootUrl = new URL(location.href);
     // 公開型錄不需要登入：一開機就開始載入，與設定、LIFF 初始化和登入恢復同時進行（loadProducts 不會丟錯）
-    const catalogLoading = loadProducts().then((loaded) => { markBoot(loaded ? "型錄" : "型錄失敗"); return loaded; });
+    const catalogLoading = loadProducts().then((loaded) => {
+      // 內嵌型錄（Worker 寫進首頁 HTML）與另外請求分開記，手機上才看得出是否退回請求
+      markBoot(loaded ? (prefetchedCatalogSource === "inline" ? "型錄（內嵌）" : "型錄") : "型錄失敗");
+      return loaded;
+    });
     // Overlap the LIFF SDK download with /api/config for LINE launches only;
     // ordinary browsers never load the SDK.
     if (hasLiffPrimaryRedirectParams(bootUrl) || bootUrl.searchParams.has(LIFF_AUTO_CALLBACK_PARAM) || readLiffLaunchContext()) preloadLiffSdk();

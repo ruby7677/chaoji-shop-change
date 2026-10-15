@@ -25,6 +25,7 @@ export const TRACKED_REQUESTS = [
 const PHASE_LABELS = new Map([
   ["JS 載入完成", "JS"],
   ["型錄", "型錄"],
+  ["型錄（內嵌）", "型錄內嵌"],
   ["型錄失敗", "型錄失敗"],
   ["LIFF 初始化", "LIFF"],
   ["畫面顯示（遮罩關閉）", "遮罩"],

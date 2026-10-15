@@ -3,7 +3,7 @@
 // 只讀取已上架商品（storefront_variants + anon key），查詢失敗時退回全站預設值，不影響頁面本身。
 import { fetchWithTimeout } from "./http";
 import { publicCatalog } from "./catalog";
-import { type Env } from "./env";
+import { type Env, type Product } from "./env";
 import { firstHeroImageUrl } from "./hero-preload";
 import { imageOrigin, primaryImageUrls } from "./product-image-urls";
 
@@ -53,18 +53,30 @@ async function productMeta(env: ShareMetaEnv, productId: string): Promise<ShareM
   };
 }
 
-// 首頁型錄最多等這麼久（通常命中快取只需幾毫秒）；逾時只少了輪播圖預先載入，不拖慢首頁
+// 首頁型錄最多等這麼久（通常命中快取只需幾毫秒）；逾時不拖慢首頁，只是少了輪播圖預先載入與內嵌型錄
+// （前台改由 catalog-prefetch.js 另外請求 /api/catalog，遮罩要多等這個請求）
 const HOME_CATALOG_WAIT_MS = 150;
+// 內嵌型錄的資料區塊 id；public/catalog-prefetch.js 讀取同一個 id
+export const CATALOG_DATA_ID = "cj-catalog-data";
 
 function isHomePage(url: URL) {
   return url.pathname === "/" || url.pathname === "/index.html";
 }
 
-// 能及時取得型錄時，預先載入第一張輪播圖。型錄 API 本身不用 preload：它是 no-store，iOS WebKit 不會沿用而再下載一次，
-// 改由 index.html 的 catalog-prefetch.js 提早 fetch
+/**
+ * 內嵌型錄：與 /api/catalog 相同的 JSON，放在不會執行的資料區塊。商品名稱與說明是後台輸入的，
+ * 所有「<」都轉成 JSON 跳脫字元 \u003c，內容裡的 </script>、<!-- 不會提早結束區塊（JSON.parse 會還原成「<」）。
+ */
+export function catalogDataScript(products: Product[]) {
+  const data = JSON.stringify({ products }).replace(/</g, "\\u003c");
+  return `<script type="application/json" id="${CATALOG_DATA_ID}">${data}</script>`;
+}
+
+// 首頁開機資料：能及時取得型錄時，預先載入第一張輪播圖並內嵌型錄（手機不必等 JS 載完才另外請求 /api/catalog）。
+// 型錄 API 本身不用 preload：它是 no-store，iOS WebKit 不會沿用而再下載一次。
 // 型錄讀取會被之後的 /api/catalog 共用（isolate 內同一個 in-flight）：必須用 waitUntil 讓它在首頁回應送出後
 // 仍能完成，否則讀取被中斷、in-flight 永遠不會結束，之後所有型錄請求都會卡住
-export async function homePreloadMarkup(env: Env, url: URL, ctx?: ExecutionContext) {
+export async function homeBootMarkup(env: Env, url: URL, ctx?: ExecutionContext) {
   const catalog = publicCatalog(env, url.origin).catch(() => null);
   ctx?.waitUntil(catalog);
   const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), HOME_CATALOG_WAIT_MS));
@@ -72,8 +84,13 @@ export async function homePreloadMarkup(env: Env, url: URL, ctx?: ExecutionConte
   const image = products ? firstHeroImageUrl(products) : null;
   // 圖片在 R2 公開網域時先建立連線，第一張輪播圖與商品縮圖不必再等 DNS／TLS
   const origin = imageOrigin(env);
-  return (origin ? `<link rel="preconnect" href="${escapeAttribute(origin)}" />` : "")
+  const preload = (origin ? `<link rel="preconnect" href="${escapeAttribute(origin)}" />` : "")
     + (image ? `<link rel="preload" href="${escapeAttribute(image)}" as="image" fetchpriority="high" />` : "");
+  return { preload, catalogData: products ? catalogDataScript(products) : "" };
+}
+
+export async function homePreloadMarkup(env: Env, url: URL, ctx?: ExecutionContext) {
+  return (await homeBootMarkup(env, url, ctx)).preload;
 }
 
 export function isShareMetaRequest(request: Request, url: URL) {
@@ -109,7 +126,7 @@ export async function withShareMeta(request: Request, env: Env, url: URL, ctx?: 
   ];
   const headMarkup = tags.map(([attribute, name, content]) => `<meta ${attribute}="${name}" content="${escapeAttribute(content)}" />`).join("")
     + `<link rel="canonical" href="${escapeAttribute(canonical)}" />`;
-  const preloadMarkup = isHomePage(url) ? await homePreloadMarkup(env, url, ctx) : "";
+  const { preload: preloadMarkup, catalogData } = isHomePage(url) ? await homeBootMarkup(env, url, ctx) : { preload: "", catalogData: "" };
 
   const rewritten = new HTMLRewriter()
     .on("title", { element(element) { element.setInnerContent(meta.title); } })
@@ -119,6 +136,10 @@ export async function withShareMeta(request: Request, env: Env, url: URL, ctx?: 
     } })
     // 預先載入緊接在 charset 之後，比 CSS 更早被瀏覽器發現
     .on("meta[charset]", { element(element) { if (preloadMarkup) element.after(preloadMarkup, { html: true }); } })
+    // 已內嵌型錄：拿掉 <head> 的提早請求；catalog-prefetch.js 仍由 app.js 的 import 載入，執行時（文件已解析完）改讀內嵌資料
+    .on('script[src="/catalog-prefetch.js"]', { element(element) { if (catalogData) element.remove(); } })
+    // 放在 body 最後：不擋開機畫面先出現；app.js 是 module，文件解析完才執行，讀得到這個區塊
+    .on("body", { element(element) { if (catalogData) element.append(catalogData, { html: true }); } })
     .transform(assetResponse);
   const responseHeaders = new Headers(rewritten.headers);
   responseHeaders.delete("ETag");
