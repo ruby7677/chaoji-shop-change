@@ -2,7 +2,7 @@
 // 因此由 Worker 回傳 index.html 時以 HTMLRewriter 寫入標題、描述與 Open Graph 標籤。
 // 只讀取已上架商品（storefront_variants + anon key），查詢失敗時退回全站預設值，不影響頁面本身。
 import { fetchWithTimeout } from "./http";
-import { publicCatalog } from "./catalog";
+import { publicCatalog, runtimeConfig } from "./catalog";
 import { type Env, type Product } from "./env";
 import { firstHeroImageUrl } from "./hero-preload";
 import { imageOrigin, primaryImageUrls } from "./product-image-urls";
@@ -58,18 +58,30 @@ async function productMeta(env: ShareMetaEnv, productId: string): Promise<ShareM
 const HOME_CATALOG_WAIT_MS = 150;
 // 內嵌型錄的資料區塊 id；public/catalog-prefetch.js 讀取同一個 id
 export const CATALOG_DATA_ID = "cj-catalog-data";
+// 內嵌執行設定（與 /api/config 相同）的資料區塊 id；public/liff-session.js 的 loadRuntimeConfig 讀取同一個 id
+export const CONFIG_DATA_ID = "cj-config-data";
 
 function isHomePage(url: URL) {
   return url.pathname === "/" || url.pathname === "/index.html";
 }
 
 /**
- * 內嵌型錄：與 /api/catalog 相同的 JSON，放在不會執行的資料區塊。商品名稱與說明是後台輸入的，
+ * 內嵌 JSON（型錄、執行設定）：放在不會執行的資料區塊。型錄的商品名稱與說明是後台輸入的，
  * 所有「<」都轉成 JSON 跳脫字元 \u003c，內容裡的 </script>、<!-- 不會提早結束區塊（JSON.parse 會還原成「<」）。
  */
+export function jsonDataScript(id: string, value: unknown) {
+  const data = JSON.stringify(value).replace(/</g, "\\u003c");
+  return `<script type="application/json" id="${id}">${data}</script>`;
+}
+
+/** 內嵌型錄：與 /api/catalog 相同的 JSON。 */
 export function catalogDataScript(products: Product[]) {
-  const data = JSON.stringify({ products }).replace(/</g, "\\u003c");
-  return `<script type="application/json" id="${CATALOG_DATA_ID}">${data}</script>`;
+  return jsonDataScript(CATALOG_DATA_ID, { products });
+}
+
+/** 內嵌執行設定：只來自部署設定（不查資料庫），隨時可得，所以首頁與商品頁都內嵌，省掉開機時的 /api/config。 */
+export async function configDataScript(env: Env) {
+  return jsonDataScript(CONFIG_DATA_ID, await runtimeConfig(env));
 }
 
 // 首頁開機資料：能及時取得型錄時，預先載入第一張輪播圖並內嵌型錄（手機不必等 JS 載完才另外請求 /api/catalog）。
@@ -127,6 +139,7 @@ export async function withShareMeta(request: Request, env: Env, url: URL, ctx?: 
   const headMarkup = tags.map(([attribute, name, content]) => `<meta ${attribute}="${name}" content="${escapeAttribute(content)}" />`).join("")
     + `<link rel="canonical" href="${escapeAttribute(canonical)}" />`;
   const { preload: preloadMarkup, catalogData } = isHomePage(url) ? await homeBootMarkup(env, url, ctx) : { preload: "", catalogData: "" };
+  const bootData = (await configDataScript(env)) + catalogData;
 
   const rewritten = new HTMLRewriter()
     .on("title", { element(element) { element.setInnerContent(meta.title); } })
@@ -139,7 +152,7 @@ export async function withShareMeta(request: Request, env: Env, url: URL, ctx?: 
     // 已內嵌型錄：拿掉 <head> 的提早請求；catalog-prefetch.js 仍由 app.js 的 import 載入，執行時（文件已解析完）改讀內嵌資料
     .on('script[src="/catalog-prefetch.js"]', { element(element) { if (catalogData) element.remove(); } })
     // 放在 body 最後：不擋開機畫面先出現；app.js 是 module，文件解析完才執行，讀得到這個區塊
-    .on("body", { element(element) { if (catalogData) element.append(catalogData, { html: true }); } })
+    .on("body", { element(element) { element.append(bootData, { html: true }); } })
     .transform(assetResponse);
   const responseHeaders = new Headers(rewritten.headers);
   responseHeaders.delete("ETag");

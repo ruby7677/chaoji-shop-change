@@ -78,7 +78,28 @@ export function captureAuthSession() {
 
 
 
+// Worker 回傳首頁與商品頁時會把執行設定內嵌在 HTML 最後（src/share-meta.ts 的 CONFIG_DATA_ID），
+// 開機直接讀取，不必等 /api/config 往返；讀完移除，之後（或沒有內嵌、內容損壞時）照舊請求。
+const CONFIG_DATA_ID = "cj-config-data";
+
+function takeEmbeddedConfig() {
+  const node = document.getElementById(CONFIG_DATA_ID);
+  if (!node) return null;
+  node.remove();
+  try {
+    const config = JSON.parse(node.textContent);
+    return config && typeof config === "object" ? config : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loadRuntimeConfig() {
+  const embedded = takeEmbeddedConfig();
+  if (embedded) {
+    auth.config = embedded;
+    return true;
+  }
   try {
     const response = await fetch("/api/config");
     noteBootResponse("設定", response);
