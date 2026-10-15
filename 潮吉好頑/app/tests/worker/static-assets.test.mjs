@@ -39,7 +39,7 @@ test("public/_headers applies exactly the Worker's security headers to every sta
 test("only the rarely changing images get a browser cache lifetime; scripts and styles keep revalidating", async () => {
   const rules = parseHeaders(await appFile("public/_headers"));
   const cached = [...rules.keys()].filter((path) => path !== "/*");
-  assert.deepEqual(cached.sort(), ["/Logo.png", "/Logo.webp", "/logo.jpg", "/og-share.jpg"]);
+  assert.deepEqual(cached.sort(), ["/Logo.png", "/Logo.webp", "/logo.jpg", "/og-share-2.jpg", "/og-share.jpg"]);
   for (const path of cached) {
     assert.deepEqual(Object.fromEntries(rules.get(path)), { "Cache-Control": "public, max-age=604800" }, path);
   }
@@ -72,8 +72,8 @@ test("robots.txt is a real robots file, not the single-page fallback", async () 
 
 test("the default share image is 1200x630 and small enough for LINE previews", async () => {
   const { readImageDimensions } = await loadSourceModule("image-dimensions.ts");
-  const share = await readFile(new URL("../../public/og-share.jpg", import.meta.url));
+  const share = await readFile(new URL("../../public/og-share-2.jpg", import.meta.url));
   assert.deepEqual(readImageDimensions(share), { width: 1200, height: 630 });
-  assert.ok(share.length < 300 * 1024, `og-share.jpg is ${share.length} bytes`);
-  assert.match(await appFile("src/share-meta.ts"), /image: "\/og-share\.jpg"/);
+  assert.ok(share.length < 300 * 1024, `og-share-2.jpg is ${share.length} bytes`);
+  assert.match(await appFile("src/share-meta.ts"), /image: "\/og-share-2\.jpg"/);
 });

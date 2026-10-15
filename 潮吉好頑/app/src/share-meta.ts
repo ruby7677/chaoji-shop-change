@@ -22,7 +22,7 @@ const SITE_NAME = "潮吉好頑";
 const DEFAULT_META: ShareMeta = {
   title: "潮吉好頑｜好頑玩具選物",
   description: "潮吉好頑｜玩具、公仔、戰鬥陀螺選物。現貨先選，預購先保留。",
-  image: "/og-share.jpg",
+  image: "/og-share-2.jpg",
   type: "website"
 };
 const DESCRIPTION_MAX = 110;

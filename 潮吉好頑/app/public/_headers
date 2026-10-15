@@ -17,3 +17,5 @@
   Cache-Control: public, max-age=604800
 /og-share.jpg
   Cache-Control: public, max-age=604800
+/og-share-2.jpg
+  Cache-Control: public, max-age=604800
