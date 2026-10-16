@@ -1,7 +1,7 @@
 // 開機計時（?cj_timing=1）：機房代碼、同源 JS 的重驗證／下載／快取統計、追蹤請求耗時、歷次中位數與報告格式。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { coloFromRay, formatBootReport, historyMedians, lcpLabel, parseHistory, requestDurations, scriptFetchKind, summarizeScripts } from "../../public/boot-timing.js";
+import { coloFromRay, formatBootReport, historyMedians, lcpLabel, parseHistory, requestDurations, scriptFetchKind, serverTimingSummary, summarizeScripts } from "../../public/boot-timing.js";
 
 const ORIGIN = "https://shop.test";
 const entry = (name, startTime, responseEnd, transferSize = 500, encodedBodySize = 4000) => ({ name, startTime, responseEnd, transferSize, encodedBodySize });
@@ -114,4 +114,10 @@ test("the orders page report shows its own phases and the orders request, with i
     "恢復260・訂單240",
     "近2次P50 登入800・訂單1050"
   ].join("\n"));
+});
+
+test("the Worker step timings from Server-Timing are shortened for the report", () => {
+  assert.equal(serverTimingSummary("line;dur=42.4, vault;dur=30, refresh;dur=85.6, total;dur=190"), "line42 vault30 refresh86 total190");
+  assert.equal(serverTimingSummary("cache;desc=hit, orders;dur=61"), "orders61", "entries without a duration are skipped");
+  assert.equal(serverTimingSummary(null), "");
 });

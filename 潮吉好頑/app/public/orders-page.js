@@ -20,6 +20,8 @@ let config = null;
 let inLineClient = /\bLine\//i.test(navigator.userAgent);
 let accessToken = null;
 let orders = [];
+// 恢復登入時 Worker 一併回傳的訂單：只用一次，之後（重新整理、回報匯款後）照常請求
+let restoredOrders = null;
 let activeOrder = null;
 
 const SKELETON = '<div class="skeleton-stack" role="status" aria-label="載入訂單中"><div class="skeleton-card"><span></span><i></i><i></i></div><div class="skeleton-card"><span></span><i></i><i></i></div></div>';
@@ -77,6 +79,7 @@ async function obtainAccessToken({ useCache = true } = {}) {
     if (restored.outcome === "retry") throw new Error("登入服務暫時忙碌，請稍後再試");
     if (restored.outcome !== "restored") return null;
     rememberAccessToken(restored.accessToken);
+    restoredOrders = restored.orders || null;
     return restored.accessToken;
   }
   const refreshed = await refreshWebSession();
@@ -124,7 +127,8 @@ async function loadOrders({ useCache = true } = {}) {
         ? "第一次使用請先開啟商店完成 LINE 登入，之後從選單點「我的訂單」就能直接查看。"
         : "請在 LINE 官方帳號選單開啟，或前往商店以 LINE 登入後查看訂單。", { label: "前往商店登入" });
     }
-    let result = await fetchOrders(accessToken);
+    let result = restoredOrders || await fetchOrders(accessToken);
+    restoredOrders = null;
     // 保存的 token 已失效：清掉後重新恢復一次
     if (result === null && useCache) {
       forgetAccessToken();

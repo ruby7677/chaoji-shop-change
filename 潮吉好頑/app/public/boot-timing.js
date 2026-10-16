@@ -79,13 +79,27 @@ export function markBoot(label) {
   if (enabled) marks.push([label, Math.round(performance.now())]);
 }
 
-/** 記下 Worker 回應的狀態碼、執行機房與 placement；同一標籤可記多次（例如登入恢復重試）。 */
+/**
+ * 記下 Worker 回應的狀態碼、執行機房與 placement；同一標籤可記多次（例如登入恢復重試）。
+ * 回應帶 Server-Timing（src/server-timing.ts）時另附 Worker 內各步驟耗時，例如「line42 vault30 refresh85 save40 orders61 total190」。
+ */
 export function noteBootResponse(label, response) {
   if (!enabled || !response) return;
   try {
     const placement = response.headers.get("cf-placement");
-    notes.push(`${label}${response.status} ${coloFromRay(response.headers.get("cf-ray"))}${placement ? `(${placement})` : ""}`);
+    const steps = serverTimingSummary(response.headers.get("server-timing"));
+    notes.push(`${label}${response.status} ${coloFromRay(response.headers.get("cf-ray"))}${placement ? `(${placement})` : ""}${steps ? ` ${steps}` : ""}`);
   } catch { /* 除錯工具出錯不能影響開機 */ }
+}
+
+/** Server-Timing 標頭（「line;dur=42, total;dur=190」）→「line42 total190」；沒有或格式不對的項目略過。 */
+export function serverTimingSummary(header) {
+  return String(header || "").split(",").map((part) => {
+    const [name, ...params] = part.trim().split(";");
+    const duration = params.map((param) => param.trim()).find((param) => param.startsWith("dur="));
+    const ms = Number(duration?.slice(4));
+    return name && Number.isFinite(ms) ? `${name}${Math.round(ms)}` : "";
+  }).filter(Boolean).join(" ");
 }
 
 export function coloFromRay(ray) {

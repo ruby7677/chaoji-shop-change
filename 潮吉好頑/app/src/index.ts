@@ -18,7 +18,7 @@ import { isCvsStoresRequest, serveCvsStores } from "./cvs-stores-serve";
 import { type Env } from "./env";
 import { MAX_JSON_REQUEST_BYTES, SECURITY_HEADERS, enforceRateLimit, json, serviceHeaders, withSecurityHeaders } from "./http";
 import { previewCheckoutCoupon } from "./coupon-preview";
-import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFriendship, memberPoints, replaceMemberCart, submitOrderPayment } from "./member-api";
+import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFriendship, memberPoints, ordersForRestoredSession, replaceMemberCart, submitOrderPayment } from "./member-api";
 import { notifyOrderEvent, notifyOrderEventToMember, runScheduledNotifications, testTelegramNotification } from "./notifications";
 import { isKeepaliveHour, pingSupabase } from "./supabase-keepalive";
 import { BACKUP_CRON, runDailyBackup } from "./database-backup";
@@ -48,7 +48,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, store: env.STORE_NAME, database: Boolean(env.SUPABASE_URL) });
   if (request.method === "POST" && url.pathname === "/api/auth/liff/verify") return verifyLiffIdentity(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/session/remember") return rememberLiffSession(request, env);
-  if (request.method === "POST" && url.pathname === "/api/auth/session/restore") return restoreLiffSession(request, env);
+  if (request.method === "POST" && url.pathname === "/api/auth/session/restore") return restoreLiffSession(request, env, ordersForRestoredSession);
   if (request.method === "POST" && url.pathname === "/api/auth/session/forget") return forgetLiffSession();
   const webSessionResponse = await webSession.route(request, env, url);
   if (webSessionResponse) return webSessionResponse;
