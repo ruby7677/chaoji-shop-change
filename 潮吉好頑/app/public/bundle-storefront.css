@@ -1393,14 +1393,13 @@ dialog.variant-sheet:focus { outline: none; }
 }
 /* ==== floating-actions.css ==== */
 /* 首頁右下角浮動按鈕（floating-actions.js）：LINE 客服＋回到頂端。商品頁有自己的底部購買列，不顯示。 */
-.floating-actions { position: fixed; right: calc(8px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 13; display: flex; flex-direction: column; gap: 10px; }
-body:has(.selection-tray.has-items) .floating-actions { bottom: calc(96px + env(safe-area-inset-bottom)); }
+.floating-actions { position: fixed; right: calc(8px + env(safe-area-inset-right)); bottom: calc(70px + env(safe-area-inset-bottom)); z-index: 13; display: flex; flex-direction: column; gap: 10px; }
+body:has(.selection-tray.has-items) .floating-actions { bottom: calc(146px + env(safe-area-inset-bottom)); }
 body.is-product-view .floating-actions { display: none; }
 /* 按鈕 40px、離右邊 8px，尺寸比照參考圖；::after 把觸控範圍擴到 48px，避免太難點 */
 .floating-actions a, .floating-actions button { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 4px; cursor: pointer; box-shadow: 0 3px 10px rgba(21, 21, 21, 0.25); }
 .floating-actions a::after, .floating-actions button::after { content: ""; position: absolute; inset: -4px; }
-/* 回到頂端鈕未顯示時仍保留位置（只是看不見、點不到），LINE 鈕才不會在一顆／兩顆之間上下跳動 */
-.floating-actions [hidden] { display: grid; visibility: hidden; pointer-events: none; }
+.floating-actions [hidden] { display: none; }
 .floating-line { background: #06c755; color: #fff; text-decoration: none; }
 .floating-top { background: rgba(21, 21, 21, 0.92); color: #fff; }
 .floating-actions svg { width: 28px; height: 28px; }
