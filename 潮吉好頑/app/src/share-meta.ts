@@ -58,7 +58,7 @@ async function productMeta(env: ShareMetaEnv, productId: string): Promise<ShareM
 const HOME_CATALOG_WAIT_MS = 150;
 // 內嵌型錄的資料區塊 id；public/catalog-prefetch.js 讀取同一個 id
 export const CATALOG_DATA_ID = "cj-catalog-data";
-// 內嵌執行設定（與 /api/config 相同）的資料區塊 id；public/liff-session.js 的 loadRuntimeConfig 讀取同一個 id
+// 內嵌執行設定（與 /api/config 相同）的資料區塊 id；public/embedded-config.js 讀取同一個 id
 export const CONFIG_DATA_ID = "cj-config-data";
 
 function isHomePage(url: URL) {
@@ -79,7 +79,7 @@ export function catalogDataScript(products: Product[]) {
   return jsonDataScript(CATALOG_DATA_ID, { products });
 }
 
-/** 內嵌執行設定：只來自部署設定（不查資料庫），隨時可得，所以首頁與商品頁都內嵌，省掉開機時的 /api/config。 */
+/** 內嵌執行設定：只來自部署設定（不查資料庫），隨時可得，所以首頁、商品頁與訂單頁（src/orders-page.ts）都內嵌，省掉開機時的 /api/config。 */
 export async function configDataScript(env: Env) {
   return jsonDataScript(CONFIG_DATA_ID, await runtimeConfig(env));
 }
@@ -110,14 +110,32 @@ export function isShareMetaRequest(request: Request, url: URL) {
   return url.pathname === "/" || url.pathname === "/index.html" || PRODUCT_PAGE.test(url.pathname);
 }
 
-export async function withShareMeta(request: Request, env: Env, url: URL, ctx?: ExecutionContext): Promise<Response> {
-  // 不帶條件式標頭向 ASSETS 取 index.html：所有商品頁共用同一個 ETag，
-  // 若回 304 瀏覽器會沿用其他商品（或舊名稱）的標籤。
+/**
+ * 向 ASSETS 取要改寫的 HTML：不帶條件式標頭。改寫結果依頁面與部署設定而定，靜態檔沒變時
+ * 回 304 會讓瀏覽器沿用改寫前、別頁（所有商品頁共用同一個 ETag）或舊設定的內容。
+ */
+export function fetchHtmlAsset(request: Request, env: Pick<ShareMetaEnv, "ASSETS">) {
   const headers = new Headers(request.headers);
   headers.delete("If-None-Match");
   headers.delete("If-Modified-Since");
-  const assetResponse = await env.ASSETS.fetch(new Request(request.url, { method: "GET", headers }));
-  if (!assetResponse.ok || !(assetResponse.headers.get("Content-Type") || "").includes("text/html")) return assetResponse;
+  return env.ASSETS.fetch(new Request(request.url, { method: "GET", headers }));
+}
+
+export function isHtmlResponse(response: Response) {
+  return response.ok && (response.headers.get("Content-Type") || "").includes("text/html");
+}
+
+/** 改寫後的 HTML：拿掉靜態檔的 ETag（內容已不同），每次向伺服器確認。 */
+export function rewrittenHtmlResponse(rewritten: Response) {
+  const headers = new Headers(rewritten.headers);
+  headers.delete("ETag");
+  headers.set("Cache-Control", "public, max-age=0, must-revalidate");
+  return new Response(rewritten.body, { status: rewritten.status, headers });
+}
+
+export async function withShareMeta(request: Request, env: Env, url: URL, ctx?: ExecutionContext): Promise<Response> {
+  const assetResponse = await fetchHtmlAsset(request, env);
+  if (!isHtmlResponse(assetResponse)) return assetResponse;
 
   let meta = DEFAULT_META;
   const productMatch = url.pathname.match(PRODUCT_PAGE);
@@ -154,8 +172,5 @@ export async function withShareMeta(request: Request, env: Env, url: URL, ctx?: 
     // 放在 body 最後：不擋開機畫面先出現；app.js 是 module，文件解析完才執行，讀得到這個區塊
     .on("body", { element(element) { element.append(bootData, { html: true }); } })
     .transform(assetResponse);
-  const responseHeaders = new Headers(rewritten.headers);
-  responseHeaders.delete("ETag");
-  responseHeaders.set("Cache-Control", "public, max-age=0, must-revalidate");
-  return new Response(rewritten.body, { status: rewritten.status, headers: responseHeaders });
+  return rewrittenHtmlResponse(rewritten);
 }

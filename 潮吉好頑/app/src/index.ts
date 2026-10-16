@@ -1,6 +1,7 @@
 import { runFiveMinuteNotifications } from "./notification-schedule";
 import { createProductShowcase, isShowcaseImageUpload } from "./product-showcase";
 import { isShareMetaRequest, withShareMeta } from "./share-meta";
+import { isOrdersPageRequest, withOrdersBootData } from "./orders-page";
 import { backfillProductImageDimensions } from "./product-image-dimensions";
 import { createWebSession } from "./web-session";
 import { adjustInventory, archiveProduct, createAdminCategory, createAdminProduct, createVariant, updateAdminCategory, updateProduct, updateVariant } from "./admin-catalog";
@@ -146,6 +147,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   if (url.pathname.startsWith("/api/")) return json({ error: "找不到 API" }, { status: 404 });
   if (isCvsStoresRequest(request, url)) return serveCvsStores(request, env, url);
   if (isShareMetaRequest(request, url)) return withSecurityHeaders(await withShareMeta(request, env, url, ctx));
+  if (isOrdersPageRequest(request, url)) return withSecurityHeaders(await withOrdersBootData(request, env));
   return withSecurityHeaders(await env.ASSETS.fetch(request));
 }
 

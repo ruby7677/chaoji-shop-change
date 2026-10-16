@@ -6,12 +6,29 @@
   <meta name="theme-color" content="#fffdf7" />
   <meta name="robots" content="noindex" />
   <title>我的訂單｜潮吉好頑</title>
-  <link rel="preconnect" href="https://static.line-scdn.net" crossorigin />
+  <!-- LINE SDK 在解析 HTML 時就開始下載，不等 orders-page.js 的 import 樹執行；crossorigin 要與 liff-auth.js 建立的 <script> 一致才會沿用 -->
+  <link rel="preload" href="https://static.line-scdn.net/liff/edge/2/sdk.js" as="script" crossorigin="anonymous" />
+  <link rel="preconnect" href="https://api.line.me" />
   <link rel="stylesheet" href="/bundle-base.css" />
   <link rel="stylesheet" href="/storefront-details.css" />
   <link rel="stylesheet" href="/bundle-storefront.css" />
   <link rel="stylesheet" href="/orders-page.css" />
   <script type="module" src="/orders-page.js"></script>
+  <!-- modulepreload:start（node scripts/build-modulepreload.mjs 產生，請勿手改） -->
+  <link rel="modulepreload" href="/product-format.js" />
+  <link rel="modulepreload" href="/app-core.js" />
+  <link rel="modulepreload" href="/liff-auth.js" />
+  <link rel="modulepreload" href="/web-session.js" />
+  <link rel="modulepreload" href="/copy-bank-account.js" />
+  <link rel="modulepreload" href="/order-views.js" />
+  <link rel="modulepreload" href="/orders-session.js" />
+  <link rel="modulepreload" href="/embedded-config.js" />
+  <link rel="modulepreload" href="/boot-timing.js" />
+  <link rel="modulepreload" href="/cvs-delivery.js" />
+  <link rel="modulepreload" href="/home-fee-state.js" />
+  <link rel="modulepreload" href="/auth-expiry.js" />
+  <link rel="modulepreload" href="/liff-restore-policy.js" />
+  <!-- modulepreload:end -->
 </head>
 <body class="orders-page">
   <main class="orders-shell orders-page-shell">

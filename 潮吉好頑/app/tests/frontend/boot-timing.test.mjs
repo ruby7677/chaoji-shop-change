@@ -95,3 +95,23 @@ test("the LCP note names an image or the element tag, or says it is unsupported"
   assert.equal(lcpLabel({ url: "", element: { tagName: "H1" } }), "LCP元素 H1");
   assert.equal(lcpLabel(null), "LCP 不支援");
 });
+
+test("the orders page report shows its own phases and the orders request, with its own history", async () => {
+  const { HISTORY_KEYS } = await import("../../public/boot-timing.js");
+  assert.notEqual(HISTORY_KEYS.orders, HISTORY_KEYS.home, "orders runs do not mix into the home medians");
+  const text = formatBootReport({
+    marks: [["JS 載入完成", 300], ["LIFF 初始化", 420], ["訂單頁登入", 700], ["訂單顯示", 950]],
+    notes: [],
+    scripts: null,
+    requests: requestDurations([entry(`${ORIGIN}/api/auth/session/restore`, 430, 690), entry(`${ORIGIN}/api/orders`, 700.4, 940.6)]),
+    runNumber: 2,
+    navigationType: "navigate",
+    runs: [{ 登入: 700, 訂單: 950 }, { 登入: 900, 訂單: 1150 }]
+  });
+  assert.equal(text, [
+    "計時 #2（navigate）",
+    "JS300・LIFF420・登入700・訂單950",
+    "恢復260・訂單240",
+    "近2次P50 登入800・訂單1050"
+  ].join("\n"));
+});

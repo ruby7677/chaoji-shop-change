@@ -2,10 +2,12 @@
 // 開機與會員載入完成後跳出精簡報告（一個畫面放得下），方便在 LINE 手機上直接看時間花在哪裡。
 // 各請求耗時從 Resource Timing 讀取；Worker 回應的 cf-ray 結尾是實際執行的 Cloudflare 機房（TPE、SJC…）。
 // 歷次結果存在 localStorage（關掉 LINE 視窗也會累計），報告附最近幾次的 P50；?cj_timing=reset 清除歷次結果重新累計。
+// 首頁（app.js）與獨立訂單頁（orders-page.js）都使用，兩頁的歷次結果分開累計。
 // LCP 取報告當下最新的一筆（之後圖片才載完時可能再更新）；瀏覽器不支援時顯示「不支援」。不記錄 token、Cookie 或會員資料。
 const TIMING_PARAM = "cj_timing";
 const TIMING_KEY = "cj-boot-timing";
-const HISTORY_KEY = "cj-boot-timing-history";
+// 各頁的歷次結果：兩頁的關鍵時間點不同，混在一起中位數沒有意義
+export const HISTORY_KEYS = { home: "cj-boot-timing-history", orders: "cj-boot-timing-history-orders" };
 export const HISTORY_LIMIT = 10;
 
 // 報告列出的請求：短標籤、判斷網址的條件、選項（span：另列開始→結束時間，看請求是不是太晚才發出）
@@ -14,6 +16,7 @@ export const TRACKED_REQUESTS = [
   ["設定", (url) => url.pathname === "/api/config"],
   ["型錄", (url) => url.pathname === "/api/catalog", { span: true }],
   ["恢復", (url) => url.pathname === "/api/auth/session/restore"],
+  ["訂單", (url) => url.pathname === "/api/orders"],
   ["身分", (url) => url.pathname === "/auth/v1/user"],
   ["Profile", (url) => url.pathname === "/rest/v1/profiles"],
   ["點數", (url) => url.pathname === "/api/member/points"],
@@ -32,16 +35,18 @@ const PHASE_LABELS = new Map([
   ["LINE 登入恢復（背景）", "登入"],
   ["會員資料", "會員"],
   ["會員功能就緒", "就緒"],
+  ["訂單頁登入", "登入"],
+  ["訂單顯示", "訂單"],
   ["開機失敗", "失敗"],
   ["LCP", "LCP"]
 ]);
 // 跨次比較的關鍵時間點（短標籤）
-const SUMMARY_PHASES = ["遮罩", "LCP", "登入", "就緒"];
+const SUMMARY_PHASES = ["遮罩", "LCP", "登入", "就緒", "訂單"];
 
 const enabled = (() => {
   try {
     const param = new URL(location.href).searchParams.get(TIMING_PARAM);
-    if (param === "reset") localStorage.removeItem(HISTORY_KEY);
+    if (param === "reset") for (const key of Object.values(HISTORY_KEYS)) localStorage.removeItem(key);
     if (param !== null) sessionStorage.setItem(TIMING_KEY, "1");
     return sessionStorage.getItem(TIMING_KEY) === "1";
   } catch {
@@ -184,29 +189,30 @@ export function parseHistory(raw) {
   }
 }
 
-function readHistory() {
+function readHistory(key) {
   try {
-    return parseHistory(localStorage.getItem(HISTORY_KEY));
+    return parseHistory(localStorage.getItem(key));
   } catch {
     return { total: 0, runs: [] };
   }
 }
 
 /** 記下這次的關鍵時間點，回傳累計次數與最近 HISTORY_LIMIT 次（含這次）。 */
-function recordRun() {
-  const history = readHistory();
+function recordRun(key) {
+  const history = readHistory(key);
   const run = {};
   for (const [label, ms] of marks) {
     const phase = PHASE_LABELS.get(label);
     if (SUMMARY_PHASES.includes(phase)) run[phase] = ms;
   }
   const next = { total: history.total + 1, runs: [...history.runs, run].slice(-HISTORY_LIMIT) };
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch { /* 無法保存時只顯示這一次 */ }
+  try { localStorage.setItem(key, JSON.stringify(next)); } catch { /* 無法保存時只顯示這一次 */ }
   return next;
 }
 
 let reported = false;
-export function reportBootTiming() {
+/** page：HISTORY_KEYS 的頁面名稱（home、orders），決定歷次結果累計在哪一份。 */
+export function reportBootTiming(page = "home") {
   if (!enabled || reported || !marks.length) return;
   reported = true;
   // 除錯工具出錯（舊版 WebView 缺少 Performance API 等）不能讓開機流程變成失敗
@@ -214,7 +220,7 @@ export function reportBootTiming() {
     const entries = performance.getEntriesByType("resource");
     if (lcp) marks.push(["LCP", Math.round(lcp.renderTime || lcp.startTime)]);
     notes.push(lcpLabel(lcp));
-    const history = recordRun();
+    const history = recordRun(HISTORY_KEYS[page] || HISTORY_KEYS.home);
     const text = formatBootReport({
       marks,
       notes,
