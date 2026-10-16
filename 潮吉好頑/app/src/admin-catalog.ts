@@ -2,7 +2,8 @@
 import { invalidateCatalogCache } from "./catalog";
 import { purgeProductImageCache } from "./product-image-storage";
 import { requireAdmin } from "./auth";
-import { databaseError } from "./database-errors";
+import { databaseError, databaseErrors } from "./database-errors";
+import { parseDeliveryMethods } from "./delivery-methods";
 import { type Env } from "./env";
 import { fetchWithTimeout, json, serviceHeaders } from "./http";
 
@@ -55,6 +56,7 @@ type ProductInput = {
   category_id?: string; category_name?: string; product_name?: string; description?: string; variant_name?: string; sku?: string;
   kind?: "in_stock" | "preorder"; price?: number; stock?: number; preorder_arrival?: string;
   deposit_rate?: number; seller_link?: string; purchase_limit?: number | null; points_eligible?: boolean; compare_at_price?: number | null; is_published?: boolean;
+  allowed_delivery_methods?: string[];
 };
 
 export async function createAdminProduct(request: Request, env: Env): Promise<Response> {
@@ -80,6 +82,8 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
   if (compareAtPrice != null && (!Number.isInteger(compareAtPrice) || compareAtPrice < 0 || compareAtPrice < price)) return json({ error: "原價須為 0 或正整數，且不可低於售價" }, { status: 400 });
   if (body.purchase_limit != null && (!Number.isInteger(body.purchase_limit) || body.purchase_limit < 1)) return json({ error: "限購數量必須為正整數或不限購" }, { status: 400 });
   if (!['in_stock', 'preorder'].includes(body.kind || '')) return json({ error: "商品類型不正確" }, { status: 400 });
+  const deliveryMethods = parseDeliveryMethods(body.allowed_delivery_methods);
+  if (deliveryMethods === "invalid") return json({ error: databaseErrors.INVALID_DELIVERY_METHODS }, { status: 400 });
   const depositRate = body.kind === "preorder" ? 0.5 : Number(body.deposit_rate ?? 0);
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_product`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
@@ -98,7 +102,8 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
       p_is_published: body.is_published === true,
       p_purchase_limit: body.purchase_limit ?? null,
       p_points_eligible: body.points_eligible !== false,
-      p_compare_at_price: compareAtPrice
+      p_compare_at_price: compareAtPrice,
+      p_delivery_methods: deliveryMethods
     })
   });
   if (!response.ok) return databaseError(response);
@@ -190,16 +195,19 @@ export async function updateVariant(request: Request, env: Env, variantId: strin
 export async function updateProduct(request: Request, env: Env, productId: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
   if (admin instanceof Response) return admin;
-  let body: { name?: string; description?: string; category_id?: string; purchase_limit?: number | null; points_eligible?: boolean; is_published?: boolean; display_order?: number };
+  let body: { name?: string; description?: string; category_id?: string; purchase_limit?: number | null; points_eligible?: boolean; is_published?: boolean; display_order?: number; allowed_delivery_methods?: string[] };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   if (!body.name?.trim()) return json({ error: "請填寫商品名稱" }, { status: 400 });
   if (body.purchase_limit != null && (!Number.isInteger(body.purchase_limit) || body.purchase_limit < 1)) return json({ error: "限購數量必須為正整數或不限購" }, { status: 400 });
+  const deliveryMethods = parseDeliveryMethods(body.allowed_delivery_methods);
+  if (deliveryMethods === "invalid") return json({ error: databaseErrors.INVALID_DELIVERY_METHODS }, { status: 400 });
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_product`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
       p_actor_id: admin.user.id, p_product_id: productId, p_name: body.name.trim(), p_description: body.description || "",
       p_category_id: body.category_id || null, p_purchase_limit: body.purchase_limit ?? null,
       p_points_eligible: typeof body.points_eligible === "boolean" ? body.points_eligible : null,
-      p_is_published: body.is_published === true, p_display_order: Number.isInteger(body.display_order) ? body.display_order : 0
+      p_is_published: body.is_published === true, p_display_order: Number.isInteger(body.display_order) ? body.display_order : 0,
+      p_delivery_methods: deliveryMethods
     })
   });
   if (!response.ok) return databaseError(response);

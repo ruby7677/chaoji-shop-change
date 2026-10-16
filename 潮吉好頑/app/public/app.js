@@ -21,6 +21,7 @@ import { applyCheckoutCoupon, handleCouponInputChange, removeCheckoutCoupon } fr
 import { LIFF_AUTO_CALLBACK_PARAM, captureAuthSession, clearLiffLaunchContext, clearStoredAuthSession, ensureWebSession, hasLiffLaunchIntent, hasLiffPrimaryRedirectParams, initializeLiffBridge, initializeLiffStage, liffPrimaryRedirectPending, loadRuntimeConfig, readLiffLaunchContext, renewLiffSession, renewWebSession } from "./liff-session.js";
 import { beginLineLogin, loadMember, showProfileDialog, submitProfile } from "./member-profile.js";
 import { handleCopyBankAccount } from "./copy-bank-account.js";
+import "./floating-actions.js";
 
 // 觸控診斷（?cj_touch=）只在除錯時載入，一般訪客不下載（見 touch-diagnostics.js）
 try {

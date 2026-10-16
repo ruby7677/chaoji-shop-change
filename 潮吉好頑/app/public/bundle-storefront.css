@@ -1,5 +1,5 @@
 @charset "UTF-8";
-/* 自動產生（scripts/build-css.mjs），請改原始檔：product-showcase.css、hero-desktop.css、hero-ratio.css、store-info.css、product-page.css、storefront-legibility.css、hero-flag-shine.css、header-orders.css、card-subgrid.css、filter-chips.css、catalog-paging.css、member-profile.css、dialog-close.css、checkout-cvs.css、checkout-coupon.css、home-fee.css、product-variants.css */
+/* 自動產生（scripts/build-css.mjs），請改原始檔：product-showcase.css、hero-desktop.css、hero-ratio.css、store-info.css、product-page.css、storefront-legibility.css、hero-flag-shine.css、header-orders.css、card-subgrid.css、filter-chips.css、catalog-paging.css、member-profile.css、dialog-close.css、checkout-cvs.css、checkout-coupon.css、home-fee.css、product-variants.css、floating-actions.css */
 /* ==== product-showcase.css ==== */
 /* 商品展示升級樣式：Hero 預購輪播、商品頁多圖、詳細介紹、推薦商品。
    規劃見 app/PRODUCT_SHOWCASE_PLAN.md；載入順序在 styles.css 之後。 */
@@ -1170,23 +1170,17 @@ body.is-product-view .product-page {
   }
   .site-header nav .nav-orders-button:hover { background: var(--home-ink); color: var(--home-yellow); }
   .site-header nav .nav-orders-button:focus-visible { outline: 3px solid var(--home-ink); outline-offset: 3px; }
-  /* LINE 客服（業主要求 2026-10-10）：手機版從首頁中段店取列移到主選單列，放在「我的訂單」左邊；
-     兩顆按鈕間距 8px，文字連結之間維持 24px，所有寬度都不換行（店取列的那顆隱藏，避免重複）。 */
+  /* LINE 客服改為右下角浮動按鈕（業主要求 2026-10-16），主選單列只留文字連結與「我的訂單」；
+     文字連結之間維持 24px，「我的訂單」靠右，所有寬度都不換行。店取列的 LINE 按鈕手機版仍隱藏，避免重複。 */
   .site-header nav { gap: 0; }
-  .site-header nav > a:not(.nav-line-button) { flex: none; margin-right: 24px; white-space: nowrap; }
-  .site-header nav .nav-line-button { flex: none; min-height: 44px; margin-left: auto; padding: 0 14px; }
-  .site-header nav .nav-line-button + .nav-orders-button:not(.hidden) { margin-left: 8px; }
+  .site-header nav > a { flex: none; margin-right: 24px; white-space: nowrap; }
+  .site-header nav .nav-orders-button { margin-left: auto; }
   .trust-rail a.trust-rail-link.line-service-button { display: none; }
 }
 /* 400px 以下（含 360／375px 手機）：登入後四個項目要擠在一列，字型寬度因裝置而異，預留餘裕 */
 @media (max-width: 400px) {
-  .site-header nav > a:not(.nav-line-button) { margin-right: 16px; }
-  .site-header nav .nav-line-button { padding: 0 12px; }
+  .site-header nav > a { margin-right: 16px; }
   .site-header nav .nav-orders-button:not(.hidden) { padding-inline: 10px 12px; }
-}
-.site-header nav .nav-line-button { display: none; }
-@media (max-width: 760px) {
-  .site-header nav .nav-line-button { display: inline-flex; }
 }
 
 /* 極窄螢幕（<360px，例如 320px）：縮小 Logo、隱藏副標，讓會員與購物車仍能和品牌同一列 */
@@ -1194,8 +1188,7 @@ body.is-product-view .product-page {
   .site-header { column-gap: 8px; padding-inline: 12px; }
   .site-header .brand img { width: 40px; height: 40px; }
   .site-header .brand small { display: none; }
-  .site-header nav > a:not(.nav-line-button) { margin-right: 12px; }
-  .site-header nav .nav-line-button { padding: 0 10px; }
+  .site-header nav > a { margin-right: 12px; }
   .site-header nav .nav-orders-button:not(.hidden) { padding-inline: 10px; }
   .site-header nav .nav-orders-button svg { display: none; }
 }
@@ -1392,3 +1385,17 @@ dialog.variant-sheet:focus { outline: none; }
   .pp-option { transition: none; }
   dialog.variant-sheet[open] { animation: none; }
 }
+/* ==== floating-actions.css ==== */
+/* 首頁右下角浮動按鈕（floating-actions.js）：LINE 客服＋回到頂端。商品頁有自己的底部購買列，不顯示。 */
+.floating-actions { position: fixed; right: env(safe-area-inset-right); bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 13; display: flex; flex-direction: column; gap: 10px; }
+body:has(.selection-tray.has-items) .floating-actions { bottom: calc(96px + env(safe-area-inset-bottom)); }
+body.is-product-view .floating-actions { display: none; }
+.floating-actions a, .floating-actions button { display: grid; place-items: center; box-sizing: border-box; width: 48px; height: 48px; padding: 0; border: 0; border-radius: 8px 0 0 8px; cursor: pointer; box-shadow: 0 6px 18px rgba(21, 21, 21, 0.28); }
+.floating-actions [hidden] { display: none; }
+.floating-line { background: #06c755; color: #fff; text-decoration: none; }
+.floating-top { background: rgba(21, 21, 21, 0.92); color: #fff; }
+.floating-actions svg { width: 30px; height: 30px; }
+.floating-top svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.floating-line svg text { fill: #06c755; font-size: 10px; font-weight: 800; font-family: system-ui, sans-serif; }
+.floating-actions a:focus-visible, .floating-actions button:focus-visible { outline: 3px solid #e7c438; outline-offset: 2px; }
+@media (hover: hover) { .floating-actions a:hover, .floating-actions button:hover { filter: brightness(1.08); } }

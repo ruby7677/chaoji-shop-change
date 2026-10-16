@@ -16,6 +16,8 @@ export const databaseErrors: Record<string, string> = {
   CVS_PICKUP_STORE_INVALID: "取件門市資料過長，請確認縣市、鄉鎮區與門市名稱",
   CVS_PICKUP_STORE_CODE_INVALID: "7-11 門市店號必須是 6 位數字",
   CVS_SHIPPING_FEE_FIXED: "7-11 店到店運費依訂單金額固定計算，不可修改",
+  DELIVERY_METHOD_NOT_ALLOWED: "購物車內有商品不支援所選的取貨方式，請重新選擇取貨方式或分開購買",
+  INVALID_DELIVERY_METHODS: "請至少選擇一種可用的取貨方式",
   SELLER_DELIVERY_RETIRED: "賣貨便已停用，請改選 7-11 店到店（交貨便）",
   INVALID_TRACKING_NUMBER: "寄件編號只能包含英文、數字與連字號，最多 40 字",
   TRACKING_NUMBER_CVS_ONLY: "只有 7-11 店到店訂單可以填寫寄件編號",
@@ -126,7 +128,8 @@ export const databaseErrors: Record<string, string> = {
 export async function databaseError(response: Response) {
   let payload: { message?: string } = {};
   try { payload = await response.json() as { message?: string }; } catch { /* ignore malformed upstream errors */ }
-  const matched = Object.keys(databaseErrors).find((code) => payload.message?.includes(code));
+  // 代碼可能是另一個代碼的前綴（INVALID_DELIVERY_METHOD／INVALID_DELIVERY_METHODS），取最長的符合者
+  const matched = Object.keys(databaseErrors).filter((code) => payload.message?.includes(code)).sort((a, b) => b.length - a.length)[0];
   const status = matched === "LINE_FRIEND_REQUIRED" ? 403 : response.status >= 500 ? 503 : 400;
   return json({ error: matched ? databaseErrors[matched] : "訂單服務暫時無法處理" }, { status });
 }

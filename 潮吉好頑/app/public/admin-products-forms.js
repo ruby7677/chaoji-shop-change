@@ -3,6 +3,7 @@
 // [data-edit-product-form]／[data-edit-variant-form] 的 document 委派處理，格式不變。
 import { escapeHtml, money } from "./product-format.js";
 import { adminProductGalleryMarkup, adminProductShowcaseMarkup } from "./admin-product-gallery.js";
+import { deliveryMethodsFieldHtml } from "./admin-delivery-methods.js";
 
 export const relationOne = (value) => (Array.isArray(value) ? value[0] : value);
 
@@ -85,6 +86,7 @@ function productFormMarkup(product, helpers) {
     + `<label class="wide">商品說明<textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea></label>`
     + `<label>每位會員限購數量<input name="purchase_limit" type="number" min="1" step="1" value="${product.purchase_limit ?? ""}" placeholder="留空代表不限購" /></label>`
     + `<label class="check-field admin-points-excluded-field"><input name="points_excluded" type="checkbox" ${product.points_eligible === false ? "checked" : ""} /> 不可累積會員點數<small>啟用後，完成訂單時此商品金額不列入新點數累積。</small></label>`
+    + deliveryMethodsFieldHtml(product.allowed_delivery_methods)
     + `<label class="check-field"><input name="is_published" type="checkbox" ${product.is_published ? "checked" : ""} /> 上架商品<small>商品未上架時，所有規格在前台都不會顯示。</small></label>`
     + '</div><button class="primary-button" type="submit">儲存商品</button></form>';
 }

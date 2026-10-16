@@ -1,4 +1,5 @@
 // 商品顯示用的純函式：首頁商品格、商品頁與推薦區共用。
+import { deliveryRestrictionLabel } from "./cart-delivery-rules.js";
 // 只做格式化與跳脫，不讀寫任何狀態。
 
 export function money(value) { return `NT$${value.toLocaleString("zh-TW")}`; }
@@ -36,5 +37,7 @@ export function productTagMarkup(product) {
   const tags = [];
   if (isPreorderItem(product)) tags.push('<span class="product-tag product-tag-deposit">訂金50%</span>');
   if (product?.points_eligible === false) tags.push('<span class="product-tag product-tag-no-points">不可積點</span>');
+  const restriction = deliveryRestrictionLabel(product);
+  if (restriction) tags.push(`<span class="product-tag product-tag-delivery">${escapeHtml(restriction)}</span>`);
   return tags.length ? `<div class="product-tags" aria-label="商品標籤">${tags.join("")}</div>` : "";
 }

@@ -8,6 +8,7 @@ import { renderAdminDiscountOptionBoxes } from "./admin-members-panel.js";
 import { prepareProductImage, uploadAdminProductImage, validateProductImage } from "./admin-product-image.js";
 import { movementMatches } from "./admin-stock-math.js";
 import "./admin-product-delete.js";
+import { adminCreateDeliveryMethods, ensureAdminDeliveryMethodsUI, readDeliveryMethods } from "./admin-delivery-methods.js";
 
 function sortedAdminCategories() {
   return (adminData?.categories || []).slice().sort((left, right) => Number(left.display_order || 0) - Number(right.display_order || 0) || String(left.name || "").localeCompare(String(right.name || ""), "zh-Hant"));
@@ -163,6 +164,7 @@ function ensureAdminPricingUI() {
 // 商品列表版面由 admin-products-table.js 負責（ADMIN_REDESIGN_PLAN Stage 8）；新增商品表單的附加欄位仍在此補上
 export function renderAdminProducts() {
   ensureAdminPointsEligibilityUI();
+  ensureAdminDeliveryMethodsUI();
   ensureAdminPricingUI();
   renderAdminProductsTable();
 }
@@ -256,6 +258,7 @@ function productFormBody() {
     stock: Number(document.querySelector("#admin-stock").value),
     purchase_limit: document.querySelector("#admin-purchase-limit").value ? Number(document.querySelector("#admin-purchase-limit").value) : null,
     points_eligible: !document.querySelector("#admin-points-excluded")?.checked,
+    allowed_delivery_methods: adminCreateDeliveryMethods(),
     deposit_rate: kind === "preorder" ? 0.5 : Number(document.querySelector("#admin-deposit-rate").value || 0) / 100,
     preorder_arrival: preorderArrivalValue(document.querySelector("#admin-arrival-from").value, document.querySelector("#admin-arrival-until").value),
     is_published: document.querySelector("#admin-published").checked
@@ -346,7 +349,8 @@ export async function submitDynamicAdminForm(event) {
     try {
       preparedImage = hasImage ? await prepareProductImage(selectedImage) : null;
       const purchaseLimit = String(formData.get("purchase_limit") || "").trim();
-      await adminFetch(`/api/admin/products/${productId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), description: formData.get("description"), category_id: String(formData.get("category_id") || "").trim() || null, purchase_limit: purchaseLimit ? Number(purchaseLimit) : null, points_eligible: formData.get("points_excluded") !== "on", display_order: Number(formData.get("display_order") || 0), is_published: formData.get("is_published") === "on" }) });
+      const deliveryMethods = readDeliveryMethods(form);
+      await adminFetch(`/api/admin/products/${productId}`, { method: "PATCH", body: JSON.stringify({ allowed_delivery_methods: deliveryMethods, name: formData.get("name"), description: formData.get("description"), category_id: String(formData.get("category_id") || "").trim() || null, purchase_limit: purchaseLimit ? Number(purchaseLimit) : null, points_eligible: formData.get("points_excluded") !== "on", display_order: Number(formData.get("display_order") || 0), is_published: formData.get("is_published") === "on" }) });
       invalidateAdminManagementOptions();
       if (preparedImage) await uploadAdminProductImage(productId, preparedImage.file, preparedImage.thumbnailFile);
       event.target.dataset.imageFallback = preparedImage && !preparedImage.converted ? "true" : "false";
