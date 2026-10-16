@@ -66,6 +66,7 @@ test("樣式：商品頁隱藏浮動按鈕，按鈕 40px 但觸控範圍擴到 4
   const css = await readFile(new URL("../../public/floating-actions.css", import.meta.url), "utf8");
   assert.match(css, /body\.is-product-view \.floating-actions \{ display: none; \}/);
   assert.match(css, /width: 40px; height: 40px/);
+  assert.match(css, /\.floating-actions \[hidden\] \{ display: grid; visibility: hidden;/);
   assert.match(css, /::after \{ content: ""; position: absolute; inset: -4px; \}/);
   assert.match(css, /right: calc\(8px \+ env\(safe-area-inset-right\)\)/);
 });
