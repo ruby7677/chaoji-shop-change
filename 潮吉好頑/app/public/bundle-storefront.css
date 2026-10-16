@@ -598,6 +598,12 @@
 @media (min-width: 761px) and (max-width: 1020px) and (min-height: 541px) {
   .hero-slide-media[data-hero-ratio] { aspect-ratio: var(--hero-ratio); max-height: 70svh; }
 }
+
+/* 所有投影片疊在同一格，輪播高度原本取「最高那張」：寬圖（如九宮格）的說明框下方會留一大段空白。
+   未顯示的投影片高度設 0（內容本來就是透明、不可見），輪播高度只跟著目前這張走；切換時下方內容隨之調整。
+   第一張要等開機畫面結束才被設為 is-active：在那之前讓第一張撐住高度，避免啟動時整塊從 0 撐開而讓下方內容跳動。 */
+.hero-slide:not(.is-active):not(:first-child) { height: 0; }
+.hero-carousel:has(.hero-slide.is-active) .hero-slide:not(.is-active) { height: 0; }
 /* ==== store-info.css ==== */
 /* 店取資訊與 LINE 客服（業主要求 2026-09-24）：
    - 「LINE 客服 ↗」在所有尺寸都是 LINE 標準綠（#06C755）填滿的圓角按鈕。
@@ -1387,15 +1393,17 @@ dialog.variant-sheet:focus { outline: none; }
 }
 /* ==== floating-actions.css ==== */
 /* 首頁右下角浮動按鈕（floating-actions.js）：LINE 客服＋回到頂端。商品頁有自己的底部購買列，不顯示。 */
-.floating-actions { position: fixed; right: env(safe-area-inset-right); bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 13; display: flex; flex-direction: column; gap: 10px; }
+.floating-actions { position: fixed; right: calc(8px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 13; display: flex; flex-direction: column; gap: 10px; }
 body:has(.selection-tray.has-items) .floating-actions { bottom: calc(96px + env(safe-area-inset-bottom)); }
 body.is-product-view .floating-actions { display: none; }
-.floating-actions a, .floating-actions button { display: grid; place-items: center; box-sizing: border-box; width: 48px; height: 48px; padding: 0; border: 0; border-radius: 8px 0 0 8px; cursor: pointer; box-shadow: 0 6px 18px rgba(21, 21, 21, 0.28); }
+/* 按鈕 40px、離右邊 8px，尺寸比照參考圖；::after 把觸控範圍擴到 48px，避免太難點 */
+.floating-actions a, .floating-actions button { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 4px; cursor: pointer; box-shadow: 0 3px 10px rgba(21, 21, 21, 0.25); }
+.floating-actions a::after, .floating-actions button::after { content: ""; position: absolute; inset: -4px; }
 .floating-actions [hidden] { display: none; }
 .floating-line { background: #06c755; color: #fff; text-decoration: none; }
 .floating-top { background: rgba(21, 21, 21, 0.92); color: #fff; }
-.floating-actions svg { width: 30px; height: 30px; }
-.floating-top svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.floating-actions svg { width: 28px; height: 28px; }
+.floating-top svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .floating-line svg text { fill: #06c755; font-size: 10px; font-weight: 800; font-family: system-ui, sans-serif; }
 .floating-actions a:focus-visible, .floating-actions button:focus-visible { outline: 3px solid #e7c438; outline-offset: 2px; }
 @media (hover: hover) { .floating-actions a:hover, .floating-actions button:hover { filter: brightness(1.08); } }

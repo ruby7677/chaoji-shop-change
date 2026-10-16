@@ -62,8 +62,10 @@ test("首頁：導航列沒有 LINE 鈕，浮動 LINE 連結指向官方帳號�
   assert.doesNotMatch(floating, /style=/);
 });
 
-test("樣式：商品頁隱藏浮動按鈕，觸控目標至少 44px", async () => {
+test("樣式：商品頁隱藏浮動按鈕，按鈕 40px 但觸控範圍擴到 48px，且不完全貼齊右邊界", async () => {
   const css = await readFile(new URL("../../public/floating-actions.css", import.meta.url), "utf8");
   assert.match(css, /body\.is-product-view \.floating-actions \{ display: none; \}/);
-  assert.match(css, /width: 48px; height: 48px/);
+  assert.match(css, /width: 40px; height: 40px/);
+  assert.match(css, /::after \{ content: ""; position: absolute; inset: -4px; \}/);
+  assert.match(css, /right: calc\(8px \+ env\(safe-area-inset-right\)\)/);
 });
