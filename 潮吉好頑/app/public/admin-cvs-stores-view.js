@@ -26,7 +26,7 @@ function storeList(title, items, cls) {
   return `<details class="cvs-admin-detail ${cls}"><summary>${escapeHtml(title)}（顯示前 ${items.length} 筆）</summary><ul>${rows}</ul></details>`;
 }
 
-export function previewHtml(plan, fileName) {
+export function previewHtml(plan, fileName, { downloadable = false } = {}) {
   const blocked = plan.blockers.length > 0;
   const blockers = blocked ? `<ul class="cvs-admin-blockers" role="alert">${plan.blockers.map((text) => `<li>${escapeHtml(text)}</li>`).join("")}</ul>` : "";
   const notes = [];
@@ -40,7 +40,7 @@ export function previewHtml(plan, fileName) {
     ${blockers}${notes.map((text) => `<p class="cvs-admin-note">${escapeHtml(text)}</p>`).join("")}
     <div class="cvs-admin-table-wrap"><table class="cvs-admin-table"><thead><tr><th scope="col">縣市</th><th scope="col">原有</th><th scope="col">新版</th><th scope="col">新增</th><th scope="col">移除</th><th scope="col">變更</th></tr></thead><tbody>${cityRows}</tbody></table></div>
     ${storeList("新增的門市", plan.addedList, "is-added")}${storeList("移除的門市", plan.removedList, "is-removed")}
-    <div class="form-actions"><button class="primary-button" type="button" data-cvs-publish ${blocked ? "disabled" : ""}>確認並發佈</button><button class="secondary-button" type="button" data-cvs-cancel>取消</button></div>
+    <div class="form-actions"><button class="primary-button" type="button" data-cvs-publish ${blocked ? "disabled" : ""}>確認並發佈</button>${downloadable ? '<button class="secondary-button" type="button" data-cvs-download>下載 CSV</button>' : ""}<button class="secondary-button" type="button" data-cvs-cancel>取消</button></div>
     <p class="cvs-admin-note">發佈後客人結帳約 10 分鐘內換成新清單；已選好的舊門市仍可送出訂單。</p>
   </div>`;
 }
@@ -50,6 +50,17 @@ export function progressHtml(step, total, label) {
 }
 
 export function uploadFormHtml() {
-  return `<div class="cvs-admin-card"><label class="cvs-admin-file">選擇門市 CSV<input id="admin-cvs-file" type="file" accept=".csv,text/csv" /></label>
+  return `<div class="cvs-admin-card"><div class="form-actions"><button class="primary-button" type="button" data-cvs-fetch>從 7-11 官方網站抓取</button></div>
+    <p class="cvs-admin-note">由網站代為查詢全台門市（約 3–5 分鐘，請勿關閉頁面），完成後先比對差異，確認才發佈；也可以下載 CSV 留存。任何鄉鎮查不到時不會產生結果，可稍後重試或改用 <code>scripts/fetch_711_stores.py</code>。</p>
+    <label class="cvs-admin-file">選擇門市 CSV<input id="admin-cvs-file" type="file" accept=".csv,text/csv" /></label>
     <p class="cvs-admin-note">需要 6 欄、不含標題列：縣市,鄉鎮區,店號,路名,店名,地址（<code>scripts/fetch_711_stores.py</code> 產生的 <code>711_stores_sorted.csv</code>）。選檔後會先比對差異，確認後才會發佈。</p></div>`;
+}
+
+/** 抓取後仍有縣市或鄉鎮查不到：不產生預覽、不能發佈，避免那些門市從結帳清單消失 */
+export function fetchFailedHtml(failed) {
+  const shown = failed.slice(0, 30).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  const more = failed.length > 30 ? `<li>…另 ${failed.length - 30} 個</li>` : "";
+  return `<div class="cvs-admin-card"><p class="cvs-admin-status"><strong class="form-error">有 ${failed.length} 個縣市／鄉鎮查不到，未產生新的門市清單</strong><small>官方網站可能暫時忙碌，請稍後再試；不會影響目前使用中的清單。</small></p>
+    <ul class="cvs-admin-blockers" role="alert">${shown}${more}</ul>
+    <div class="form-actions"><button class="primary-button" type="button" data-cvs-fetch>重新抓取</button><button class="secondary-button" type="button" data-cvs-cancel>返回</button></div></div>`;
 }

@@ -3,9 +3,10 @@
 import { adminFetch, adminTabHooks } from "./admin-app.js";
 import { escapeHtml } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
-import { formatDateTime, showToast } from "./app-core.js";
+import { formatDateTime, showToast, taipeiDateTimeInputValue } from "./app-core.js";
 import { CITY_SLUGS, newVersionId, planStoreUpload } from "./cvs-stores-data.js";
-import { currentCardHtml, previewHtml, progressHtml, uploadFormHtml } from "./admin-cvs-stores-view.js";
+import { currentCardHtml, fetchFailedHtml, previewHtml, progressHtml, uploadFormHtml } from "./admin-cvs-stores-view.js";
+import { downloadCsv, fetchOfficialStores } from "./cvs-stores-fetch.js";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const formatTime = (value) => (value ? formatDateTime(value) : "—");
@@ -15,6 +16,9 @@ let plan = null;
 let fileName = "";
 let busy = false;
 let loadError = "";
+// 從官方網站抓取時產生的 CSV（可下載）；fetchFailed 是查不到的縣市／鄉鎮，有值時不產生預覽
+let generatedCsv = null;
+let fetchFailed = null;
 
 const body = () => document.querySelector("#admin-cvs-stores-body");
 
@@ -22,7 +26,9 @@ function render(progress = null) {
   const root = body();
   if (!root) return;
   const current = list ? currentCardHtml(list, formatTime) : `<div class="cvs-admin-card"><p class="cvs-admin-status">${loadError ? `<strong class="form-error">${escapeHtml(loadError)}</strong>` : "<strong>載入中…</strong>"}</p></div>`;
-  const upload = progress ? progressHtml(progress.step, progress.total, progress.label) : plan ? previewHtml(plan, fileName) : uploadFormHtml();
+  const upload = progress ? progressHtml(progress.step, progress.total, progress.label)
+    : fetchFailed ? fetchFailedHtml(fetchFailed)
+    : plan ? previewHtml(plan, fileName, { downloadable: Boolean(generatedCsv) }) : uploadFormHtml();
   root.innerHTML = `<h3>目前使用的門市清單</h3>${current}<h3>上傳新的門市 CSV</h3>${upload}`;
 }
 
@@ -56,11 +62,38 @@ async function chooseFile(input) {
     const [text, currentFiles] = await Promise.all([file.text(), fetchCurrentFiles()]);
     plan = planStoreUpload(text, currentFiles);
     fileName = file.name;
+    generatedCsv = null;
   } catch (error) {
     plan = null;
     showToast(error.message, "error");
   }
   render();
+}
+
+/** 由 Worker 代查官方電子地圖，產生與 Python 腳本相同的 CSV，再走上傳比對流程；任何鄉鎮失敗就不產生預覽 */
+async function fetchFromOfficial() {
+  if (busy) return;
+  busy = true;
+  plan = null;
+  generatedCsv = null;
+  fetchFailed = null;
+  try {
+    const result = await fetchOfficialStores((body) => adminFetch("/api/admin/cvs-stores/fetch", { method: "POST", body: JSON.stringify(body) }), {
+      onProgress: ({ city, cityIndex, cityTotal, townsDone, townsTotal }) => render({ step: cityIndex, total: cityTotal, label: `抓取 ${city}${townsTotal ? `（${townsDone}/${townsTotal} 鄉鎮）` : ""}` })
+    });
+    if (result.failed.length) {
+      fetchFailed = result.failed;
+    } else {
+      plan = planStoreUpload(result.csv, await fetchCurrentFiles());
+      generatedCsv = result.csv;
+      fileName = `7-11 官方網站（${taipeiDateTimeInputValue(new Date()).slice(0, 10)} 抓取）`;
+    }
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    busy = false;
+    render();
+  }
 }
 
 async function publish(button) {
@@ -85,6 +118,7 @@ async function publish(button) {
     const result = await adminFetch("/api/admin/cvs-stores/publish", { method: "POST", body: JSON.stringify({ version }) });
     showToast(`已發佈 ${result.total} 間門市`, "success");
     plan = null;
+    generatedCsv = null;
   } catch (error) {
     // 保留預覽讓管理員修正後重試；已暫存的內容不會生效
     showToast(error.message, "error");
@@ -131,8 +165,12 @@ function bind() {
     if (rollbackButton) return void rollback(rollbackButton.dataset.cvsRollback, rollbackButton);
     const baselineButton = event.target.closest("[data-cvs-baseline]");
     if (baselineButton) return void rollback(null, baselineButton);
+    if (event.target.closest("[data-cvs-fetch]")) return void fetchFromOfficial();
+    if (event.target.closest("[data-cvs-download]") && generatedCsv) return void downloadCsv(generatedCsv, `711_stores_sorted-${taipeiDateTimeInputValue(new Date()).slice(0, 10)}.csv`);
     if (event.target.closest("[data-cvs-cancel]")) {
       plan = null;
+      generatedCsv = null;
+      fetchFailed = null;
       render();
     }
   });
