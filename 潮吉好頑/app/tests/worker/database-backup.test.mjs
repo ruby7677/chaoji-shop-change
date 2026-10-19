@@ -153,6 +153,33 @@ test("an empty snapshot body is stored as an empty object", async () => {
   assert.equal(bucket.objects.get("k").bytes.length, 0);
 });
 
+test("on Workers the body is read in large blocks with readAtLeast instead of one small chunk at a time", async () => {
+  // 模擬 Workers 的 BYOB reader：每次 readAtLeast 讀滿一塊，最後一塊不足時 done 仍為 false，下一次才 done
+  const data = new TextEncoder().encode("x".repeat(backup.BACKUP_READ_BLOCK + 10));
+  const calls = [];
+  let offset = 0;
+  const body = {
+    getReader: ({ mode } = {}) => {
+      assert.equal(mode, "byob");
+      return {
+        releaseLock() {},
+        async readAtLeast(min, view) {
+          calls.push(min);
+          const count = Math.min(view.byteLength, data.length - offset);
+          view.set(data.subarray(offset, offset + count));
+          offset += count;
+          return { done: count === 0, value: view.subarray(0, count) };
+        }
+      };
+    }
+  };
+  const { bucket, events } = multipartBucket();
+  assert.deepEqual(await backup.storeStream(bucket, "k", body), { bytes: data.length, chunks: 2 });
+  assert.equal(calls.length, 3);
+  assert.ok(!events.some(([type]) => type === "create"));
+  assert.equal(bucket.objects.get("k").bytes.length, data.length);
+});
+
 test("a failed part aborts the upload and leaves no object", async () => {
   const { bucket, events } = multipartBucket({ failPart: 2 });
   await assert.rejects(backup.storeStream(bucket, "k", streamOf("abcdefghij"), 4), /part 2 failed/);
