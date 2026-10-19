@@ -25,6 +25,7 @@
 #admin-dialog.admin-app .cvs-admin-kpis dd { margin: 2px 0 0; font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
 
 #admin-dialog.admin-app .cvs-admin-blockers { margin: 12px 0 0; padding: 10px 14px 10px 30px; border: 1px solid #9a302a; border-radius: 10px; background: #fdeceb; color: #9a302a; font-size: 14px; font-weight: 700; }
+#admin-dialog.admin-app .cvs-admin-blockers small { display: block; color: #6b3a36; font-size: 13px; font-weight: 400; overflow-wrap: anywhere; }
 
 #admin-dialog.admin-app .cvs-admin-table-wrap { margin-top: 12px; overflow-x: auto; border: 1px solid var(--admin-border); border-radius: 10px; }
 #admin-dialog.admin-app .cvs-admin-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }

@@ -6,7 +6,7 @@ import { adminConfirm } from "./admin-confirm.js";
 import { formatDateTime, showToast, taipeiDateTimeInputValue } from "./app-core.js";
 import { CITY_SLUGS, newVersionId, planStoreUpload } from "./cvs-stores-data.js";
 import { currentCardHtml, fetchFailedHtml, previewHtml, progressHtml, uploadFormHtml } from "./admin-cvs-stores-view.js";
-import { downloadCsv, fetchOfficialStores } from "./cvs-stores-fetch.js";
+import { buildFetchedCsv, downloadCsv, fetchOfficialStores, keepScreenOn } from "./cvs-stores-fetch.js";
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const formatTime = (value) => (value ? formatDateTime(value) : "—");
@@ -16,9 +16,11 @@ let plan = null;
 let fileName = "";
 let busy = false;
 let loadError = "";
-// 從官方網站抓取時產生的 CSV（可下載）；fetchFailed 是查不到的縣市／鄉鎮，有值時不產生預覽
+// 從官方網站抓取時產生的 CSV（可下載）；fetchFailed 是查不到的縣市／鄉鎮（[{ city, town, reason }]），有值時不產生預覽；
+// fetchedByCity 是已抓齊的縣市，重抓失敗縣市時沿用
 let generatedCsv = null;
 let fetchFailed = null;
+let fetchedByCity = new Map();
 
 const body = () => document.querySelector("#admin-cvs-stores-body");
 
@@ -70,27 +72,37 @@ async function chooseFile(input) {
   render();
 }
 
-/** 由 Worker 代查官方電子地圖，產生與 Python 腳本相同的 CSV，再走上傳比對流程；任何鄉鎮失敗就不產生預覽 */
-async function fetchFromOfficial() {
+/**
+ * 由 Worker 代查官方電子地圖，產生與 Python 腳本相同的 CSV，再走上傳比對流程；任何縣市／鄉鎮失敗就不產生預覽。
+ * onlyFailed：保留已抓齊的縣市，只重抓上次失敗的縣市（失敗的鄉鎮整個縣市重抓）。
+ */
+async function fetchFromOfficial({ onlyFailed = false } = {}) {
   if (busy) return;
+  const retryCities = onlyFailed && fetchFailed ? [...new Set(fetchFailed.map((item) => item.city))] : null;
+  if (!retryCities) fetchedByCity = new Map();
   busy = true;
   plan = null;
   generatedCsv = null;
   fetchFailed = null;
+  const releaseScreen = await keepScreenOn();
   try {
     const result = await fetchOfficialStores((body) => adminFetch("/api/admin/cvs-stores/fetch", { method: "POST", body: JSON.stringify(body) }), {
+      ...(retryCities ? { cities: retryCities } : {}),
       onProgress: ({ city, cityIndex, cityTotal, townsDone, townsTotal }) => render({ step: cityIndex, total: cityTotal, label: `抓取 ${city}${townsTotal ? `（${townsDone}/${townsTotal} 鄉鎮）` : ""}` })
     });
+    for (const [city, rows] of result.byCity) fetchedByCity.set(city, rows);
     if (result.failed.length) {
       fetchFailed = result.failed;
     } else {
-      plan = planStoreUpload(result.csv, await fetchCurrentFiles());
-      generatedCsv = result.csv;
+      const { csv } = buildFetchedCsv(fetchedByCity);
+      plan = planStoreUpload(csv, await fetchCurrentFiles());
+      generatedCsv = csv;
       fileName = `7-11 官方網站（${taipeiDateTimeInputValue(new Date()).slice(0, 10)} 抓取）`;
     }
   } catch (error) {
     showToast(error.message, "error");
   } finally {
+    releaseScreen();
     busy = false;
     render();
   }
@@ -165,12 +177,14 @@ function bind() {
     if (rollbackButton) return void rollback(rollbackButton.dataset.cvsRollback, rollbackButton);
     const baselineButton = event.target.closest("[data-cvs-baseline]");
     if (baselineButton) return void rollback(null, baselineButton);
+    if (event.target.closest("[data-cvs-fetch-failed]")) return void fetchFromOfficial({ onlyFailed: true });
     if (event.target.closest("[data-cvs-fetch]")) return void fetchFromOfficial();
     if (event.target.closest("[data-cvs-download]") && generatedCsv) return void downloadCsv(generatedCsv, `711_stores_sorted-${taipeiDateTimeInputValue(new Date()).slice(0, 10)}.csv`);
     if (event.target.closest("[data-cvs-cancel]")) {
       plan = null;
       generatedCsv = null;
       fetchFailed = null;
+      fetchedByCity = new Map();
       render();
     }
   });

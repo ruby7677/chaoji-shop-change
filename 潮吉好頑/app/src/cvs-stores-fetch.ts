@@ -1,6 +1,6 @@
 // 後台「抓取最新門市」：由 Worker 代管理員向 7-11 官方電子地圖（emap.pcsc.com.tw）查詢門市，
 // 流程與 scripts/fetch_711_stores.py 相同（GetTown → 逐鄉鎮 SearchStore）。瀏覽器無法直接呼叫官方 API（跨網域、需要 Origin／Referer）。
-// Workers Free 每次請求 50 個子請求、10ms CPU：一次只處理一個縣市的 5 個鄉鎮（後台以 offset 接續），
+// Workers Free 每次請求 50 個子請求、10ms CPU：一次只處理一個縣市的幾個鄉鎮（EMAP_TOWNS_PER_REQUEST，後台以 offset 接續），
 // 鄉鎮清單由伺服器自己查，用戶端只送白名單縣市與 offset，不能把這裡當成任意代理。
 // 只回傳 [鄉鎮, 店號, 店名, 地址]；路名萃取、排序與檢查在瀏覽器（public/cvs-stores-fetch.js），再接既有的 CSV 上傳流程。
 import { requireAdmin } from "./auth";
@@ -22,8 +22,11 @@ export const EMAP_CITY_IDS: Record<string, string> = {
   "彰化縣": "10", "南投縣": "11", "雲林縣": "12", "嘉義市": "13", "嘉義縣": "14", "台南市": "15", "高雄市": "17", "屏東縣": "19",
   "宜蘭縣": "20", "花蓮縣": "21", "台東縣": "22", "澎湖縣": "23", "連江縣": "24", "金門縣": "25"
 };
-/** 每次請求處理的鄉鎮數：requireAdmin 的子請求＋GetTown＋5 ×（1＋重試 2）＝ 遠低於 50，解析量也在 CPU 額度內 */
-export const EMAP_TOWNS_PER_REQUEST = 5;
+/**
+ * 每次請求處理的鄉鎮數：子請求 requireAdmin＋GetTown＋3 ×（1＋重試 2）遠低於 50。
+ * 2026-10-19 正式站每次 5 個鄉鎮時 CPU 中位數 8ms、最高 26ms（Workers Free 上限 10ms），所以降到 3 個。
+ */
+export const EMAP_TOWNS_PER_REQUEST = 3;
 const EMAP_ATTEMPTS = 3;
 const EMAP_TIMEOUT_MS = 15_000;
 /** 對官方網站放慢速度：同一請求內連續查詢之間的間隔 */

@@ -56,11 +56,12 @@ export function uploadFormHtml() {
     <p class="cvs-admin-note">需要 6 欄、不含標題列：縣市,鄉鎮區,店號,路名,店名,地址（<code>scripts/fetch_711_stores.py</code> 產生的 <code>711_stores_sorted.csv</code>）。選檔後會先比對差異，確認後才會發佈。</p></div>`;
 }
 
-/** 抓取後仍有縣市或鄉鎮查不到：不產生預覽、不能發佈，避免那些門市從結帳清單消失 */
+/** 抓取後仍有縣市或鄉鎮查不到（[{ city, town, reason }]）：不產生預覽、不能發佈，避免那些門市從結帳清單消失；已抓齊的縣市保留，可只重抓失敗的 */
 export function fetchFailedHtml(failed) {
-  const shown = failed.slice(0, 30).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  const cities = new Set(failed.map((item) => item.city));
+  const shown = failed.slice(0, 30).map((item) => `<li>${escapeHtml(item.city)}${escapeHtml(item.town || "")}<small>${escapeHtml(item.reason || "")}</small></li>`).join("");
   const more = failed.length > 30 ? `<li>…另 ${failed.length - 30} 個</li>` : "";
-  return `<div class="cvs-admin-card"><p class="cvs-admin-status"><strong class="form-error">有 ${failed.length} 個縣市／鄉鎮查不到，未產生新的門市清單</strong><small>官方網站可能暫時忙碌，請稍後再試；不會影響目前使用中的清單。</small></p>
+  return `<div class="cvs-admin-card"><p class="cvs-admin-status"><strong class="form-error">有 ${cities.size} 個縣市沒有抓齊，尚未產生新的門市清單</strong><small>其他縣市已抓好並保留；可只重抓這幾個縣市。抓取時請保持畫面開啟，不要切換 App。不會影響目前使用中的清單。</small></p>
     <ul class="cvs-admin-blockers" role="alert">${shown}${more}</ul>
-    <div class="form-actions"><button class="primary-button" type="button" data-cvs-fetch>重新抓取</button><button class="secondary-button" type="button" data-cvs-cancel>返回</button></div></div>`;
+    <div class="form-actions"><button class="primary-button" type="button" data-cvs-fetch-failed>重抓這 ${cities.size} 個縣市</button><button class="secondary-button" type="button" data-cvs-fetch>全部重抓</button><button class="secondary-button" type="button" data-cvs-cancel>返回</button></div></div>`;
 }

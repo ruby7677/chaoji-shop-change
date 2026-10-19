@@ -1,5 +1,5 @@
 // 後台抓取 7-11 門市（src/cvs-stores-fetch.ts）：只有管理員、只接受白名單縣市與 offset，鄉鎮由伺服器自己向官方查，
-// 每次最多 5 個鄉鎮；查不到的鄉鎮列在 failed（後台據此擋下發佈）。官方回應以 2026-10 實際抓到的 XML 為樣本。
+// 每次最多 EMAP_TOWNS_PER_REQUEST 個鄉鎮；查不到的鄉鎮列在 failed（後台據此擋下發佈）。官方回應以 2026-10 實際抓到的 XML 為樣本。
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { baseEnv, ctx, jsonResponse, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
@@ -45,21 +45,24 @@ const call = (body) => worker.fetch(new Request("https://shop.test/api/admin/cvs
 
 test("returns one batch of towns with trimmed codes and decoded names, and where to continue", async () => {
   const towns = ["一區", "二區", "三區", "四區", "五區", "六區"];
+  const batch = fetchModule.EMAP_TOWNS_PER_REQUEST;
   const seen = stubEmap({ towns });
   const response = await call({ city: "台北市", offset: 0 });
   assert.equal(response.status, 200);
   const result = await response.json();
   assert.equal(result.towns_total, 6);
-  assert.equal(result.next_offset, 5);
+  assert.equal(result.next_offset, batch);
   assert.deepEqual(result.failed, []);
   assert.deepEqual(result.rows[0], ["一區", "100000", "一區門市&店", "台北市一區測試路1號"]);
-  assert.deepEqual(seen.filter((p) => p.commandid === "SearchStore").map((p) => p.town), towns.slice(0, 5));
+  assert.deepEqual(seen.filter((p) => p.commandid === "SearchStore").map((p) => p.town), towns.slice(0, batch));
   assert.equal(seen[0].cityid, "01");
 });
 
 test("the last batch reports no next offset", async () => {
-  stubEmap({ towns: ["一區", "二區", "三區", "四區", "五區", "六區"] });
-  const result = await (await call({ city: "台北市", offset: 5 })).json();
+  const towns = ["一區", "二區", "三區", "四區", "五區", "六區"];
+  stubEmap({ towns });
+  const offset = towns.length - 1;
+  const result = await (await call({ city: "台北市", offset })).json();
   assert.equal(result.next_offset, null);
   assert.deepEqual(result.rows.map((row) => row[0]), ["六區"]);
 });
@@ -87,6 +90,10 @@ test("only admins, whitelisted cities and sane offsets reach the official site",
     assert.equal((await call(body)).status, 400, JSON.stringify(body));
     assert.equal(seen.length, 0);
   }
+});
+
+test("batches stay small enough for the Workers Free CPU limit", () => {
+  assert.ok(fetchModule.EMAP_TOWNS_PER_REQUEST <= 3);
 });
 
 test("official city ids cover exactly the checkout city whitelist (24 is 連江, 25 is 金門)", () => {
