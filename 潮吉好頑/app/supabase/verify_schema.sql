@@ -152,6 +152,18 @@ select
     select 1 from cron.job
     where jobname = 'chaoji-purge-notification-deliveries' and command = 'select public.purge_notification_deliveries();'
   ) as notification_purge_cron_exists,
+  -- 202610190001：cron.job_run_details 每日清理，函式只給排程執行。
+  coalesce((
+    select not has_function_privilege('anon', fn, 'EXECUTE')
+       and not has_function_privilege('authenticated', fn, 'EXECUTE')
+       and not has_function_privilege('service_role', fn, 'EXECUTE')
+    from (select to_regprocedure('public.purge_cron_run_details(integer)') as fn) f
+    where fn is not null
+  ), false) as cron_run_details_purge_exists_and_blocked_for_api_roles,
+  exists (
+    select 1 from cron.job
+    where jobname = 'chaoji-purge-cron-run-details' and command = 'select public.purge_cron_run_details();'
+  ) as cron_run_details_purge_cron_exists,
   to_regclass('public.line_low_stock_states') is not null as line_low_stock_states_exists,
   -- 202610090003：退貨驗收資料表與 inventory_movements.return_confirmation_id 已移除。
   to_regclass('public.inventory_return_confirmations') is null as inventory_return_confirmations_removed,
