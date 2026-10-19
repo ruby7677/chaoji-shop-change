@@ -127,6 +127,27 @@ test("a snapshot smaller than one part uses a single put", async () => {
   assert.equal(new TextDecoder().decode(bucket.objects.get("k").bytes), "abc");
 });
 
+test("a small snapshot never allocates a part-sized buffer", async () => {
+  // 一段 4 GiB 的緩衝區一定配置失敗：小快照必須完全不碰分段緩衝區
+  const { bucket, events } = multipartBucket();
+  await backup.storeStream(bucket, "k", streamOf("ab", "c"), 4 * 1024 ** 3);
+  assert.ok(!events.some(([type]) => type === "create"));
+  assert.equal(new TextDecoder().decode(bucket.objects.get("k").bytes), "abc");
+});
+
+test("a snapshot of exactly one part is uploaded as a single part", async () => {
+  const { bucket, events } = multipartBucket();
+  await backup.storeStream(bucket, "k", streamOf("ab", "cd"), 4);
+  assert.deepEqual(events.filter(([type]) => type === "part").map(([, number, size]) => [number, size]), [[1, 4]]);
+  assert.equal(new TextDecoder().decode(bucket.objects.get("k").bytes), "abcd");
+});
+
+test("an empty snapshot body is stored as an empty object", async () => {
+  const { bucket } = multipartBucket();
+  await backup.storeStream(bucket, "k", streamOf(), 4);
+  assert.equal(bucket.objects.get("k").bytes.length, 0);
+});
+
 test("a failed part aborts the upload and leaves no object", async () => {
   const { bucket, events } = multipartBucket({ failPart: 2 });
   await assert.rejects(backup.storeStream(bucket, "k", streamOf("abcdefghij"), 4), /part 2 failed/);

@@ -42,24 +42,34 @@ export const BACKUP_PART_SIZE = 10 * 1024 * 1024;
 /**
  * 邊讀邊寫入 R2，記憶體只保留一段：小於一段時直接 put，否則改用分段上傳。
  * 快照會隨資料量成長，不能整份讀進 Worker 記憶體（上限 128 MB）。
+ * 小於一段時只保留收到的區塊、以 Blob 一次寫入，不配置一段大小的緩衝區也不逐段複製
+ * （2026-10 快照約 1.4 MB，每次配置並清空 10 MiB 緩衝區會吃掉 Workers Free 每次 10ms 的 CPU 額度）。
  */
 export async function storeStream(bucket: R2Bucket, key: string, body: ReadableStream<Uint8Array>, partSize = BACKUP_PART_SIZE) {
   const httpMetadata = { contentType: "application/json" };
   const reader = body.getReader();
-  let part = new Uint8Array(partSize);
-  let filled = 0;
-  let upload: R2MultipartUpload | null = null;
-  const parts: R2UploadedPart[] = [];
-  const flushPart = async () => {
-    upload ??= await bucket.createMultipartUpload(key, { httpMetadata });
-    parts.push(await upload.uploadPart(parts.length + 1, part.subarray(0, filled)));
-    part = new Uint8Array(partSize);
-    filled = 0;
-  };
+  // 由 flushPart 在閉包內設定：用 as 初始化，避免 TypeScript 把它收窄成 null
+  let upload = null as R2MultipartUpload | null;
   try {
-    for (;;) {
+    const head: Uint8Array[] = [];
+    let headSize = 0;
+    while (headSize < partSize) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) return void await bucket.put(key, new Blob(head as BlobPart[]), { httpMetadata });
+      head.push(value);
+      headSize += value.length;
+    }
+
+    let part = new Uint8Array(partSize);
+    let filled = 0;
+    const parts: R2UploadedPart[] = [];
+    const flushPart = async () => {
+      upload ??= await bucket.createMultipartUpload(key, { httpMetadata });
+      parts.push(await upload.uploadPart(parts.length + 1, part.subarray(0, filled)));
+      part = new Uint8Array(partSize);
+      filled = 0;
+    };
+    const append = async (value: Uint8Array) => {
       for (let offset = 0; offset < value.length;) {
         const count = Math.min(partSize - filled, value.length - offset);
         part.set(value.subarray(offset, offset + count), filled);
@@ -67,12 +77,17 @@ export async function storeStream(bucket: R2Bucket, key: string, body: ReadableS
         offset += count;
         if (filled === partSize) await flushPart();
       }
+    };
+    for (const value of head) await append(value);
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      await append(value);
     }
-    if (!upload) return void await bucket.put(key, part.subarray(0, filled), { httpMetadata });
     if (filled > 0) await flushPart();
-    await (upload as R2MultipartUpload).complete(parts);
+    await upload?.complete(parts);
   } catch (error) {
-    await (upload as R2MultipartUpload | null)?.abort().catch(() => undefined);
+    await upload?.abort().catch(() => undefined);
     throw error;
   }
 }
