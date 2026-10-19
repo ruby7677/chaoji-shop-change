@@ -32,7 +32,9 @@ export async function runDatabaseBackup(env: Env, now = new Date()): Promise<str
   }
   if (!response.body) throw new Error("backup_snapshot returned no body");
   const key = `daily/${taipeiDate(now)}/snapshot.json`;
-  await storeStream(env.BACKUPS, key, response.body);
+  const stored = await storeStream(env.BACKUPS, key, response.body);
+  // CPU 追查用（Workers Logs）：只記大小、區塊數與回應編碼，不記內容
+  console.log(`backup stored: ${stored.bytes} bytes in ${stored.chunks} chunks, content-length ${response.headers.get("content-length") ?? "-"}, content-encoding ${response.headers.get("content-encoding") ?? "-"}`);
   return key;
 }
 
@@ -42,10 +44,10 @@ export const BACKUP_PART_SIZE = 10 * 1024 * 1024;
 /**
  * 邊讀邊寫入 R2，記憶體只保留一段：小於一段時直接 put，否則改用分段上傳。
  * 快照會隨資料量成長，不能整份讀進 Worker 記憶體（上限 128 MB）。
- * 小於一段時只保留收到的區塊、以 Blob 一次寫入，不配置一段大小的緩衝區也不逐段複製
- * （2026-10 快照約 1.4 MB，每次配置並清空 10 MiB 緩衝區會吃掉 Workers Free 每次 10ms 的 CPU 額度）。
+ * 小於一段時只保留收到的區塊、以 Blob 一次寫入，不配置一段大小的緩衝區也不逐段複製（2026-10 快照約 1.4 MB）。
+ * 回傳寫入的位元組數與區塊數，供記錄追查 CPU 用量。
  */
-export async function storeStream(bucket: R2Bucket, key: string, body: ReadableStream<Uint8Array>, partSize = BACKUP_PART_SIZE) {
+export async function storeStream(bucket: R2Bucket, key: string, body: ReadableStream<Uint8Array>, partSize = BACKUP_PART_SIZE): Promise<{ bytes: number; chunks: number }> {
   const httpMetadata = { contentType: "application/json" };
   const reader = body.getReader();
   // 由 flushPart 在閉包內設定：用 as 初始化，避免 TypeScript 把它收窄成 null
@@ -55,7 +57,10 @@ export async function storeStream(bucket: R2Bucket, key: string, body: ReadableS
     let headSize = 0;
     while (headSize < partSize) {
       const { done, value } = await reader.read();
-      if (done) return void await bucket.put(key, new Blob(head as BlobPart[]), { httpMetadata });
+      if (done) {
+        await bucket.put(key, new Blob(head as BlobPart[]), { httpMetadata });
+        return { bytes: headSize, chunks: head.length };
+      }
       head.push(value);
       headSize += value.length;
     }
@@ -78,14 +83,19 @@ export async function storeStream(bucket: R2Bucket, key: string, body: ReadableS
         if (filled === partSize) await flushPart();
       }
     };
+    let bytes = headSize;
+    let chunks = head.length;
     for (const value of head) await append(value);
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       await append(value);
+      bytes += value.length;
+      chunks += 1;
     }
     if (filled > 0) await flushPart();
     await upload?.complete(parts);
+    return { bytes, chunks };
   } catch (error) {
     await upload?.abort().catch(() => undefined);
     throw error;

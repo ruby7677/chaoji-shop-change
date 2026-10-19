@@ -135,6 +135,11 @@ test("a small snapshot never allocates a part-sized buffer", async () => {
   assert.equal(new TextDecoder().decode(bucket.objects.get("k").bytes), "abc");
 });
 
+test("reports the stored size and chunk count for both the single put and multipart paths", async () => {
+  assert.deepEqual(await backup.storeStream(multipartBucket().bucket, "k", streamOf("ab", "c"), 4), { bytes: 3, chunks: 2 });
+  assert.deepEqual(await backup.storeStream(multipartBucket().bucket, "k", streamOf("abc", "defgh", "ij"), 4), { bytes: 10, chunks: 3 });
+});
+
 test("a snapshot of exactly one part is uploaded as a single part", async () => {
   const { bucket, events } = multipartBucket();
   await backup.storeStream(bucket, "k", streamOf("ab", "cd"), 4);
