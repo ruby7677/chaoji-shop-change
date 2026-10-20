@@ -105,6 +105,22 @@ export async function homePreloadMarkup(env: Env, url: URL, ctx?: ExecutionConte
   return (await homeBootMarkup(env, url, ctx)).preload;
 }
 
+// LINE SDK：與 public/liff-auth.js 的 LIFF_SDK_URL 相同（Worker 不能 import public/，tests/worker/liff-sdk-preload.test.mjs 比對）
+export const LIFF_SDK_URL = "https://static.line-scdn.net/liff/edge/2/sdk.js";
+const LIFF_CALLBACK_PARAM = "cj_liff_oauth";
+
+/**
+ * 從 LIFF 開啟時才預先載入 LINE SDK：前台要等整棵 app.js import 樹執行完才呼叫 preloadLiffSdk()，
+ * 寫在 HTML 裡解析時就開始下載。判斷依據是 LIFF 的網址參數（liff.state 等）、LINE 登入回呼標記，
+ * 或 LIFF 瀏覽器 UA 的「LIFF」字樣（非官方規格，只當效能提示；判斷錯只是多或少一次預載，登入流程不依賴它）。
+ * 一般瀏覽器與 LINE 內建瀏覽器開一般連結不下載 SDK。crossorigin 要與 liff-auth.js 建立的 <script> 一致才會沿用。
+ */
+export function liffSdkPreloadMarkup(request: Request, url: URL) {
+  const fromLiff = [...url.searchParams.keys()].some((key) => key.startsWith("liff.") || key === LIFF_CALLBACK_PARAM)
+    || /\bLIFF\b/.test(request.headers.get("User-Agent") || "");
+  return fromLiff ? `<link rel="preload" href="${LIFF_SDK_URL}" as="script" crossorigin="anonymous" />` : "";
+}
+
 export function isShareMetaRequest(request: Request, url: URL) {
   if (request.method !== "GET") return false;
   return url.pathname === "/" || url.pathname === "/index.html" || PRODUCT_PAGE.test(url.pathname);
@@ -158,6 +174,7 @@ export async function withShareMeta(request: Request, env: Env, url: URL, ctx?: 
     + `<link rel="canonical" href="${escapeAttribute(canonical)}" />`;
   const { preload: preloadMarkup, catalogData } = isHomePage(url) ? await homeBootMarkup(env, url, ctx) : { preload: "", catalogData: "" };
   const bootData = (await configDataScript(env)) + catalogData;
+  const liffPreload = liffSdkPreloadMarkup(request, url);
 
   const rewritten = new HTMLRewriter()
     .on("title", { element(element) { element.setInnerContent(meta.title); } })
@@ -166,11 +183,14 @@ export async function withShareMeta(request: Request, env: Env, url: URL, ctx?: 
       element.append(headMarkup, { html: true });
     } })
     // 預先載入緊接在 charset 之後，比 CSS 更早被瀏覽器發現
-    .on("meta[charset]", { element(element) { if (preloadMarkup) element.after(preloadMarkup, { html: true }); } })
+    .on("meta[charset]", { element(element) { if (preloadMarkup || liffPreload) element.after(liffPreload + preloadMarkup, { html: true }); } })
     // 已內嵌型錄：拿掉 <head> 的提早請求；catalog-prefetch.js 仍由 app.js 的 import 載入，執行時（文件已解析完）改讀內嵌資料
     .on('script[src="/catalog-prefetch.js"]', { element(element) { if (catalogData) element.remove(); } })
     // 放在 body 最後：不擋開機畫面先出現；app.js 是 module，文件解析完才執行，讀得到這個區塊
     .on("body", { element(element) { element.append(bootData, { html: true }); } })
     .transform(assetResponse);
-  return rewrittenHtmlResponse(rewritten);
+  const response = rewrittenHtmlResponse(rewritten);
+  // 是否預載 LINE SDK 依 UA 而定
+  response.headers.append("Vary", "User-Agent");
+  return response;
 }
