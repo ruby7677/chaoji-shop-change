@@ -9,7 +9,7 @@ import { adminAuditLogs, adminDashboard, adminNotificationDeliveries, requeueAdm
 import { transitionAdminOrder, updateAdminOrderFulfillment } from "./admin-orders";
 import { adjustMemberPoints, createBankAccount, issueBirthdayCoupons, saveCoupon, updateBankAccount, updateBirthdaySettings, updatePointSettings } from "./admin-settings";
 import { forgetLiffSession, hasLineIdentity, refreshedAuthUser, rememberLiffSession, requireAdmin, restoreLiffSession, syncMemberIdentity, verifyLiffIdentity } from "./auth";
-import { publicCatalog, runtimeConfig } from "./catalog";
+import { publicCatalogJson, runtimeConfig } from "./catalog";
 import { serveProductImage, uploadProductImage } from "./product-image-primary";
 import { databaseError, databaseErrors } from "./database-errors";
 import { canonicalRedirect } from "./canonical-host";
@@ -17,7 +17,7 @@ import { listCvsStores, publishCvsStores, rollbackCvsStores, stageCvsCity } from
 import { fetchCvsStoresFromEmap } from "./cvs-stores-fetch";
 import { isCvsStoresRequest, serveCvsStores } from "./cvs-stores-serve";
 import { type Env } from "./env";
-import { MAX_JSON_REQUEST_BYTES, SECURITY_HEADERS, enforceRateLimit, json, serviceHeaders, withSecurityHeaders } from "./http";
+import { MAX_JSON_REQUEST_BYTES, SECURITY_HEADERS, enforceRateLimit, json, jsonText, serviceHeaders, withSecurityHeaders } from "./http";
 import { previewCheckoutCoupon } from "./coupon-preview";
 import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFriendship, memberPoints, ordersForRestoredSession, replaceMemberCart, submitOrderPayment } from "./member-api";
 import { notifyOrderEvent, notifyOrderEventToMember, runScheduledNotifications, testTelegramNotification } from "./notifications";
@@ -59,7 +59,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
     return json(await runtimeConfig(env), { headers: { "Cache-Control": "public, max-age=300, s-maxage=300" } });
   }
   if (request.method === "GET" && url.pathname === "/api/catalog") {
-    try { return json({ products: await publicCatalog(env, url.origin) }); }
+    try { return jsonText(await publicCatalogJson(env, url.origin)); }
     catch { return json({ error: "商品暫時無法載入" }, { status: 503 }); }
   }
   const productImageMatch = url.pathname.match(/^\/api\/product-images\/([0-9a-f-]{36})$/i);

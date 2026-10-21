@@ -1,7 +1,7 @@
 // 前台型錄與前端 runtime config（商品主圖路由與上傳在 product-image-primary.ts）。
 import { type Env, type Product } from "./env";
 import { primaryImageUrls } from "./product-image-urls";
-import { deleteEdgeCatalog, readEdgeCatalog, writeEdgeCatalog } from "./catalog-edge-cache";
+import { deleteEdgeCatalog, readEdgeCatalogText, writeEdgeCatalog } from "./catalog-edge-cache";
 import { fetchWithTimeout, serviceHeaders } from "./http";
 
 const demoProducts: Product[] = [
@@ -13,8 +13,20 @@ const demoProducts: Product[] = [
 // 併發請求共用同一個 in-flight promise，讀取失敗不快取。回應給瀏覽器的 Cache-Control 仍是 no-store，
 // 這個快取只影響 Worker 內部是否重打 Supabase。
 const CATALOG_CACHE_TTL_MS = 30_000;
-let catalogCache: { data: Product[]; expiresAt: number } | null = null;
-let catalogInflight: Promise<Product[]> | null = null;
+// 快取的是「型錄快照」：物件與 JSON 文字各自惰性產生一次。首頁要物件、/api/catalog 要文字，
+// 從邊緣快取讀到文字時 /api/catalog 不必解析再轉回字串，從 Supabase 讀到物件時文字也只轉一次。
+type CatalogSnapshot = { products: () => Product[]; text: () => string };
+function snapshot(init: { products?: Product[]; text?: string }): CatalogSnapshot {
+  let products = init.products;
+  let text = init.text;
+  return {
+    products: () => (products ??= JSON.parse(text as string) as Product[]),
+    text: () => (text ??= JSON.stringify(products))
+  };
+}
+const demoSnapshot = snapshot({ products: demoProducts });
+let catalogCache: { data: CatalogSnapshot; expiresAt: number } | null = null;
+let catalogInflight: Promise<CatalogSnapshot> | null = null;
 // 失效時遞增：失效前就開始的讀取完成後不可把舊資料寫回快取
 let catalogGeneration = 0;
 
@@ -58,20 +70,19 @@ async function loadPublicCatalog(env: Env): Promise<Product[]> {
   });
 }
 
-/** origin：請求網址的來源，提供時多一層同機房共用的邊緣快取（見 catalog-edge-cache.ts）。 */
-export async function publicCatalog(env: Env, origin?: string): Promise<Product[]> {
-  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return demoProducts;
+async function catalogSnapshot(env: Env, origin?: string): Promise<CatalogSnapshot> {
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return demoSnapshot;
   const now = Date.now();
   if (catalogCache && catalogCache.expiresAt > now) return catalogCache.data;
   if (catalogInflight) return catalogInflight;
   const generation = catalogGeneration;
   const load = async () => {
-    const edge = origin ? await readEdgeCatalog(origin) : null;
-    if (edge) return edge;
+    const edgeText = origin ? await readEdgeCatalogText(origin) : null;
+    if (edgeText !== null) return snapshot({ text: edgeText });
     const loadedAt = Date.now();
-    const data = await loadPublicCatalog(env);
+    const data = snapshot({ products: await loadPublicCatalog(env) });
     // 讀取期間若已失效，不把可能過期的資料寫進邊緣快取（跨 isolate 的失效由 loadedAt 與失效時間比對）
-    if (origin && generation === catalogGeneration) await writeEdgeCatalog(origin, data, loadedAt);
+    if (origin && generation === catalogGeneration) await writeEdgeCatalog(origin, data.text(), loadedAt);
     return data;
   };
   const inflight = load().then((data) => {
@@ -86,6 +97,16 @@ export async function publicCatalog(env: Env, origin?: string): Promise<Product[
   });
   catalogInflight = inflight;
   return inflight;
+}
+
+/** origin：請求網址的來源，提供時多一層同機房共用的邊緣快取（見 catalog-edge-cache.ts）。 */
+export async function publicCatalog(env: Env, origin?: string): Promise<Product[]> {
+  return (await catalogSnapshot(env, origin)).products();
+}
+
+/** /api/catalog 的回應本文：與 JSON.stringify({ products }) 相同，但沿用快取住的文字。 */
+export async function publicCatalogJson(env: Env, origin?: string): Promise<string> {
+  return `{"products":${(await catalogSnapshot(env, origin)).text()}}`;
 }
 
 export async function runtimeConfig(env: Env) {
