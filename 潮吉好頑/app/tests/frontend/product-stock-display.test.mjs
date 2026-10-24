@@ -8,7 +8,7 @@ const stockItem = (fields = {}) => ({ id: "v1", name: "陀螺", category: "BX系
 const preorderItem = (fields = {}) => ({ id: "v2", name: "預購陀螺", category: "BX系列", type: "預購", price: 900, stock: 20, preorder_arrival: "11 月下旬", ...fields });
 
 test("in-stock items show the count only when show_stock is checked", () => {
-  assert.equal(productAvailability(stockItem({ show_stock: false })), "現貨");
+  assert.equal(productAvailability(stockItem({ show_stock: false })), "", "hidden in-stock count leaves no duplicate 現貨 line");
   assert.equal(productAvailability(stockItem({ show_stock: true })), "現貨 8 件");
   assert.equal(preorderStockMarkup(stockItem({ show_stock: true })), "", "in-stock items never get the preorder limit line");
 });

@@ -1,5 +1,5 @@
 // 商品卡標記：首頁商品格與商品頁「您可能也喜歡」共用同一份 HTML。
-import { escapeHtml, hasProductDiscount, preorderStockMarkup, productAvailability, productAvailabilityBadge, productMark, productPriceMarkup, productPromotionBadge, productTagMarkup } from "./product-format.js";
+import { availabilityMarkup, escapeHtml, hasProductDiscount, preorderStockMarkup, productAvailabilityBadge, productMark, productPriceMarkup, productPromotionBadge, productTagMarkup } from "./product-format.js";
 
 // 商品卡只需要縮圖，完整原圖留給 srcset 的高解析度分支。
 // sizes 依實測卡寬（手機 2 欄約 44vw、4 欄約 21vw），斷點對齊 styles.css 的 .product-grid（760px 以下 2 欄）；
@@ -23,7 +23,7 @@ function productNameMarkup(product) {
 }
 
 export function productCardMarkup(product) {
-  return `<article class="product-card" data-product-id="${escapeHtml(product.id)}"><div class="product-image">${productAvailabilityBadge(product)}${productPromotionBadge(product)}${productCardImageMarkup(product)}</div><div class="product-info"><div class="product-head"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${productNameMarkup(product)}</h3></div><div class="product-meta">${productTagMarkup(product)}<p class="stock">${escapeHtml(productAvailability(product))}</p>${preorderStockMarkup(product)}</div><div class="price${hasProductDiscount(product) ? " price-discounted" : ""}">${productPriceMarkup(product)}${product.price_varies ? '<small class="price-from"> 起</small>' : ""}</div>${cardActionsMarkup(product)}</div></article>`;
+  return `<article class="product-card" data-product-id="${escapeHtml(product.id)}"><div class="product-image">${productAvailabilityBadge(product)}${productPromotionBadge(product)}${productCardImageMarkup(product)}</div><div class="product-info"><div class="product-head"><span class="product-category">${escapeHtml(product.category)} · ${escapeHtml(product.type)}</span><h3>${productNameMarkup(product)}</h3></div><div class="product-meta">${productTagMarkup(product)}${availabilityMarkup(product, "stock")}${preorderStockMarkup(product)}</div><div class="price${hasProductDiscount(product) ? " price-discounted" : ""}">${productPriceMarkup(product)}${product.price_varies ? '<small class="price-from"> 起</small>' : ""}</div>${cardActionsMarkup(product)}</div></article>`;
 }
 
 // 「加入購物車」留在原頁繼續逛；「直接購買」加入後打開購物車（手機版只留加入購物車，直接購買改在商品頁，見 storefront-legibility.css）。

@@ -14,9 +14,14 @@ export function productMark(product) {
 export function showsStock(product) {
   return typeof product?.show_stock === "boolean" ? product.show_stock : isPreorderItem(product);
 }
+// 現貨不顯示庫存數量時回傳空字串：商品系列、標籤與圖片角標都已標示「現貨」，不再重複一行。
 export function productAvailability(product) {
-  if (product?.type === "現貨") return showsStock(product) ? `現貨 ${Number(product.stock || 0)} 件` : "現貨";
+  if (product?.type === "現貨") return showsStock(product) ? `現貨 ${Number(product.stock || 0)} 件` : "";
   return product?.preorder_arrival ? `預購 · ${product.preorder_arrival}` : "預購 · 海運與集運依實際進度";
+}
+export function availabilityMarkup(product, className) {
+  const text = productAvailability(product);
+  return text ? `<p class="${className}">${escapeHtml(text)}</p>` : "";
 }
 export function preorderStockMarkup(product) {
   return isPreorderItem(product) && showsStock(product) ? `<p class="preorder-stock">預購限量 ${Number(product.stock || 0)} 件</p>` : "";
