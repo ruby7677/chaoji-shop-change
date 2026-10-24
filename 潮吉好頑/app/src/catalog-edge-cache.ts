@@ -32,7 +32,8 @@ async function invalidatedAt(cache: EdgeCache, origin: string): Promise<number> 
   return marker ? Number(await marker.text()) || 0 : 0;
 }
 
-export async function readEdgeCatalog(origin: string): Promise<Product[] | null> {
+/** 邊緣副本的原始 JSON 文字（Product[]）：/api/catalog 直接沿用，不必解析再重新轉字串。 */
+export async function readEdgeCatalogText(origin: string): Promise<string | null> {
   knownOrigins.add(origin);
   if (pendingInvalidation) await pendingInvalidation;
   const cache = edgeCache();
@@ -41,19 +42,28 @@ export async function readEdgeCatalog(origin: string): Promise<Product[] | null>
     const [cached, invalidated] = await Promise.all([cache.match(keyFor(origin)), invalidatedAt(cache, origin)]);
     if (!cached) return null;
     const loadedAt = Number(cached.headers.get(LOADED_AT_HEADER)) || 0;
-    return loadedAt > invalidated ? await cached.json() as Product[] : null;
+    if (loadedAt <= invalidated) return null;
+    const text = await cached.text();
+    // 只擋明顯損毀的副本（不是陣列）；不在這裡解析，解析留給真正需要物件的呼叫端
+    return text.startsWith("[") && text.endsWith("]") ? text : null;
   } catch {
     return null;
   }
 }
 
-/** loadedAt：開始向 Supabase 讀取這份型錄的時間（毫秒）。 */
-export async function writeEdgeCatalog(origin: string, products: Product[], loadedAt: number): Promise<void> {
+export async function readEdgeCatalog(origin: string): Promise<Product[] | null> {
+  const text = await readEdgeCatalogText(origin);
+  if (text === null) return null;
+  try { return JSON.parse(text) as Product[]; } catch { return null; }
+}
+
+/** loadedAt：開始向 Supabase 讀取這份型錄的時間（毫秒）。products 可傳已轉好的 JSON 文字，避免重複轉字串。 */
+export async function writeEdgeCatalog(origin: string, products: Product[] | string, loadedAt: number): Promise<void> {
   const cache = edgeCache();
   if (!cache) return;
   try {
     if (loadedAt <= await invalidatedAt(cache, origin)) return;
-    await cache.put(keyFor(origin), new Response(JSON.stringify(products), {
+    await cache.put(keyFor(origin), new Response(typeof products === "string" ? products : JSON.stringify(products), {
       headers: { "Content-Type": "application/json", [LOADED_AT_HEADER]: String(loadedAt), ...cacheHeaders }
     }));
   } catch { /* 寫入失敗只是少一次快取，不影響回應 */ }

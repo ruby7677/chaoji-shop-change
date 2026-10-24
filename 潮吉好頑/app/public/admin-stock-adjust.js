@@ -8,7 +8,7 @@ import { createAdminSheet } from "./admin-sheets.js";
 import { escapeHtml } from "./product-format.js";
 import { stockAdjustment } from "./admin-stock-math.js";
 
-const REASON_CHIPS = ["到貨入庫", "盤點修正", "損壞報廢"];
+const REASON_CHIPS = ["到貨入庫", "盤點修正", "損壞報廢", "售出修正"];
 
 let sheet = null;
 let current = null; // { variantId, productName, variantName, sku, stock, safety }

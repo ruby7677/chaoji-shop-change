@@ -12,7 +12,7 @@ const NAV_GROUPS = [
   { label: "營運", tabs: [["overview", "chart"], ["orders", "receipt"]] },
   { label: "商品", tabs: [["products", "layers"], ["inventory", "box"]] },
   { label: "會員行銷", tabs: [["members", "users"], ["discounts", "gift"]] },
-  { label: "系統", tabs: [["accounts", "bank"], ["audit", "shield"], ["notifications", "bell"]] }
+  { label: "系統", tabs: [["accounts", "bank"], ["audit", "shield"], ["notifications", "bell"], ["cvs-stores", "store"]] }
 ];
 // 徽章只顯示「需要人工處理」的數量，來源為 admin_dashboard_stats
 const BADGES = {

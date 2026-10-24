@@ -188,3 +188,46 @@ test("a failed upstream load is not cached and the next read retries", async () 
   assert.equal(calls, 2, "the failed load was not cached, so the second call reaches Supabase again");
   assert.equal(result.length, 1);
 });
+
+const { publicCatalogJson } = await loadSourceModule("catalog.ts");
+
+test("publicCatalogJson matches JSON.stringify of the catalog and is reused within the TTL", async () => {
+  const callCount = fakeSupabase([{ id: "v1", category: "A", name: "商品", price: 100, stock: 5, type: "現貨" }]);
+  const first = await publicCatalogJson(env);
+  const second = await publicCatalogJson(env);
+  assert.equal(callCount(), 1);
+  assert.equal(first, second);
+  assert.equal(first, JSON.stringify({ products: await publicCatalog(env) }));
+});
+
+test("an edge copy is served as text without being parsed and re-serialised", async () => {
+  const store = fakeEdgeCache();
+  // 故意用和 JSON.stringify 不同的空白：原樣回傳代表沒有經過解析再轉字串
+  store.set(EDGE_KEY, { body: '[ {"id":"edge"} ]', headers: [["x-catalog-loaded-at", String(Date.now())]] });
+  let calls = 0;
+  restoreFetch = stubFetch(() => { calls += 1; return jsonResponse([]); });
+  try {
+    assert.equal(await publicCatalogJson(env, ORIGIN), '{"products":[ {"id":"edge"} ]}');
+    assert.equal(calls, 0);
+    assert.equal((await publicCatalog(env, ORIGIN))[0].id, "edge", "the object form is parsed on demand from the same copy");
+  } finally { delete globalThis.caches; }
+});
+
+test("a corrupt edge copy is ignored and the catalog is reloaded", async () => {
+  const store = fakeEdgeCache();
+  store.set(EDGE_KEY, { body: '{"not":"an array"}', headers: [["x-catalog-loaded-at", String(Date.now())]] });
+  const callCount = fakeSupabase([{ id: "v1", category: "A", name: "商品", price: 100, stock: 5, type: "現貨" }]);
+  try {
+    assert.equal(JSON.parse(await publicCatalogJson(env, ORIGIN)).products[0].id, "v1");
+    assert.equal(callCount(), 1);
+  } finally { delete globalThis.caches; }
+});
+
+test("a fresh load writes the same JSON text to the edge cache that /api/catalog serves", async () => {
+  const store = fakeEdgeCache();
+  fakeSupabase([{ id: "v1", category: "A", name: "商品", price: 100, stock: 5, type: "現貨" }]);
+  try {
+    const body = await publicCatalogJson(env, ORIGIN);
+    assert.equal(body, `{"products":${store.get(EDGE_KEY).body}}`);
+  } finally { delete globalThis.caches; }
+});

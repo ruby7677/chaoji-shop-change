@@ -24,6 +24,15 @@ export function json(data: unknown, init: ResponseInit = {}) {
   return Response.json(data, { ...init, headers });
 }
 
+/** 與 json() 相同的標頭，但本文是已轉好的 JSON 文字（例如快取住的型錄），省下每次請求重新轉字串。 */
+export function jsonText(text: string, init: ResponseInit = {}) {
+  const headers = new Headers(SECURITY_HEADERS);
+  headers.set("Cache-Control", "no-store");
+  headers.set("Content-Type", "application/json");
+  new Headers(init.headers).forEach((value, name) => headers.set(name, value));
+  return new Response(text, { ...init, headers });
+}
+
 export const MAX_JSON_REQUEST_BYTES = 128 * 1024;
 
 // 對外連線逾時：Supabase、LINE、Telegram 預設 10 秒；上傳或下載圖片檔案 30 秒

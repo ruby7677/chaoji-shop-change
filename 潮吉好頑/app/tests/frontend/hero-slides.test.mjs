@@ -2,6 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { heroCarouselMarkup, selectHeroSlides } from "../../public/hero-slides.js";
+import { readFileSync } from "node:fs";
 
 const variant = (overrides) => ({ id: "v1", product_id: "p1", product_name: "測試", stock: 2, type: "現貨", image_url: "/api/product-images/p1?v=1", hero_rank: 1, display_order: 0, ...overrides });
 
@@ -14,4 +15,10 @@ test("a slide without image size keeps the frame sized by the loaded photo", () 
   const markup = heroCarouselMarkup(selectHeroSlides([variant({})]));
   assert.match(markup, /<span class="hero-slide-media">/);
   assert.doesNotMatch(markup, /data-hero-ratio/);
+});
+
+test("hidden slides collapse so the carousel height follows the active slide only", () => {
+  const css = readFileSync(new URL("../../public/hero-ratio.css", import.meta.url), "utf8");
+  assert.match(css, /\.hero-slide:not\(\.is-active\):not\(:first-child\) \{ height: 0; \}/);
+  assert.match(css, /\.hero-carousel:has\(\.hero-slide\.is-active\) \.hero-slide:not\(\.is-active\) \{ height: 0; \}/);
 });

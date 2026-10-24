@@ -1,9 +1,10 @@
 // 會員 API：收款帳戶、訂單查詢、雲端購物車、點數、LINE 好友狀態、建立訂單與回報匯款。
-import { requireUser } from "./auth";
+import { type RestoreExtras, requireUser } from "./auth";
 import { databaseError, databaseErrors } from "./database-errors";
 import { type Env } from "./env";
 import { MAX_JSON_REQUEST_BYTES, enforceRateLimit, fetchWithTimeout, json, serviceHeaders } from "./http";
 import { invalidateCatalogCache } from "./catalog";
+import { ServerTiming } from "./server-timing";
 
 const MAX_ORDER_ITEMS = 50;
 
@@ -95,24 +96,47 @@ async function loadOrder(env: Env, orderId: string, memberId: string, authorizat
   return rows[0];
 }
 
+function ordersServiceReady(env: Env) {
+  return Boolean(env.SUPABASE_URL && env.SUPABASE_ANON_KEY && env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+/** 會員最近 50 筆訂單（含收款帳戶）；GET /api/orders 與訂單頁恢復登入共用。查詢失敗回 null。 */
+async function memberOrders(env: Env, memberId: string, authorization: string, timing: ServerTiming) {
+  const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
+  url.searchParams.set("select", MEMBER_ORDER_SELECT);
+  url.searchParams.set("member_id", `eq.${memberId}`);
+  url.searchParams.set("order", "created_at.desc");
+  url.searchParams.set("limit", "50");
+  const response = await timing.measure("orders", fetchWithTimeout(url, { headers: memberHeaders(env, authorization) }));
+  if (!response.ok) return null;
+  const orders = await response.json() as MemberOrderRow[];
+  // 收款帳戶查詢失敗時仍列出訂單（帳戶欄位為 null），前台改顯示「匯款帳號暫時無法載入」，不讓客人連訂單都看不到。
+  const bankAccountsLoaded = await timing.measure("bank", attachBankAccounts(env, orders));
+  return { orders, bank_accounts_unavailable: !bankAccountsLoaded };
+}
+
 export async function listOrders(request: Request, env: Env): Promise<Response> {
-  const authResult = await requireUser(request, env);
+  const timing = new ServerTiming();
+  const authResult = await timing.measure("user", requireUser(request, env));
   if (authResult instanceof Response) return authResult;
   const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `orders-read:${authResult.user.id}`);
   if (rateLimitResponse) return rateLimitResponse;
-  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "訂單服務尚未設定" }, { status: 503 });
-  const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set("select", MEMBER_ORDER_SELECT);
-  url.searchParams.set("member_id", `eq.${authResult.user.id}`);
-  url.searchParams.set("order", "created_at.desc");
-  url.searchParams.set("limit", "50");
-  const response = await fetchWithTimeout(url, { headers: memberHeaders(env, authResult.authorization) });
-  if (!response.ok) return json({ error: "訂單紀錄暫時無法載入" }, { status: 503 });
-  const orders = await response.json() as MemberOrderRow[];
-  // 收款帳戶查詢失敗時仍列出訂單（帳戶欄位為 null），前台改顯示「匯款帳號暫時無法載入」，不讓客人連訂單都看不到。
-  const bankAccountsLoaded = await attachBankAccounts(env, orders);
-  return json({ orders, bank_accounts_unavailable: !bankAccountsLoaded });
+  if (!ordersServiceReady(env)) return json({ error: "訂單服務尚未設定" }, { status: 503 });
+  const result = await memberOrders(env, authResult.user.id, authResult.authorization, timing);
+  if (!result) return json({ error: "訂單紀錄暫時無法載入" }, { status: 503 });
+  return json(result, { headers: { "Server-Timing": timing.header() } });
 }
+
+/**
+ * 訂單頁恢復登入時一併回傳訂單（POST /api/auth/session/restore 帶 include_orders: true），省掉前端再請求 GET /api/orders
+ * 與其中確認 token 的 Supabase 查詢（恢復時已確認是本人的 LINE 會員）。與 GET /api/orders 共用限流計數；
+ * 限流、未設定或查詢失敗時不附帶，前端改請求 GET /api/orders，由它回報錯誤。
+ */
+export const ordersForRestoredSession: RestoreExtras = async (env, user, authorization, timing) => {
+  if (!ordersServiceReady(env)) return {};
+  if (await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `orders-read:${user.id}`)) return {};
+  return (await memberOrders(env, user.id, authorization, timing)) || {};
+};
 
 type MemberCartRow = { variant_id: string; quantity: number; updated_at?: string };
 

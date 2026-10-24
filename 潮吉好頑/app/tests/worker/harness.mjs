@@ -102,7 +102,7 @@ export async function formDataRequestInit(formData) {
 }
 
 /**
- * 記憶體版 R2 bucket（PRODUCT_IMAGES binding）：put／get（含 range）／head／delete。
+ * 記憶體版 R2 bucket（PRODUCT_IMAGES binding）：put／get（含 range、json）／head／list（prefix，include customMetadata）／delete（單一或陣列）。
  * events 會依序記錄 ["put", key, contentType] 與 ["r2-delete", keys]，方便驗證寫入順序。
  * failPut(key) 回傳 true 時該次 put 丟出例外，模擬寫入失敗。
  */
@@ -111,14 +111,18 @@ export function fakeR2({ events = [], failPut = () => false } = {}) {
   const toBytes = async (body) => new Uint8Array(body instanceof Blob ? await body.arrayBuffer() : body instanceof ArrayBuffer ? body : await new Response(body).arrayBuffer());
   const objectFor = (key, stored, range) => {
     const bytes = range ? stored.bytes.slice(range.offset, range.offset + range.length) : stored.bytes;
-    return { key, size: stored.bytes.length, httpMetadata: stored.httpMetadata, body: new Response(bytes).body, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) };
+    return {
+      key, size: stored.bytes.length, httpMetadata: stored.httpMetadata, customMetadata: stored.customMetadata, body: new Response(bytes).body,
+      arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+      json: async () => JSON.parse(new TextDecoder().decode(bytes))
+    };
   };
   return {
     objects,
     events,
     async put(key, body, options = {}) {
       if (failPut(key)) throw new Error(`R2 put failed: ${key}`);
-      objects.set(key, { bytes: await toBytes(body), httpMetadata: options.httpMetadata || {} });
+      objects.set(key, { bytes: await toBytes(body), httpMetadata: options.httpMetadata || {}, customMetadata: options.customMetadata, uploaded: new Date() });
       events.push(["put", key, options.httpMetadata?.contentType]);
       return { key };
     },
@@ -128,7 +132,12 @@ export function fakeR2({ events = [], failPut = () => false } = {}) {
     },
     async head(key) {
       const stored = objects.get(key);
-      return stored ? { key, size: stored.bytes.length, httpMetadata: stored.httpMetadata } : null;
+      return stored ? { key, size: stored.bytes.length, httpMetadata: stored.httpMetadata, customMetadata: stored.customMetadata } : null;
+    },
+    async list({ prefix = "", include = [] } = {}) {
+      const listed = [...objects].filter(([key]) => key.startsWith(prefix)).sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, stored]) => ({ key, size: stored.bytes.length, uploaded: stored.uploaded, ...(include.includes("customMetadata") ? { customMetadata: stored.customMetadata } : {}) }));
+      return { objects: listed, truncated: false };
     },
     async delete(keys) {
       const list = Array.isArray(keys) ? keys : [keys];

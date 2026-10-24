@@ -8,6 +8,7 @@ import { rememberCvsStore } from "./checkout-cvs-store.js";
 import { checkoutRequestKey, clearCheckoutRequestKey, markCheckoutRequestCompleted, recentCompletedCheckout } from "./checkout-request-key.js";
 import { ensureCheckoutCouponApplied, resetCheckoutCoupon } from "./checkout-coupon.js";
 import { whenAuthReady } from "./auth-ready.js";
+import { deliveryMethodError } from "./cart-delivery-rules.js";
 import { beginLineLogin, loadMember, profileIsComplete, saveProfile, showProfileDialog } from "./member-profile.js";
 
 export let activeCheckoutScope = null;
@@ -71,6 +72,8 @@ export async function submitOrder() {
   if (!auth.config?.authEnabled) return showToast("目前為靜態預覽，尚未連接訂單資料庫");
   if (!auth.accessToken || !auth.user) return beginLineLogin();
   const details = validateCheckoutDetails();
+  const unsupported = deliveryMethodError(checkoutCartItems(), details.deliveryMethod);
+  if (unsupported) throw new Error(unsupported);
   const couponReady = await ensureCheckoutCouponApplied();
   renderCheckoutSummary();
   if (!couponReady) throw new Error("優惠碼無法使用，請修正或移除後再建立訂單");

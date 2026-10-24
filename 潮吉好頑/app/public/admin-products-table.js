@@ -3,6 +3,7 @@
 // 本頁再依同樣條件挑出要顯示的規格列。
 // 儲存：表單由 submitDynamicAdminForm 處理；上架開關以同一個 PATCH /api/admin/variants/:id 送出完整欄位，成功後只更新該列。
 import { escapeHtml } from "./product-format.js";
+import { deliveryRestrictionLabel } from "./cart-delivery-rules.js";
 import { adminPrimaryImageSrc } from "./product-image-src.js";
 import { adminIcon } from "./admin-icons.js";
 import { createAdminSheet, openAdminSheetFor } from "./admin-sheets.js";
@@ -76,7 +77,7 @@ function thumbMarkup(product) {
 }
 
 function productCellMarkup(product) {
-  const tags = `${product.is_published ? "" : '<span class="admin-pill gray">商品未上架</span>'}${product.points_eligible === false ? '<span class="admin-pill amber">不積點</span>' : ""}`;
+  const tags = `${product.is_published ? "" : '<span class="admin-pill gray">商品未上架</span>'}${product.points_eligible === false ? '<span class="admin-pill amber">不積點</span>' : ""}${deliveryRestrictionLabel(product) ? `<span class="admin-pill amber">${escapeHtml(deliveryRestrictionLabel(product))}</span>` : ""}`;
   return `<td class="lead-cell"><span class="admin-prod-cell">${thumbMarkup(product)}<span><span class="cell-main">${escapeHtml(product.name)}</span>`
     + `<span class="cell-sub">${escapeHtml(categoryName(product))}</span>${tags ? `<span class="cell-tags">${tags}</span>` : ""}</span></span></td>`;
 }
@@ -91,7 +92,7 @@ function rowMarkup(product, variant, maxStock) {
     + `<td data-l="規格">${variantSelectMarkup(product, variant, escapeHtml)}${escapeHtml(variant.name)}</td>`
     + `<td data-l="類型">${kindPill(variant.kind)}</td>`
     + `<td class="num" data-l="售價"><span class="admin-price-cell">${priceMarkup(variant)}${sale ? `<span class="admin-pill danger">限時優惠 −${sale}%</span>` : ""}${deposit}</span></td>`
-    + `<td data-l="庫存"><span class="admin-stock-cell"><span class="admin-stockbar${low ? " low" : ""}"><i data-stock-pct="${percent}"></i></span><span class="cell-sub">庫存 ${variant.stock_on_hand}・安全 ${variant.safety_stock}${low ? "・偏低" : ""}</span></span></td>`
+    + `<td data-l="庫存"><span class="admin-stock-cell"><span class="admin-stockbar${low ? " low" : ""}"><i data-stock-pct="${percent}"></i></span><span class="cell-sub">庫存 ${variant.stock_on_hand}・安全 ${variant.safety_stock}${low ? "・偏低" : ""}${variant.show_stock ? "・前台顯示" : ""}</span></span></td>`
     + `<td data-l="限購">${product.purchase_limit ?? "不限"}</td>`
     + `<td data-l="上架"><button class="admin-switch" type="button" role="switch" aria-checked="${variant.is_published ? "true" : "false"}" aria-label="${escapeHtml(label)} 上架" data-variant-publish="${escapeHtml(variant.id)}"></button></td>`
     + `<td data-l="操作"><span class="admin-row-actions"><button class="admin-row-button${sale ? " is-sale" : ""}" type="button" data-variant-price="${escapeHtml(variant.id)}" aria-label="設定「${escapeHtml(label)}」的優惠價">${adminIcon("tag")}<span>優惠價</span></button>`

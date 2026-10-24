@@ -3,6 +3,7 @@
 // [data-edit-product-form]／[data-edit-variant-form] 的 document 委派處理，格式不變。
 import { escapeHtml, money } from "./product-format.js";
 import { adminProductGalleryMarkup, adminProductShowcaseMarkup } from "./admin-product-gallery.js";
+import { deliveryMethodsFieldHtml } from "./admin-delivery-methods.js";
 
 export const relationOne = (value) => (Array.isArray(value) ? value[0] : value);
 
@@ -40,6 +41,7 @@ export function variantFormMarkup(variant, helpers) {
     + `<label>售價<input name="price" type="number" min="0" step="1" required value="${variant.price}" /></label>`
     + `<label>原價（選填）<input name="compare_at_price" type="number" min="0" step="1" value="${variant.compare_at_price ?? ""}" placeholder="例如 1680" /><small>高於售價時顯示刪除線與限時優惠。</small></label>`
     + `<label>安全庫存<input name="safety_stock" type="number" min="0" step="1" value="${variant.safety_stock}" /></label>`
+    + `<label class="check-field"><input name="show_stock" type="checkbox" ${variant.show_stock ? "checked" : ""} /> 前台顯示庫存<small>勾選後前台顯示剩餘數量；切換類型會套用預設（預購顯示、現貨不顯示）</small></label>`
     + `<label>訂金比例（%）<input name="deposit_rate" type="number" min="0" max="100" value="${depositPercent(variant)}" /></label>`
     + arrivalFieldset(variant, helpers)
     + `<label>前台排序<input name="display_order" type="number" value="${variant.display_order}" /><small>數字越大越前面；新增時自動取目前最大值 + 1</small></label>`
@@ -85,6 +87,7 @@ function productFormMarkup(product, helpers) {
     + `<label class="wide">商品說明<textarea name="description" rows="3">${escapeHtml(product.description || "")}</textarea></label>`
     + `<label>每位會員限購數量<input name="purchase_limit" type="number" min="1" step="1" value="${product.purchase_limit ?? ""}" placeholder="留空代表不限購" /></label>`
     + `<label class="check-field admin-points-excluded-field"><input name="points_excluded" type="checkbox" ${product.points_eligible === false ? "checked" : ""} /> 不可累積會員點數<small>啟用後，完成訂單時此商品金額不列入新點數累積。</small></label>`
+    + deliveryMethodsFieldHtml(product.allowed_delivery_methods)
     + `<label class="check-field"><input name="is_published" type="checkbox" ${product.is_published ? "checked" : ""} /> 上架商品<small>商品未上架時，所有規格在前台都不會顯示。</small></label>`
     + '</div><button class="primary-button" type="submit">儲存商品</button></form>';
 }

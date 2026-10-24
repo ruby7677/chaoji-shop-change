@@ -7,3 +7,9 @@
 @media (min-width: 761px) and (max-width: 1020px) and (min-height: 541px) {
   .hero-slide-media[data-hero-ratio] { aspect-ratio: var(--hero-ratio); max-height: 70svh; }
 }
+
+/* 所有投影片疊在同一格，輪播高度原本取「最高那張」：寬圖（如九宮格）的說明框下方會留一大段空白。
+   未顯示的投影片高度設 0（內容本來就是透明、不可見），輪播高度只跟著目前這張走；切換時下方內容隨之調整。
+   第一張要等開機畫面結束才被設為 is-active：在那之前讓第一張撐住高度，避免啟動時整塊從 0 撐開而讓下方內容跳動。 */
+.hero-slide:not(.is-active):not(:first-child) { height: 0; }
+.hero-carousel:has(.hero-slide.is-active) .hero-slide:not(.is-active) { height: 0; }

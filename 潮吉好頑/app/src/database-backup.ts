@@ -32,7 +32,9 @@ export async function runDatabaseBackup(env: Env, now = new Date()): Promise<str
   }
   if (!response.body) throw new Error("backup_snapshot returned no body");
   const key = `daily/${taipeiDate(now)}/snapshot.json`;
-  await storeStream(env.BACKUPS, key, response.body);
+  const stored = await storeStream(env.BACKUPS, key, response.body);
+  // CPU 追查用（Workers Logs）：只記大小、區塊數與回應編碼，不記內容
+  console.log(`backup stored: ${stored.bytes} bytes in ${stored.chunks} chunks, content-length ${response.headers.get("content-length") ?? "-"}, content-encoding ${response.headers.get("content-encoding") ?? "-"}`);
   return key;
 }
 
@@ -40,39 +42,89 @@ export async function runDatabaseBackup(env: Env, now = new Date()): Promise<str
 export const BACKUP_PART_SIZE = 10 * 1024 * 1024;
 
 /**
+ * 每次從回應讀出的區塊大小。Supabase 回應的串流區塊只有約 2 KB（1.4 MB 快照約 780 塊），
+ * 用 JS 逐塊 read() 時光是迴圈就用掉約 35ms CPU（Workers Free 上限 10ms）；改由執行環境一次讀滿一大塊。
+ */
+export const BACKUP_READ_BLOCK = 1024 * 1024;
+
+/** Workers 的 BYOB reader 才有 readAtLeast（專案的 DOM 型別沒有） */
+type BlockReader = ReadableStreamBYOBReader & { readAtLeast?: (minBytes: number, view: Uint8Array) => Promise<ReadableStreamReadResult<Uint8Array>> };
+
+/** 依序產生回應本體的區塊：Workers 用 BYOB reader 的 readAtLeast 一次讀滿一塊（原生迴圈），其他環境退回一般 reader。 */
+async function* readBlocks(body: ReadableStream<Uint8Array>): AsyncGenerator<Uint8Array> {
+  let byob: BlockReader | null = null;
+  try {
+    byob = body.getReader({ mode: "byob" }) as BlockReader;
+  } catch { /* 不是位元組串流：用一般 reader */ }
+  if (byob && typeof byob.readAtLeast === "function") {
+    for (;;) {
+      const { done, value } = await byob.readAtLeast(BACKUP_READ_BLOCK, new Uint8Array(BACKUP_READ_BLOCK));
+      if (value?.byteLength) yield value;
+      if (done) return;
+    }
+  }
+  byob?.releaseLock();
+  const reader = body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return;
+    yield value;
+  }
+}
+
+/**
  * 邊讀邊寫入 R2，記憶體只保留一段：小於一段時直接 put，否則改用分段上傳。
  * 快照會隨資料量成長，不能整份讀進 Worker 記憶體（上限 128 MB）。
+ * 小於一段時只保留收到的區塊、以 Blob 一次寫入，不配置一段大小的緩衝區（2026-10 快照約 1.4 MB）。
+ * 回傳寫入的位元組數與區塊數，供記錄追查 CPU 用量。
  */
-export async function storeStream(bucket: R2Bucket, key: string, body: ReadableStream<Uint8Array>, partSize = BACKUP_PART_SIZE) {
+export async function storeStream(bucket: R2Bucket, key: string, body: ReadableStream<Uint8Array>, partSize = BACKUP_PART_SIZE): Promise<{ bytes: number; chunks: number }> {
   const httpMetadata = { contentType: "application/json" };
-  const reader = body.getReader();
-  let part = new Uint8Array(partSize);
-  let filled = 0;
-  let upload: R2MultipartUpload | null = null;
-  const parts: R2UploadedPart[] = [];
-  const flushPart = async () => {
-    upload ??= await bucket.createMultipartUpload(key, { httpMetadata });
-    parts.push(await upload.uploadPart(parts.length + 1, part.subarray(0, filled)));
-    part = new Uint8Array(partSize);
-    filled = 0;
-  };
+  // 由 flushPart 在閉包內設定：用 as 初始化，避免 TypeScript 把它收窄成 null
+  let upload = null as R2MultipartUpload | null;
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    const head: Uint8Array[] = [];
+    let part = null as Uint8Array | null;
+    let filled = 0;
+    let bytes = 0;
+    let chunks = 0;
+    const parts: R2UploadedPart[] = [];
+    const flushPart = async (current: Uint8Array) => {
+      upload ??= await bucket.createMultipartUpload(key, { httpMetadata });
+      parts.push(await upload.uploadPart(parts.length + 1, current.subarray(0, filled)));
+      part = new Uint8Array(partSize);
+      filled = 0;
+    };
+    const append = async (value: Uint8Array) => {
       for (let offset = 0; offset < value.length;) {
+        const current = part ??= new Uint8Array(partSize);
         const count = Math.min(partSize - filled, value.length - offset);
-        part.set(value.subarray(offset, offset + count), filled);
+        current.set(value.subarray(offset, offset + count), filled);
         filled += count;
         offset += count;
-        if (filled === partSize) await flushPart();
+        if (filled === partSize) await flushPart(current);
       }
+    };
+    for await (const value of readBlocks(body)) {
+      bytes += value.length;
+      chunks += 1;
+      if (part === null && bytes < partSize) {
+        head.push(value);
+        continue;
+      }
+      // 達到一段大小：改用分段上傳，先補上之前保留的區塊
+      for (const earlier of head.splice(0)) await append(earlier);
+      await append(value);
     }
-    if (!upload) return void await bucket.put(key, part.subarray(0, filled), { httpMetadata });
-    if (filled > 0) await flushPart();
-    await (upload as R2MultipartUpload).complete(parts);
+    if (part === null) {
+      await bucket.put(key, new Blob(head as BlobPart[]), { httpMetadata });
+      return { bytes, chunks };
+    }
+    if (filled > 0) await flushPart(part);
+    await upload?.complete(parts);
+    return { bytes, chunks };
   } catch (error) {
-    await (upload as R2MultipartUpload | null)?.abort().catch(() => undefined);
+    await upload?.abort().catch(() => undefined);
     throw error;
   }
 }

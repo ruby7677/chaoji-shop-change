@@ -8,7 +8,7 @@ select
   to_regprocedure('public.submit_order_payment(uuid,uuid,text)') is not null as submit_payment_rpc_exists,
   to_regprocedure('public.cancel_expired_orders()') is not null as cancel_expired_orders_exists,
   (select count(*) = 1 from pg_proc where pronamespace = 'public'::regnamespace and proname = 'admin_create_product') as admin_create_product_single_overload,
-  to_regprocedure('public.admin_create_product(uuid,text,text,text,text,text,public.product_kind,integer,integer,text,numeric,text,boolean,integer,boolean,integer)') is not null as admin_create_product_latest_exists,
+  to_regprocedure('public.admin_create_product(uuid,text,text,text,text,text,public.product_kind,integer,integer,text,numeric,text,boolean,integer,boolean,integer,text[],boolean)') is not null as admin_create_product_latest_exists,
   to_regprocedure('public.admin_adjust_inventory(uuid,uuid,integer,text)') is not null as admin_adjust_inventory_exists,
   to_regclass('public.order_status_history') is not null as order_status_history_exists,
   to_regprocedure('public.admin_transition_order(uuid,uuid,public.order_status,text,integer)') is not null as admin_transition_order_exists,
@@ -152,6 +152,18 @@ select
     select 1 from cron.job
     where jobname = 'chaoji-purge-notification-deliveries' and command = 'select public.purge_notification_deliveries();'
   ) as notification_purge_cron_exists,
+  -- 202610190001：cron.job_run_details 每日清理，函式只給排程執行。
+  coalesce((
+    select not has_function_privilege('anon', fn, 'EXECUTE')
+       and not has_function_privilege('authenticated', fn, 'EXECUTE')
+       and not has_function_privilege('service_role', fn, 'EXECUTE')
+    from (select to_regprocedure('public.purge_cron_run_details(integer)') as fn) f
+    where fn is not null
+  ), false) as cron_run_details_purge_exists_and_blocked_for_api_roles,
+  exists (
+    select 1 from cron.job
+    where jobname = 'chaoji-purge-cron-run-details' and command = 'select public.purge_cron_run_details();'
+  ) as cron_run_details_purge_cron_exists,
   to_regclass('public.line_low_stock_states') is not null as line_low_stock_states_exists,
   -- 202610090003：退貨驗收資料表與 inventory_movements.return_confirmation_id 已移除。
   to_regclass('public.inventory_return_confirmations') is null as inventory_return_confirmations_removed,
@@ -178,9 +190,9 @@ select
   to_regprocedure('public.admin_update_bank_account(uuid,uuid,text,text,text,text,boolean,integer)') is not null as admin_update_bank_account_exists,
   to_regprocedure('public.admin_create_category(uuid,text,integer,boolean)') is not null as admin_create_category_exists,
   to_regprocedure('public.admin_update_category(uuid,uuid,text,integer,boolean)') is not null as admin_update_category_exists,
-  to_regprocedure('public.admin_create_variant(uuid,uuid,text,text,public.product_kind,integer,integer,integer,text,numeric,text,boolean,integer,integer)') is not null as admin_create_variant_exists,
-  to_regprocedure('public.admin_update_variant(uuid,uuid,text,text,public.product_kind,integer,integer,boolean,integer,text,numeric,text,boolean,integer)') is not null as admin_update_variant_exists,
-  to_regprocedure('public.admin_update_product(uuid,uuid,text,text,uuid,integer,boolean,boolean,integer)') is not null as admin_update_product_exists,
+  to_regprocedure('public.admin_create_variant(uuid,uuid,text,text,public.product_kind,integer,integer,integer,text,numeric,text,boolean,integer,integer,boolean)') is not null as admin_create_variant_exists,
+  to_regprocedure('public.admin_update_variant(uuid,uuid,text,text,public.product_kind,integer,integer,boolean,integer,text,numeric,text,boolean,integer,boolean)') is not null as admin_update_variant_exists,
+  to_regprocedure('public.admin_update_product(uuid,uuid,text,text,uuid,integer,boolean,boolean,integer,text[])') is not null as admin_update_product_exists,
   to_regprocedure('public.admin_update_product_image(uuid,uuid,text,timestamp with time zone)') is not null as admin_update_product_image_exists,
   to_regprocedure('public.admin_search_product_ids(uuid,text,text,integer,integer,text,text)') is not null as admin_search_product_ids_exists,
   to_regprocedure('public.admin_search_coupon_ids(uuid,text,integer,integer)') is not null as admin_search_coupon_ids_exists,
