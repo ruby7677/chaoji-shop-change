@@ -256,6 +256,7 @@ function productFormBody() {
     price: Number(document.querySelector("#admin-price").value),
     compare_at_price: document.querySelector("#admin-compare-at-price")?.value ? Number(document.querySelector("#admin-compare-at-price").value) : null,
     stock: Number(document.querySelector("#admin-stock").value),
+    show_stock: document.querySelector("#admin-show-stock").checked,
     purchase_limit: document.querySelector("#admin-purchase-limit").value ? Number(document.querySelector("#admin-purchase-limit").value) : null,
     points_eligible: !document.querySelector("#admin-points-excluded")?.checked,
     allowed_delivery_methods: adminCreateDeliveryMethods(),
@@ -305,6 +306,7 @@ export async function submitNewVariant(event) {
     compare_at_price: document.querySelector("#admin-new-compare-at-price")?.value ? Number(document.querySelector("#admin-new-compare-at-price").value) : null,
     // 初始庫存留空視為 0
     stock: Number(document.querySelector("#admin-new-stock")?.value || 0),
+    show_stock: document.querySelector("#admin-new-show-stock").checked,
     safety_stock: Number(document.querySelector("#admin-new-safety-stock").value || 0),
     deposit_rate: kind === "preorder" ? 0.5 : Number(document.querySelector("#admin-new-deposit-rate").value || 0) / 100,
     preorder_arrival: preorderArrivalValue(document.querySelector("#admin-new-arrival-from").value, document.querySelector("#admin-new-arrival-until").value),
@@ -362,7 +364,7 @@ export async function submitDynamicAdminForm(event) {
     try {
       const kind = formData.get("kind");
       const compareAtPrice = String(formData.get("compare_at_price") || "").trim();
-      await adminFetch(`/api/admin/variants/${variantId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), kind, price: Number(formData.get("price")), compare_at_price: compareAtPrice ? Number(compareAtPrice) : null, safety_stock: Number(formData.get("safety_stock") || 0), deposit_rate: kind === "preorder" ? 0.5 : Number(formData.get("deposit_rate") || 0) / 100, preorder_arrival: preorderArrivalValue(formData.get("preorder_arrival_from"), formData.get("preorder_arrival_until"), formData.get("preorder_arrival_raw")), display_order: Number(formData.get("display_order") || 0), seller_link: formData.get("seller_link"), is_published: formData.get("is_published") === "on" }) });
+      await adminFetch(`/api/admin/variants/${variantId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), kind, price: Number(formData.get("price")), compare_at_price: compareAtPrice ? Number(compareAtPrice) : null, safety_stock: Number(formData.get("safety_stock") || 0), show_stock: formData.get("show_stock") === "on", deposit_rate: kind === "preorder" ? 0.5 : Number(formData.get("deposit_rate") || 0) / 100, preorder_arrival: preorderArrivalValue(formData.get("preorder_arrival_from"), formData.get("preorder_arrival_until"), formData.get("preorder_arrival_raw")), display_order: Number(formData.get("display_order") || 0), seller_link: formData.get("seller_link"), is_published: formData.get("is_published") === "on" }) });
       invalidateAdminManagementOptions();
     } finally {
       if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; }
@@ -378,4 +380,9 @@ export function syncDepositField(kindSelector, rateInput) {
   const preorder = kindSelector.value === "preorder";
   if (preorder) rateInput.value = "50";
   rateInput.readOnly = preorder;
+}
+
+// 切換類型時套用「前台顯示庫存」的預設：預購顯示、現貨不顯示；之後仍可手動改
+export function syncShowStockField(kindSelector, checkbox) {
+  if (checkbox) checkbox.checked = kindSelector.value === "preorder";
 }

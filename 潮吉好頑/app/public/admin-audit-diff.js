@@ -3,7 +3,7 @@
 const FIELD_LABELS = {
   name: "名稱", label: "名稱", sku: "SKU", code: "代碼", price: "售價", sale_price: "優惠價", sale_ends_at: "優惠截止",
   stock_on_hand: "庫存", safety_stock: "安全庫存", reserved_quantity: "保留量", kind: "類型", is_published: "上架",
-  is_active: "啟用", display_order: "排序", purchase_limit: "限購", points_eligible: "可累積點數", allowed_delivery_methods: "可用取貨方式", deposit_rate: "訂金比例",
+  is_active: "啟用", display_order: "排序", purchase_limit: "限購", points_eligible: "可累積點數", allowed_delivery_methods: "可用取貨方式", deposit_rate: "訂金比例", show_stock: "前台顯示庫存",
   seller_link: "賣貨便連結", description: "說明", category_id: "分類", bank_name: "銀行", bank_code: "銀行代碼",
   account_name: "戶名", account_number: "帳號", discount_amount: "折扣金額", combinable_with_points: "可與點數併用",
   per_member_limit: "每人次數", starts_at: "開始", ends_at: "結束", enabled: "啟用", points: "點數", reason: "原因",
