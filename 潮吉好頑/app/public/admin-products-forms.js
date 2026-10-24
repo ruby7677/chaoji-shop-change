@@ -41,6 +41,7 @@ export function variantFormMarkup(variant, helpers) {
     + `<label>售價<input name="price" type="number" min="0" step="1" required value="${variant.price}" /></label>`
     + `<label>原價（選填）<input name="compare_at_price" type="number" min="0" step="1" value="${variant.compare_at_price ?? ""}" placeholder="例如 1680" /><small>高於售價時顯示刪除線與限時優惠。</small></label>`
     + `<label>安全庫存<input name="safety_stock" type="number" min="0" step="1" value="${variant.safety_stock}" /></label>`
+    + `<label class="check-field"><input name="show_stock" type="checkbox" ${variant.show_stock ? "checked" : ""} /> 前台顯示庫存<small>勾選後前台顯示剩餘數量；切換類型會套用預設（預購顯示、現貨不顯示）</small></label>`
     + `<label>訂金比例（%）<input name="deposit_rate" type="number" min="0" max="100" value="${depositPercent(variant)}" /></label>`
     + arrivalFieldset(variant, helpers)
     + `<label>前台排序<input name="display_order" type="number" value="${variant.display_order}" /><small>數字越大越前面；新增時自動取目前最大值 + 1</small></label>`

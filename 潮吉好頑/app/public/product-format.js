@@ -9,12 +9,17 @@ export function productMark(product) {
   const source = String(product?.category || product?.product_name || product?.name || "玩具").replace(/\s+/g, "");
   return escapeHtml(source.slice(0, 2) || "玩具");
 }
+// 是否在前台顯示庫存數量（後台規格的「前台顯示庫存」）；舊型錄快取沒有這個欄位時，依類型預設：預購顯示、現貨不顯示。
+// 只影響文字，可售數量與售完判斷照舊使用 stock。
+export function showsStock(product) {
+  return typeof product?.show_stock === "boolean" ? product.show_stock : isPreorderItem(product);
+}
 export function productAvailability(product) {
-  if (product?.type === "現貨") return `現貨 ${Number(product.stock || 0)} 件`;
+  if (product?.type === "現貨") return showsStock(product) ? `現貨 ${Number(product.stock || 0)} 件` : "現貨";
   return product?.preorder_arrival ? `預購 · ${product.preorder_arrival}` : "預購 · 海運與集運依實際進度";
 }
 export function preorderStockMarkup(product) {
-  return isPreorderItem(product) ? `<p class="preorder-stock">預購限量 ${Number(product.stock || 0)} 件</p>` : "";
+  return isPreorderItem(product) && showsStock(product) ? `<p class="preorder-stock">預購限量 ${Number(product.stock || 0)} 件</p>` : "";
 }
 export function hasProductDiscount(product) {
   return Number(product?.compare_at_price || 0) > Number(product?.price || 0);

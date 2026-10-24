@@ -92,7 +92,7 @@ function rowMarkup(product, variant, maxStock) {
     + `<td data-l="規格">${variantSelectMarkup(product, variant, escapeHtml)}${escapeHtml(variant.name)}</td>`
     + `<td data-l="類型">${kindPill(variant.kind)}</td>`
     + `<td class="num" data-l="售價"><span class="admin-price-cell">${priceMarkup(variant)}${sale ? `<span class="admin-pill danger">限時優惠 −${sale}%</span>` : ""}${deposit}</span></td>`
-    + `<td data-l="庫存"><span class="admin-stock-cell"><span class="admin-stockbar${low ? " low" : ""}"><i data-stock-pct="${percent}"></i></span><span class="cell-sub">庫存 ${variant.stock_on_hand}・安全 ${variant.safety_stock}${low ? "・偏低" : ""}</span></span></td>`
+    + `<td data-l="庫存"><span class="admin-stock-cell"><span class="admin-stockbar${low ? " low" : ""}"><i data-stock-pct="${percent}"></i></span><span class="cell-sub">庫存 ${variant.stock_on_hand}・安全 ${variant.safety_stock}${low ? "・偏低" : ""}${variant.show_stock ? "・前台顯示" : ""}</span></span></td>`
     + `<td data-l="限購">${product.purchase_limit ?? "不限"}</td>`
     + `<td data-l="上架"><button class="admin-switch" type="button" role="switch" aria-checked="${variant.is_published ? "true" : "false"}" aria-label="${escapeHtml(label)} 上架" data-variant-publish="${escapeHtml(variant.id)}"></button></td>`
     + `<td data-l="操作"><span class="admin-row-actions"><button class="admin-row-button${sale ? " is-sale" : ""}" type="button" data-variant-price="${escapeHtml(variant.id)}" aria-label="設定「${escapeHtml(label)}」的優惠價">${adminIcon("tag")}<span>優惠價</span></button>`

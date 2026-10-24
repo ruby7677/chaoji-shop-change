@@ -56,7 +56,7 @@ type ProductInput = {
   category_id?: string; category_name?: string; product_name?: string; description?: string; variant_name?: string; sku?: string;
   kind?: "in_stock" | "preorder"; price?: number; stock?: number; preorder_arrival?: string;
   deposit_rate?: number; seller_link?: string; purchase_limit?: number | null; points_eligible?: boolean; compare_at_price?: number | null; is_published?: boolean;
-  allowed_delivery_methods?: string[];
+  allowed_delivery_methods?: string[]; show_stock?: boolean;
 };
 
 export async function createAdminProduct(request: Request, env: Env): Promise<Response> {
@@ -103,7 +103,8 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
       p_purchase_limit: body.purchase_limit ?? null,
       p_points_eligible: body.points_eligible !== false,
       p_compare_at_price: compareAtPrice,
-      p_delivery_methods: deliveryMethods
+      p_delivery_methods: deliveryMethods,
+      p_show_stock: showStockInput(body.show_stock)
     })
   });
   if (!response.ok) return databaseError(response);
@@ -115,8 +116,13 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
 type VariantInput = {
   product_id?: string; name?: string; sku?: string; kind?: "in_stock" | "preorder"; price?: number;
   safety_stock?: number; preorder_arrival?: string; deposit_rate?: number; seller_link?: string; compare_at_price?: number | null;
-  is_published?: boolean; display_order?: number; move_to_top?: boolean; stock?: number | null;
+  is_published?: boolean; display_order?: number; move_to_top?: boolean; stock?: number | null; show_stock?: boolean;
 };
+
+// 前台是否顯示庫存數量：沒帶或格式不對時傳 null，資料庫新增時依類型預設（預購顯示、現貨不顯示）、編輯時保留原值
+function showStockInput(value: unknown) {
+  return typeof value === "boolean" ? value : null;
+}
 
 function normalizedVariant(body: VariantInput, includeProduct = false) {
   if (!body.name?.trim() || !Number.isInteger(body.price) || (body.price as number) < 0) return { error: "請填寫規格名稱與正確價格" };
@@ -155,7 +161,8 @@ export async function createVariant(request: Request, env: Env): Promise<Respons
       p_deposit_rate: payload.deposit_rate, p_seller_link: payload.seller_link,
       // 未指定排序時交給資料庫自動接在同商品最後一個規格之後
       p_is_published: payload.is_published, p_display_order: Number.isInteger(body.display_order) ? payload.display_order : null,
-      p_stock: stock
+      p_stock: stock,
+      p_show_stock: showStockInput(body.show_stock)
     })
   });
   if (!response.ok) return databaseError(response);
@@ -177,7 +184,8 @@ export async function updateVariant(request: Request, env: Env, variantId: strin
       p_kind: payload.kind, p_price: payload.price, p_compare_at_price: payload.compare_at_price ?? null,
       p_update_compare_at_price: body.compare_at_price !== undefined, p_safety_stock: payload.safety_stock,
       p_preorder_arrival: payload.preorder_arrival, p_deposit_rate: payload.deposit_rate,
-      p_seller_link: payload.seller_link, p_is_published: payload.is_published, p_display_order: payload.display_order
+      p_seller_link: payload.seller_link, p_is_published: payload.is_published, p_display_order: payload.display_order,
+      p_show_stock: showStockInput(body.show_stock)
     })
   });
   if (!response.ok) return databaseError(response);
