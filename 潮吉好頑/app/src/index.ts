@@ -5,6 +5,7 @@ import { isOrdersPageRequest, withOrdersBootData } from "./orders-page";
 import { backfillProductImageDimensions } from "./product-image-dimensions";
 import { createWebSession } from "./web-session";
 import { adjustInventory, archiveProduct, createAdminCategory, createAdminProduct, createVariant, updateAdminCategory, updateProduct, updateVariant } from "./admin-catalog";
+import { adminPreorderDemand } from "./admin-preorder-demand";
 import { adminAuditLogs, adminDashboard, adminNotificationDeliveries, requeueAdminNotificationDelivery } from "./admin-dashboard";
 import { transitionAdminOrder, updateAdminOrderFulfillment } from "./admin-orders";
 import { adjustMemberPoints, createBankAccount, issueBirthdayCoupons, saveCoupon, updateBankAccount, updateBirthdaySettings, updatePointSettings } from "./admin-settings";
@@ -91,6 +92,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
     return response;
   }
   if (request.method === "GET" && url.pathname === "/api/admin/dashboard") return adminDashboard(request, env);
+  if (request.method === "GET" && url.pathname === "/api/admin/preorder-demand") return adminPreorderDemand(request, env);
   if (request.method === "GET" && url.pathname === "/api/admin/audit-logs") return adminAuditLogs(request, env);
   if (request.method === "GET" && url.pathname === "/api/admin/notification-deliveries") return adminNotificationDeliveries(request, env);
   const notificationRequeueMatch = url.pathname.match(/^\/api\/admin\/notification-deliveries\/(line|telegram)\/([0-9a-f-]{36})\/requeue$/i);
