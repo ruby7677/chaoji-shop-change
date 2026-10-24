@@ -146,3 +146,6 @@
   .transfer-account-inner{padding-inline:10px}
   .transfer-account-number-line>strong{font-size:1.08rem}
 }
+/* 匯款帳號卡標題列右側的紅字提醒：備注欄會讓人工對帳困難 */
+.transfer-card-head{flex-wrap:wrap}
+.transfer-card-warning{color:#d4232b;font-size:.95rem;font-weight:900;letter-spacing:.02em}
