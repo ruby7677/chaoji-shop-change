@@ -48,7 +48,9 @@ export function renderAdminOrders() {
   const status = document.querySelector("#admin-order-status-filter").value;
   const orders = (adminData.orders || []).filter((order) => {
     const member = relationOne(order.profiles);
-    const searchable = `${order.order_number} ${member?.full_name || ""} ${member?.phone || ""} ${order.payment_last_five || ""}`.toLowerCase();
+    // 與伺服器 admin_search_order_ids 比對相同欄位（含商品與規格名稱），否則伺服器找到的訂單會在這裡被濾掉
+    const itemNames = (order.order_items || []).map((item) => `${item.product_name || ""} ${item.variant_name || ""}`).join(" ");
+    const searchable = `${order.order_number} ${member?.full_name || ""} ${member?.phone || ""} ${order.payment_last_five || ""} ${itemNames}`.toLowerCase();
     const matchesStatus = status === "all" || order.status === status;
     return matchesStatus && searchable.includes(keyword);
   }).sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
