@@ -86,7 +86,7 @@ function buildTopbar() {
     <form class="admin-global-search" role="search" data-admin-global-search>
       <label class="sr-only" for="admin-global-search-input" data-admin-search-label>搜尋訂單</label>
       ${adminIcon("search")}
-      <input id="admin-global-search-input" type="search" placeholder="搜尋訂單編號、姓名、手機、末五碼" autocomplete="off" enterkeyhint="search" />
+      <input id="admin-global-search-input" type="search" placeholder="搜尋訂單編號、姓名、手機、末五碼、商品名稱" autocomplete="off" enterkeyhint="search" />
       <kbd aria-hidden="true">/</kbd>
     </form>
     <div class="admin-topbar-actions">
