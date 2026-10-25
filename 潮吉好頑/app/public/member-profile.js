@@ -1,5 +1,6 @@
 // 會員：載入會員與個人資料、LINE 身分同步、會員資料表單與 LINE 登入入口。
 import { watchSessionExpiry } from "./auth-expiry.js";
+import { endWebSession } from "./web-session.js";
 import { liffState } from "./liff-auth.js";
 import { auth, closeDialog, showDialog, showToast } from "./app-core.js";
 import { cartSyncUserId, loadMemberCart, resetMemberCartSyncState, saveCart } from "./cart.js";
@@ -122,6 +123,8 @@ export function showProfileDialog(required = false) {
   document.querySelector("#profile-birthday").max = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Taipei" }).format(new Date());
   document.querySelector("#profile-error").classList.add("hidden");
   document.querySelector(".profile-close").classList.toggle("hidden", required);
+  // LINE App 內的登入綁定 LINE 帳號，下次開啟會自動恢復，登出沒有意義；只在一般瀏覽器提供
+  document.querySelector("[data-member-logout]")?.classList.toggle("hidden", required || Boolean(liffState.isInClient));
   document.querySelector("#profile-dialog-title").textContent = required ? "完成會員資料" : "會員資料";
   document.querySelector("[data-profile-copy]").textContent = required
     ? "第一次使用 LINE 登入，請先填寫基本資料。姓名與手機為必填，生日與地址可稍後補上。"
@@ -156,6 +159,26 @@ export function beginLineLogin({ automatic = false } = {}) {
   if (automatic) location.replace(url.toString());
   else location.assign(url.toString());
   return true;
+}
+
+// 一般瀏覽器登出：撤銷 Supabase 工作階段（盡力而為）、清掉續期 cookie 與前端登入資料，再以訪客身分重新載入
+let logoutInFlight = false;
+export async function logoutMember() {
+  if (logoutInFlight) return;
+  logoutInFlight = true;
+  const accessToken = auth.accessToken;
+  if (accessToken && auth.config?.authEnabled) {
+    try {
+      await fetch(`${auth.config.supabaseUrl}/auth/v1/logout?scope=local`, { method: "POST", headers: { apikey: auth.config.supabaseAnonKey, Authorization: `Bearer ${accessToken}` } });
+    } catch { /* token 可能已過期；續期 cookie 清掉後一樣無法再恢復 */ }
+  }
+  if (!await endWebSession()) {
+    logoutInFlight = false;
+    showToast("登出未完成，請確認網路連線後再試", "warning");
+    return;
+  }
+  clearStoredAuthSession();
+  location.reload();
 }
 
 export async function saveProfile(profile) {

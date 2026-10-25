@@ -8,7 +8,7 @@ import { openAdminLazy } from "./admin-loader.js";
 import { auth, closeDialog, showDialog, showToast, syncPageScrollLock } from "./app-core.js";
 import { addToCartWithFeedback, addVariantQuantityToCart, buyNowFromCard, buyNowVariant, cart, freezeBootCartBaseline, handleCartCheckout, loadLocalCart, releaseBootCartBaseline, renderCart, saveCart, setCartDeliveryMethod, setCartGroupDeliveryMethod, toggleCart } from "./cart.js";
 import { bankAccounts, clearCheckoutFieldErrorFor, openCheckoutReview, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields, syncPaymentFields } from "./checkout-form.js";
-import { checkLineFriendship, handleLineFriendRequest, showLineFriendDialog } from "./member-benefits.js";
+import { ensureLineFriendship, handleLineFriendRequest } from "./member-benefits.js";
 import { currentOrders, openOrders, showPaymentDialog, submitPayment } from "./member-orders.js";
 import { loadProducts, openProductDetail, products, renderHeroSpotlight, renderProducts, search, selectCategory } from "./storefront-catalog.js";
 import { markAuthSettled, whenAuthReady } from "./auth-ready.js";
@@ -19,7 +19,7 @@ import { restoreAuthReturnState } from "./auth-return-state.js";
 import { activeCheckoutScope, openCheckout, showCheckoutError, submitOrder } from "./checkout-flow.js";
 import { applyCheckoutCoupon, handleCouponInputChange, removeCheckoutCoupon } from "./checkout-coupon.js";
 import { LIFF_AUTO_CALLBACK_PARAM, captureAuthSession, clearLiffLaunchContext, clearStoredAuthSession, ensureWebSession, hasLiffLaunchIntent, hasLiffPrimaryRedirectParams, initializeLiffBridge, initializeLiffStage, liffPrimaryRedirectPending, loadRuntimeConfig, readLiffLaunchContext, renewLiffSession, renewWebSession } from "./liff-session.js";
-import { beginLineLogin, loadMember, showProfileDialog, submitProfile } from "./member-profile.js";
+import { beginLineLogin, loadMember, logoutMember, showProfileDialog, submitProfile } from "./member-profile.js";
 import { handleCopyBankAccount } from "./copy-bank-account.js";
 import "./floating-actions.js";
 
@@ -55,6 +55,9 @@ document.addEventListener("click", (event) => {
   }
   if (event.target.closest("[data-demo='login']")) openMemberEntry();
   if (event.target.closest("[data-profile-close]")) closeDialog(document.querySelector("#profile-dialog"));
+  if (event.target.closest("[data-member-logout]")) logoutMember();
+  // 好友對話框的「重新登入」模式：LINE 授權過期或缺少時重新走 LINE 授權，回來後恢復原本的頁面
+  if (event.target.closest("[data-line-relogin]")) { closeDialog(document.querySelector("#line-friend-dialog")); beginLineLogin(); }
   if (event.target.closest("[data-orders-open]")) openOrders();
   if (event.target.closest("[data-orders-close]")) closeDialog(document.querySelector("#orders-dialog"));
   if (event.target.closest("[data-orders-shop]")) { closeDialog(document.querySelector("#orders-dialog")); scrollToAnchor("quick-pick"); }
@@ -72,11 +75,11 @@ document.addEventListener("click", (event) => {
     lineFriendCheck.disabled = true;
     lineFriendCheck.textContent = "檢查中…";
     document.querySelector("#line-friend-error")?.classList.add("hidden");
-    checkLineFriendship({ force: true }).then((isFriend) => {
-      if (!isFriend) return showLineFriendDialog();
+    ensureLineFriendship({ force: true }).then((isFriend) => {
+      if (!isFriend) return;
       closeDialog(document.querySelector("#line-friend-dialog"));
       return openCheckout(activeCheckoutScope);
-    }).catch((error) => showLineFriendDialog(error.message)).finally(() => {
+    }).finally(() => {
       lineFriendCheck.disabled = false;
       lineFriendCheck.textContent = "我已加入，重新檢查";
     });

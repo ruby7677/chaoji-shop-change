@@ -240,12 +240,13 @@ export async function memberLineFriendship(request: Request, env: Env): Promise<
   if (friendshipResponse.ok && profileCheckResponse.ok) {
     const friendship = await friendshipResponse.json() as { friendFlag?: boolean };
     const lineProfile = await profileCheckResponse.json() as { userId?: string };
-    if (lineProfile.userId !== lineUserId) return json({ error: "LINE 會員驗證不一致，請重新登入" }, { status: 401 });
+    if (lineProfile.userId !== lineUserId) return json({ error: "LINE 會員驗證不一致，請重新登入", code: "LINE_IDENTITY_MISMATCH" }, { status: 401 });
     const isFriend = friendship.friendFlag === true;
     if (!await setLineFriendVerification(env, authResult.user.id, isFriend)) return json({ error: "LINE 好友驗證紀錄失敗，請稍後再試" }, { status: 503 });
     return json({ friendFlag: isFriend, source: "line_login" });
   }
-  if ([401, 403].includes(friendshipResponse.status) || [401, 403].includes(profileCheckResponse.status)) return json({ error: "LINE 登入授權已過期，請重新登入" }, { status: 401 });
+  // code 讓前台分辨「LINE 授權過期，要重新 LINE 登入」與網站登入過期（requireUser 的 401，沒有 code）
+  if ([401, 403].includes(friendshipResponse.status) || [401, 403].includes(profileCheckResponse.status)) return json({ error: "LINE 登入授權已過期，請重新登入", code: "LINE_LOGIN_EXPIRED" }, { status: 401 });
   return json({ error: "LINE 好友狀態暫時無法確認" }, { status: 503 });
 }
 

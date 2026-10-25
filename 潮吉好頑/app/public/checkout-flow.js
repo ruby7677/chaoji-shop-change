@@ -8,6 +8,7 @@ import { rememberCvsStore } from "./checkout-cvs-store.js";
 import { checkoutRequestKey, clearCheckoutRequestKey, markCheckoutRequestCompleted, recentCompletedCheckout } from "./checkout-request-key.js";
 import { ensureCheckoutCouponApplied, resetCheckoutCoupon } from "./checkout-coupon.js";
 import { whenAuthReady } from "./auth-ready.js";
+import { ensureFreshSession } from "./auth-expiry.js";
 import { deliveryMethodError } from "./cart-delivery-rules.js";
 import { beginLineLogin, loadMember, profileIsComplete, saveProfile, showProfileDialog } from "./member-profile.js";
 
@@ -23,6 +24,8 @@ export function selectCheckoutScope(scope) {
 export async function openCheckout(scope = null) {
   // 先等背景登入與會員購物車合併完成，再依合併後的購物車建立結帳快照（loadMemberCart 會換掉 cart 內的物件）
   await whenAuthReady();
+  // 網頁放很久（電腦休眠）token 可能已過期：先換發，失敗會登出，下面再導去 LINE 登入
+  await ensureFreshSession();
   const memberCartSettled = await settleMemberCart();
   const groups = cartGroups();
   const resolvedScope = scope || activeCheckoutScope || (groups.preorder.length ? "preorder" : "in_stock");
@@ -70,6 +73,7 @@ export function showCheckoutError(message) {
 
 export async function submitOrder() {
   if (!auth.config?.authEnabled) return showToast("目前為靜態預覽，尚未連接訂單資料庫");
+  await ensureFreshSession();
   if (!auth.accessToken || !auth.user) return beginLineLogin();
   const details = validateCheckoutDetails();
   const unsupported = deliveryMethodError(checkoutCartItems(), details.deliveryMethod);

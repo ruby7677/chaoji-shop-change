@@ -3,10 +3,14 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
 const timers = [];
+const intervals = [];
 const listeners = {};
+const windowListeners = {};
 globalThis.window = {
   setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
-  clearTimeout: () => {}
+  clearTimeout: () => {},
+  setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; },
+  addEventListener: (type, fn) => { windowListeners[type] = fn; }
 };
 globalThis.document = {
   cookie: "",
@@ -153,4 +157,26 @@ test("auth-expiry renews early, keeps a still-valid session on a failed early re
   listeners.visibilitychange();
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(cleared, 2, "returning to a tab after expiry logs out");
+
+  // 分頁一直在前景（電腦休眠後）：沒有 visibilitychange，靠視窗焦點與每分鐘檢查
+  assert.equal(intervals.at(-1).ms, authExpiry.EXPIRY_CHECK_INTERVAL_MS);
+  token = jwt(nowSeconds() - 10);
+  intervals.at(-1).fn();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(cleared, 3, "the periodic check logs out an expired session on a foreground tab");
+  token = jwt(nowSeconds() - 10);
+  windowListeners.focus();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(cleared, 4, "focusing the window checks expiry");
+  token = jwt(nowSeconds() + 3600);
+  windowListeners.pageshow();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(cleared, 4, "a valid token is left alone");
+
+  // 結帳前：已到期先換發，成功就拿到新 token
+  token = jwt(nowSeconds() - 10);
+  restoreResult = true;
+  await authExpiry.ensureFreshSession();
+  assert.equal(cleared, 4);
+  assert.equal(authExpiry.accessTokenExpiresSoon(token), false, "ensureFreshSession renews an expired token before checkout");
 });
