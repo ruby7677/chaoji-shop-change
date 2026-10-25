@@ -1,6 +1,6 @@
--- 預購訂單回報匯款後，付款期限與庫存保留延長為回報起 24 小時；現貨訂單的期限不變；期限已過仍不可回報。
+-- 預購訂單回報匯款後，付款期限與庫存保留延長為回報起 12 小時；現貨訂單的期限不變；期限已過仍不可回報。
 
--- 預購：建單 2 小時，回報後延長到約 24 小時，保留量到期時間同步延長，原本會逾期的時間點不再被取消。
+-- 預購：建單 2 小時，回報後延長到約 12 小時，保留量到期時間同步延長，原本會逾期的時間點不再被取消。
 begin;
 select tests.seed();
 select tests.login(tests.id('member_a'));
@@ -8,8 +8,8 @@ create temp table t_pre on commit drop as select tests.place_order(tests.id('var
 select tests.assert((select payment_deadline < now() + interval '3 hours' from public.orders where id = (select id from t_pre)), 'a new preorder starts with the 2 hour deadline');
 select public.submit_order_payment((select id from t_pre), tests.id('bank'), '12345');
 select tests.logout();
-select tests.assert((select payment_deadline > now() + interval '23 hours' and payment_deadline <= now() + interval '24 hours' from public.orders where id = (select id from t_pre)),
-                    'reporting a preorder payment extends the deadline to about 24 hours');
+select tests.assert((select payment_deadline > now() + interval '11 hours' and payment_deadline <= now() + interval '12 hours' from public.orders where id = (select id from t_pre)),
+                    'reporting a preorder payment extends the deadline to about 12 hours');
 select tests.assert((select bool_and(expires_at = (select payment_deadline from public.orders where id = (select id from t_pre)))
                        from public.inventory_reservations where order_id = (select id from t_pre) and released_at is null),
                     'the reservation follows the extended deadline');

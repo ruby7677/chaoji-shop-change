@@ -1,6 +1,6 @@
--- 預購訂單回報匯款後，付款期限與庫存保留延長為「回報起 24 小時」，讓管理員有時間核對款項。
+-- 預購訂單回報匯款後，付款期限與庫存保留延長為「回報起 12 小時」，讓管理員有時間核對款項。
 -- 之前預購單建單只給 2 小時，客人在期限尾端回報時管理員常來不及確認，已匯款的訂單被排程自動取消。
--- 1. submit_order_payment：訂單含預購品項時，回報成功把 payment_deadline 設為 greatest(原期限, now() + 24 小時)；
+-- 1. submit_order_payment：訂單含預購品項時，回報成功把 payment_deadline 設為 greatest(原期限, now() + 12 小時)；
 --    現貨訂單的期限不變（建單就是 24 小時）。回報時期限已過仍不可回報（ORDER_NOT_PAYABLE），其餘條件與 202609100001 相同。
 -- 2. sync_order_reservation_lifecycle：轉為待核對時，保留量到期時間改為訂單的付款期限（原本取 least，延長期限後不會跟著延長）。
 --    正常情況保留量到期時間本來就等於付款期限，現貨訂單行為不變；其餘規則與 202609140001 相同。
@@ -29,7 +29,7 @@ begin
          status = 'pending_review',
          payment_deadline = case
            when exists (select 1 from public.order_items oi where oi.order_id = o.id and oi.kind = 'preorder')
-             then greatest(o.payment_deadline, now() + interval '24 hours')
+             then greatest(o.payment_deadline, now() + interval '12 hours')
            else o.payment_deadline
          end,
          updated_at = now()
