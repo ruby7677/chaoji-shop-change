@@ -52,3 +52,20 @@ select tests.expect_error(format($$select public.submit_order_payment(%L, tests.
 select tests.logout();
 select tests.assert((select payment_deadline < now() and status = 'pending_payment' from public.orders where id = (select id from t_pre)), 'the rejected report changed nothing');
 rollback;
+
+-- 建單時就帶末五碼：預購直接進待核對並拿到 12 小時，保留量同步；現貨維持 24 小時。
+begin;
+select tests.seed();
+select tests.login(tests.id('member_a'));
+create temp table t_pre on commit drop as
+select public.create_delivery_order(tests.order_items(tests.id('variant_pre'), 1), 'together', 'store_pickup', null, 0, tests.id('bank'), '12345', null, null, null, null, null, null, null) as id;
+create temp table t_stock on commit drop as
+select public.create_delivery_order(tests.order_items(tests.id('variant_stock'), 1), 'together', 'store_pickup', null, 0, tests.id('bank'), '12345', null, null, null, null, null, null, null) as id;
+select tests.logout();
+select tests.assert((select status = 'pending_review' and payment_deadline > now() + interval '11 hours' and payment_deadline <= now() + interval '12 hours'
+                       from public.orders where id = (select id from t_pre)), 'a preorder created with last five gets the 12 hour deadline');
+select tests.assert((select bool_and(expires_at = (select payment_deadline from public.orders where id = (select id from t_pre)))
+                       from public.inventory_reservations where order_id = (select id from t_pre) and released_at is null),
+                    'its reservation matches the 12 hour deadline');
+select tests.assert((select payment_deadline > now() + interval '23 hours' from public.orders where id = (select id from t_stock)), 'an in-stock order created with last five keeps 24 hours');
+rollback;
