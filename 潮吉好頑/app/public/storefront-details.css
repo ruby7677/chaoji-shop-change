@@ -146,6 +146,9 @@
   .transfer-account-inner{padding-inline:10px}
   .transfer-account-number-line>strong{font-size:1.08rem}
 }
-/* 匯款帳號卡標題列右側的紅字提醒：備注欄會讓人工對帳困難 */
-.transfer-card-head{flex-wrap:wrap}
-.transfer-card-warning{color:#d4232b;font-size:.95rem;font-weight:900;letter-spacing:.02em}
+/* 匯款帳號下方的紅字提醒：備注欄會讓人工對帳困難；桌機字放大 */
+.transfer-card-warning{margin:0;color:#d4232b;font-size:.95rem;font-weight:900;line-height:1.4;letter-spacing:.02em}
+@media(min-width:601px){.transfer-card-warning{font-size:1.15rem}}
+/* 取件門市文字較長：標題不換行，門市與其他列一樣靠右 */
+.payment-row-store>span{flex:0 0 auto;white-space:nowrap}
+.payment-row-store>strong{min-width:0;text-align:right}
