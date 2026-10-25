@@ -21,4 +21,5 @@ test("hidden slides collapse so the carousel height follows the active slide onl
   const css = readFileSync(new URL("../../public/hero-ratio.css", import.meta.url), "utf8");
   assert.match(css, /\.hero-slide:not\(\.is-active\):not\(:first-child\) \{ height: 0; \}/);
   assert.match(css, /\.hero-carousel:has\(\.hero-slide\.is-active\) \.hero-slide:not\(\.is-active\) \{ height: 0; \}/);
+  assert.match(css, /\.hero-selection:has\(\.hero-carousel\) \{ grid-template-columns: minmax\(0, 1fr\); \}/);
 });
