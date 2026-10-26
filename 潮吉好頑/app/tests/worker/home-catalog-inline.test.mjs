@@ -4,7 +4,7 @@ import { test, afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { baseEnv, ctx, jsonResponse, loadSourceModule, stubFetch } from "./harness.mjs";
 
-const { CATALOG_DATA_ID, catalogDataScript, homeBootMarkup } = await loadSourceModule("share-meta.ts");
+const { CATALOG_DATA_ID, homeBootMarkup } = await loadSourceModule("share-meta.ts");
 
 let restoreFetch = () => {};
 let originalCaches;
@@ -25,13 +25,6 @@ const readBlock = (markup) => {
   return body;
 };
 
-test("product text cannot close the data block or open a comment", () => {
-  const name = "</script><script>alert(1)</script><!-- 好頑";
-  const body = readBlock(catalogDataScript([{ id: "v1", name }]));
-  assert.ok(!body.includes("<"), "every < is escaped");
-  assert.deepEqual(JSON.parse(body), { products: [{ id: "v1", name }] });
-});
-
 // 慢的情境放前面：型錄在 isolate 內快取 30 秒，成功載入後同一模組不會再等
 test("a slow catalog is not inlined so the storefront requests it instead", async () => {
   restoreFetch = stubFetch(() => new Promise((resolve) => setTimeout(() => resolve(jsonResponse({}, 500)), 400)));
@@ -43,13 +36,16 @@ test("a slow catalog is not inlined so the storefront requests it instead", asyn
 
 test("a catalog that arrives in time is inlined with the same products as /api/catalog", async () => {
   restoreFetch = stubFetch(async (url) => {
-    if (url.pathname === "/rest/v1/storefront_variants") return jsonResponse([{ id: "v1", product_id: "p1", product_name: "陀螺", stock: 2, type: "現貨", price: 500, is_published: true, display_order: 1 }]);
+    if (url.pathname === "/rest/v1/storefront_variants") return jsonResponse([{ id: "v1", product_id: "p1", product_name: "陀螺", name: "</script><script>alert(1)</script><!-- 好頑", stock: 2, type: "現貨", price: 500, is_published: true, display_order: 1 }]);
     return jsonResponse([]);
   });
   const { catalogData } = await homeBootMarkup(baseEnv, new URL("https://inline.test/"));
-  const { products } = JSON.parse(readBlock(catalogData));
+  const body = readBlock(catalogData);
+  assert.ok(!body.includes("<"), "product text cannot close the data block or open a comment");
+  const { products } = JSON.parse(body);
   assert.equal(products.length, 1);
   assert.equal(products[0].id, "v1");
+  assert.equal(products[0].name, "</script><script>alert(1)</script><!-- 好頑");
 });
 
 // 執行設定只來自部署設定，首頁、商品頁與訂單頁都內嵌；前台 embedded-config.js 以同一個 id 讀取

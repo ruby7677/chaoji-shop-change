@@ -1,7 +1,8 @@
 // 前台型錄與前端 runtime config（商品主圖路由與上傳在 product-image-primary.ts）。
 import { type Env, type Product } from "./env";
 import { primaryImageUrls } from "./product-image-urls";
-import { deleteEdgeCatalog, readEdgeCatalogText, writeEdgeCatalog } from "./catalog-edge-cache";
+import { deleteEdgeCatalog, readEdgeCatalogEntry, writeEdgeCatalog } from "./catalog-edge-cache";
+import { firstHeroImageUrl } from "./hero-preload";
 import { fetchWithTimeout, serviceHeaders } from "./http";
 
 const demoProducts: Product[] = [
@@ -15,14 +16,21 @@ const demoProducts: Product[] = [
 const CATALOG_CACHE_TTL_MS = 30_000;
 // 快取的是「型錄快照」：物件與 JSON 文字各自惰性產生一次。首頁要物件、/api/catalog 要文字，
 // 從邊緣快取讀到文字時 /api/catalog 不必解析再轉回字串，從 Supabase 讀到物件時文字也只轉一次。
-type CatalogSnapshot = { products: () => Product[]; text: () => string };
-function snapshot(init: { products?: Product[]; text?: string }): CatalogSnapshot {
+// 首頁另需第一張輪播圖與「<」已跳脫的內嵌文字：一樣惰性產生並記住，30 秒內的首頁請求不再逐次轉字串。
+// 邊緣快取有記錄輪播圖時（heroImage 不是 undefined），首頁完全不必解析型錄。
+type CatalogSnapshot = { products: () => Product[]; text: () => string; heroImage: () => string | null; embedText: () => string };
+function snapshot(init: { products?: Product[]; text?: string; heroImage?: string | null }): CatalogSnapshot {
   let products = init.products;
   let text = init.text;
-  return {
+  let heroImage = init.heroImage;
+  let embedText: string | undefined;
+  const self: CatalogSnapshot = {
     products: () => (products ??= JSON.parse(text as string) as Product[]),
-    text: () => (text ??= JSON.stringify(products))
+    text: () => (text ??= JSON.stringify(products)),
+    heroImage: () => (heroImage === undefined ? (heroImage = firstHeroImageUrl(self.products())) : heroImage),
+    embedText: () => (embedText ??= `{"products":${self.text()}}`.replace(/</g, "\\u003c"))
   };
+  return self;
 }
 const demoSnapshot = snapshot({ products: demoProducts });
 let catalogCache: { data: CatalogSnapshot; expiresAt: number } | null = null;
@@ -77,12 +85,12 @@ async function catalogSnapshot(env: Env, origin?: string): Promise<CatalogSnapsh
   if (catalogInflight) return catalogInflight;
   const generation = catalogGeneration;
   const load = async () => {
-    const edgeText = origin ? await readEdgeCatalogText(origin) : null;
-    if (edgeText !== null) return snapshot({ text: edgeText });
+    const edge = origin ? await readEdgeCatalogEntry(origin) : null;
+    if (edge !== null) return snapshot(edge);
     const loadedAt = Date.now();
     const data = snapshot({ products: await loadPublicCatalog(env) });
     // 讀取期間若已失效，不把可能過期的資料寫進邊緣快取（跨 isolate 的失效由 loadedAt 與失效時間比對）
-    if (origin && generation === catalogGeneration) await writeEdgeCatalog(origin, data.text(), loadedAt);
+    if (origin && generation === catalogGeneration) await writeEdgeCatalog(origin, data.text(), loadedAt, data.heroImage());
     return data;
   };
   const inflight = load().then((data) => {
@@ -107,6 +115,12 @@ export async function publicCatalog(env: Env, origin?: string): Promise<Product[
 /** /api/catalog 的回應本文：與 JSON.stringify({ products }) 相同，但沿用快取住的文字。 */
 export async function publicCatalogJson(env: Env, origin?: string): Promise<string> {
   return `{"products":${(await catalogSnapshot(env, origin)).text()}}`;
+}
+
+/** 首頁開機資料：第一張輪播圖網址與可直接放進 <script type="application/json"> 的型錄文字（同 /api/catalog，「<」已跳脫）。 */
+export async function publicCatalogBoot(env: Env, origin?: string): Promise<{ heroImage: string | null; embedText: string }> {
+  const data = await catalogSnapshot(env, origin);
+  return { heroImage: data.heroImage(), embedText: data.embedText() };
 }
 
 export async function runtimeConfig(env: Env) {

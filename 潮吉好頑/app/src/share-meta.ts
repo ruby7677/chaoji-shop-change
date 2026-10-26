@@ -2,9 +2,8 @@
 // 因此由 Worker 回傳 index.html 時以 HTMLRewriter 寫入標題、描述與 Open Graph 標籤。
 // 只讀取已上架商品（storefront_variants + anon key），查詢失敗時退回全站預設值，不影響頁面本身。
 import { fetchWithTimeout } from "./http";
-import { publicCatalog, runtimeConfig } from "./catalog";
-import { type Env, type Product } from "./env";
-import { firstHeroImageUrl } from "./hero-preload";
+import { publicCatalogBoot, runtimeConfig } from "./catalog";
+import { type Env } from "./env";
 import { imageOrigin, primaryImageUrls } from "./product-image-urls";
 
 export interface ShareMetaEnv {
@@ -74,9 +73,9 @@ export function jsonDataScript(id: string, value: unknown) {
   return `<script type="application/json" id="${id}">${data}</script>`;
 }
 
-/** 內嵌型錄：與 /api/catalog 相同的 JSON。 */
-export function catalogDataScript(products: Product[]) {
-  return jsonDataScript(CATALOG_DATA_ID, { products });
+/** 內嵌型錄（與 /api/catalog 相同的 JSON）：catalog.ts 的 publicCatalogBoot 已轉好且「<」已跳脫，直接放進資料區塊，不再逐次轉字串。 */
+export function embeddedCatalogScript(embedText: string) {
+  return `<script type="application/json" id="${CATALOG_DATA_ID}">${embedText}</script>`;
 }
 
 /** 內嵌執行設定：只來自部署設定（不查資料庫），隨時可得，所以首頁、商品頁與訂單頁（src/orders-page.ts）都內嵌，省掉開機時的 /api/config。 */
@@ -89,16 +88,16 @@ export async function configDataScript(env: Env) {
 // 型錄讀取會被之後的 /api/catalog 共用（isolate 內同一個 in-flight）：必須用 waitUntil 讓它在首頁回應送出後
 // 仍能完成，否則讀取被中斷、in-flight 永遠不會結束，之後所有型錄請求都會卡住
 export async function homeBootMarkup(env: Env, url: URL, ctx?: ExecutionContext) {
-  const catalog = publicCatalog(env, url.origin).catch(() => null);
+  const catalog = publicCatalogBoot(env, url.origin).catch(() => null);
   ctx?.waitUntil(catalog);
   const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), HOME_CATALOG_WAIT_MS));
-  const products = await Promise.race([catalog, timeout]);
-  const image = products ? firstHeroImageUrl(products) : null;
+  const boot = await Promise.race([catalog, timeout]);
+  const image = boot?.heroImage ?? null;
   // 圖片在 R2 公開網域時先建立連線，第一張輪播圖與商品縮圖不必再等 DNS／TLS
   const origin = imageOrigin(env);
   const preload = (origin ? `<link rel="preconnect" href="${escapeAttribute(origin)}" />` : "")
     + (image ? `<link rel="preload" href="${escapeAttribute(image)}" as="image" fetchpriority="high" />` : "");
-  return { preload, catalogData: products ? catalogDataScript(products) : "" };
+  return { preload, catalogData: boot ? embeddedCatalogScript(boot.embedText) : "" };
 }
 
 export async function homePreloadMarkup(env: Env, url: URL, ctx?: ExecutionContext) {
