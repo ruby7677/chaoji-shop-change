@@ -3,6 +3,7 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { baseEnv, ctx, jsonResponse, loadWorker, stubFetch } from "./harness.mjs";
+import { ALL_DELIVERY_METHODS, itemDeliveryMethods } from "../../public/cart-delivery-rules.js";
 
 const worker = await loadWorker();
 const PRODUCT_ID = "aaaaaaaa-0000-4000-8000-000000000003";
@@ -87,7 +88,10 @@ test("the public catalog request asks for the delivery methods", async () => {
   restoreFetch = stubFetch(async (url) => {
     if (url.pathname === "/rest/v1/storefront_variants") {
       selected = url.searchParams.get("select");
-      return jsonResponse([{ id: "v1", category: "分類", name: "大型商品", price: 100, stock: 1, type: "現貨", allowed_delivery_methods: ["home_delivery"], is_published: true }]);
+      return jsonResponse([
+        { id: "v1", category: "分類", name: "大型商品", price: 100, stock: 1, type: "現貨", allowed_delivery_methods: ["home_delivery"], is_published: true },
+        { id: "v2", category: "分類", name: "一般商品", price: 100, stock: 1, type: "現貨", allowed_delivery_methods: ["home_delivery", "store_pickup", "cvs_delivery"], is_published: true }
+      ]);
     }
     if (url.pathname === "/rest/v1/categories") return jsonResponse([]);
     throw new Error(`unexpected request: ${url}`);
@@ -95,6 +99,9 @@ test("the public catalog request asks for the delivery methods", async () => {
   const response = await worker.fetch(new Request("https://shop.test/api/catalog"), { ...baseEnv }, ctx());
   assert.equal(response.status, 200);
   assert.match(selected, /allowed_delivery_methods/);
-  const payload = await response.json();
-  assert.deepEqual((payload.products || payload)[0].allowed_delivery_methods, ["home_delivery"]);
+  assert.doesNotMatch(selected, /seller_link/, "賣貨便已停用，型錄不讀賣場連結");
+  const { products } = await response.json();
+  assert.deepEqual(products[0].allowed_delivery_methods, ["home_delivery"]);
+  assert.ok(!("allowed_delivery_methods" in products[1]), "三種全開時不送，前台缺欄位即視為全開");
+  assert.deepEqual(itemDeliveryMethods(products[1]), ALL_DELIVERY_METHODS);
 });

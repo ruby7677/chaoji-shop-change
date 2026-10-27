@@ -7,6 +7,7 @@ import { mountHeroCarousel } from "./hero-carousel.js";
 import { selectHeroSlides } from "./hero-slides.js";
 import { showToast } from "./app-core.js";
 import { takePrefetchedCatalog } from "./catalog-prefetch.js";
+import { thumbnailUrlFor } from "./product-image-src.js";
 import { productPage } from "./app.js";
 
 export let products = [];
@@ -144,7 +145,8 @@ export async function loadProducts() {
     if (!response.ok) return false;
     const payload = await response.json();
     if (!Array.isArray(payload.products)) return false;
-    products = payload.products.map((product) => ({ ...product, link: product.seller_link, icon: product.category?.startsWith("BX") ? "🌀" : "⚔️" }));
+    // Worker 不送縮圖網址（舊快取型錄可能仍帶 thumb_url，沿用）
+    products = payload.products.map((product) => (product.image_url && !product.thumb_url ? { ...product, thumb_url: thumbnailUrlFor(product.image_url) } : product));
     catalogLoaded = true;
     return true;
   } catch {

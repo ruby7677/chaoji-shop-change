@@ -6,8 +6,8 @@ import { firstHeroImageUrl } from "./hero-preload";
 import { fetchWithTimeout, serviceHeaders } from "./http";
 
 const demoProducts: Product[] = [
-  { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨", seller_link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" },
-  { id: "ux20", category: "UX系列", name: "UX20 榮耀戰神 亞洲版", price: 1350, stock: 23, type: "現貨", seller_link: "https://myship.7-11.com.tw/cart/confirm/GM2606221488922" }
+  { id: "bx35", category: "BX系列", name: "BX35抽抽包 亞洲版", price: 1300, stock: 8, type: "現貨" },
+  { id: "ux20", category: "UX系列", name: "UX20 榮耀戰神 亞洲版", price: 1350, stock: 23, type: "現貨" }
 ];
 
 // 前台型錄放 Worker isolate 內的記憶體快取：TTL 30 秒，
@@ -59,20 +59,27 @@ async function loadCategoryOrder(env: Env): Promise<Map<string, number>> {
   return order;
 }
 
+const ALL_DELIVERY_METHODS = ["store_pickup", "cvs_delivery", "home_delivery"];
+// 型錄瘦身：三種取貨方式全開時不送（前台 cart-delivery-rules.js 缺欄位即視為全開），
+// 縮圖網址也不送（前台 product-image-src.js 的 thumbnailUrlFor 由主圖網址推回）；賣貨便已停用，不讀 seller_link。
+function deliveryMethodsField(methods: string[] | undefined) {
+  return Array.isArray(methods) && ALL_DELIVERY_METHODS.every((method) => methods.includes(method)) ? {} : { allowed_delivery_methods: methods };
+}
+
 async function loadPublicCatalog(env: Env): Promise<Product[]> {
-  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_path,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,allowed_delivery_methods,hero_rank,hero_tagline,image_width,image_height,show_stock&is_published=eq.true&order=display_order.desc,id.desc`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,display_order,product_id,has_image,image_path,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,allowed_delivery_methods,hero_rank,hero_tagline,image_width,image_height,show_stock&is_published=eq.true&order=display_order.desc,id.desc`, {
     headers: { apikey: env.SUPABASE_ANON_KEY as string, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
   });
   if (!response.ok) throw new Error("Unable to load catalog");
   const rows = await response.json() as Array<Product & { has_image?: boolean; image_path?: string | null; image_updated_at?: string; image_width?: number | null; image_height?: number | null }>;
   const categoryOrder = await loadCategoryOrder(env);
-  return rows.map(({ has_image, image_path, image_updated_at, image_width, image_height, ...product }) => {
+  return rows.map(({ has_image, image_path, image_updated_at, image_width, image_height, allowed_delivery_methods, ...product }) => {
     const urls = has_image && product.product_id ? primaryImageUrls(env, product.product_id, image_path, image_updated_at) : null;
     return {
       ...product,
+      ...deliveryMethodsField(allowed_delivery_methods),
       ...(categoryOrder.has(product.category) ? { category_order: categoryOrder.get(product.category) } : {}),
       image_url: urls?.image_url,
-      thumb_url: urls?.thumb_url,
       ...(urls && image_width && image_height ? { image_width, image_height } : {})
     };
   });
