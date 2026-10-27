@@ -18,6 +18,10 @@ const ADMIN_ORDER_HISTORY_SELECT = "id,order_id,from_status,to_status,note,creat
 
 const ADMIN_MEMBER_SELECT = "id,full_name,phone,birthday,address,is_admin,created_at,point_balance,lifetime_spend,order_count";
 
+// 會員分頁的消費紀錄只顯示編號、狀態、金額、時間與取貨方式（public/admin-members-panel.js）；
+// order_items(kind) 供狀態文字判斷是否含預購。不沿用 ADMIN_ORDERS_SELECT，避免每次多傳品項、銀行帳號等完整訂單資料。
+const ADMIN_MEMBER_ORDERS_SELECT = "id,member_id,order_number,status,delivery_method,amount_due,created_at,order_items(kind)";
+
 const ADMIN_POINT_ENTRIES_SELECT = "id,member_id,order_id,kind,points,reason,created_at,profiles!point_ledger_member_id_fkey(full_name),actor:profiles!point_ledger_actor_id_fkey(full_name),orders(order_number)";
 
 const ADMIN_COUPON_SELECT = "id,code,name,discount_amount,combinable_with_points,valid_from,valid_until,total_usage_limit,per_member_limit,is_active,is_birthday,created_at,coupon_products(product_id),coupon_members(member_id),coupon_redemptions(id)";
@@ -102,15 +106,16 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
       if (!searchResponse.ok) return databaseError(searchResponse);
       const searchResult = await searchResponse.json() as { ids?: unknown; pagination?: Record<string, unknown> };
       const ids = Array.isArray(searchResult.ids) ? searchResult.ids.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)) : [];
-      if (!ids.length) return json({ members: [], pointEntries: [], pointSettings: null, orders: [], pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+      // 回傳 memberOrders 而非 orders：前台把各分區回應合併進同一份資料，用 orders 會蓋掉訂單分頁的列表
+      if (!ids.length) return json({ members: [], pointEntries: [], pointSettings: null, memberOrders: [], pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
       const idFilter = adminIdFilter(ids);
-      const [members, pointEntries, pointSettings, orders] = await Promise.all([
+      const [members, pointEntries, pointSettings, memberOrders] = await Promise.all([
         rows("admin_member_summary", ADMIN_MEMBER_SELECT, { id: idFilter, order: "created_at.desc", limit: String(page.pageSize) }),
         rows("point_ledger", ADMIN_POINT_ENTRIES_SELECT, { member_id: idFilter, order: "created_at.desc", limit: "500" }),
         rows("point_settings", "earn_amount_per_point,point_value,min_redeem_points,max_redeem_mode,max_redeem_value,updated_at", { id: "eq.true", limit: "1" }),
-        rows("orders", ADMIN_ORDERS_SELECT, { member_id: idFilter, order: "created_at.desc", limit: "500" })
+        rows("orders", ADMIN_MEMBER_ORDERS_SELECT, { member_id: idFilter, order: "created_at.desc", limit: "500" })
       ]);
-      return json({ members: orderRowsByIds(members, ids), pointEntries, pointSettings: pointSettings[0] || null, orders, pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+      return json({ members: orderRowsByIds(members, ids), pointEntries, pointSettings: pointSettings[0] || null, memberOrders, pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
     }
     if (section === "products") {
       const page = adminPage(request, 100);

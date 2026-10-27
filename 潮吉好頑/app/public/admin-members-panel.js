@@ -56,6 +56,8 @@ function renderPointSettings() {
   syncPointMaxHint();
 }
 
+const MEMBER_ORDER_DELIVERY_LABELS = { store_pickup: "到店取貨", seller_delivery: "賣貨便", cvs_delivery: "7-11店到店", home_delivery: "宅配" };
+
 function memberPointEntries(memberId) {
   return (adminData.pointEntries || []).filter((entry) => entry.member_id === memberId);
 }
@@ -74,8 +76,8 @@ export function renderAdminMembers() {
   container.innerHTML = members.map((member) => {
     const entries = memberPointEntries(member.id).slice(0, 8);
     const history = entries.map((entry) => { const order = relationOne(entry.orders); const actor = relationOne(entry.actor); return `<li><span>${escapeHtml(kindLabels[entry.kind] || entry.kind)}${order?.order_number ? ` · ${escapeHtml(order.order_number)}` : ""}</span><strong class="${entry.points > 0 ? "movement-positive" : "movement-negative"}">${entry.points > 0 ? "+" : ""}${entry.points}</strong><small>${formatDateTime(entry.created_at)} · ${escapeHtml(entry.reason)}${actor?.full_name ? ` · 操作：${escapeHtml(actor.full_name)}` : ""}</small></li>`; }).join("");
-    const memberOrders = (adminData.orders || []).filter((order) => order.member_id === member.id).slice(0, 8);
-    const orderHistory = memberOrders.map((order) => `<li><span>${escapeHtml(order.order_number)} · ${escapeHtml(orderStatusLabel(order))}</span><strong>${money(order.amount_due)}</strong><small>${formatDateTime(order.created_at)} · ${order.delivery_method === "store_pickup" ? "到店取貨" : order.delivery_method === "seller_delivery" ? "賣貨便" : "宅配"}</small></li>`).join("");
+    const memberOrders = (adminData.memberOrders || []).filter((order) => order.member_id === member.id).slice(0, 8);
+    const orderHistory = memberOrders.map((order) => `<li><span>${escapeHtml(order.order_number)} · ${escapeHtml(orderStatusLabel(order))}</span><strong>${money(order.amount_due)}</strong><small>${formatDateTime(order.created_at)} · ${MEMBER_ORDER_DELIVERY_LABELS[order.delivery_method] || "宅配"}</small></li>`).join("");
     return `<article class="admin-member-card"><header><div><h3>${escapeHtml(member.full_name || "尚未填寫姓名")}${member.is_admin ? " · 管理員" : ""}</h3><small>${escapeHtml(member.phone || "尚未填寫手機")} · 加入於 ${formatDateTime(member.created_at)}</small></div><div class="member-metrics"><span>點數<b>${member.point_balance}</b></span><span>累積消費<b>${money(member.lifetime_spend)}</b></span><span>訂單<b>${member.order_count}</b></span></div></header><div class="member-extra"><span>生日：${escapeHtml(member.birthday || "未填")}</span><span>地址：${escapeHtml(member.address || "未填")}</span></div><details class="admin-order-history admin-point-adjust-toggle"><summary>調整點數</summary><form class="admin-point-adjust" data-admin-points-form="${member.id}"><label>異動點數<input name="points" required type="number" step="1" placeholder="正數加點、負數扣點" /></label><label>原因<input name="reason" required maxlength="200" placeholder="例：活動贈點" /></label><button class="secondary-button" type="submit">確認調整</button></form></details><details class="admin-order-history"><summary>消費紀錄（${member.order_count || 0}）</summary>${orderHistory ? `<ol class="member-ledger">${orderHistory}</ol>` : '<p>尚無消費紀錄。</p>'}</details><details class="admin-order-history"><summary>點數紀錄（${memberPointEntries(member.id).length}）</summary>${history ? `<ol class="member-ledger">${history}</ol>` : '<p>尚無點數紀錄。</p>'}</details></article>`;
   }).join("");
   renderAdminPagination("members");
