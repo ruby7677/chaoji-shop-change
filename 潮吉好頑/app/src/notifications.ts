@@ -82,7 +82,7 @@ export async function testTelegramNotification(request: Request, env: Env): Prom
 async function loadOrderNotification(env: Env, orderId: string) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return null;
   const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set("select", "id,order_number,status,delivery_method,bank_account_id,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,pickup_store_city,pickup_store_district,pickup_store_name,pickup_store_code,shipping_fee_notified_at,paid_amount,refunded_amount,final_payment_last_five,final_payment_confirmed_at,updated_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,profiles!orders_member_id_fkey(full_name,line_user_id,is_admin),order_items(product_name,variant_name,quantity,kind)");
+  url.searchParams.set("select", "id,order_number,status,delivery_method,bank_account_id,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,pickup_store_city,pickup_store_district,pickup_store_name,pickup_store_code,shipping_fee_notified_at,paid_amount,refunded_amount,final_payment_last_five,final_payment_confirmed_at,final_payment_reported_last_five,final_payment_reported_at,updated_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,profiles!orders_member_id_fkey(full_name,line_user_id,is_admin),order_items(product_name,variant_name,quantity,kind)");
   url.searchParams.set("id", `eq.${orderId}`);
   let response: Response;
   // 這裡沒有上層 try/catch（呼叫端以 ctx.waitUntil 執行），逾時或網路錯誤需自行吞掉，
@@ -91,7 +91,7 @@ async function loadOrderNotification(env: Env, orderId: string) {
   catch { return null; }
   if (!response.ok) return null;
   const rows = await response.json() as unknown[];
-  return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; shipping_address?: string | null; shipping_recipient_name?: string | null; shipping_phone?: string | null; pickup_store_city?: string | null; pickup_store_district?: string | null; pickup_store_name?: string | null; pickup_store_code?: string | null; shipping_fee_notified_at?: string | null; paid_amount?: number; refunded_amount?: number | null; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string; is_admin?: boolean }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number; kind?: string }> };
+  return rows[0] as { order_number: string; status: string; delivery_method?: string; bank_account_id?: string | null; shipping_fee?: number; shipping_address?: string | null; shipping_recipient_name?: string | null; shipping_phone?: string | null; pickup_store_city?: string | null; pickup_store_district?: string | null; pickup_store_name?: string | null; pickup_store_code?: string | null; shipping_fee_notified_at?: string | null; paid_amount?: number; refunded_amount?: number | null; final_payment_last_five?: string | null; final_payment_confirmed_at?: string | null; final_payment_reported_last_five?: string | null; final_payment_reported_at?: string | null; updated_at?: string; subtotal: number; coupon_discount: number; point_discount: number; amount_due: number; deposit_due: number; payment_deadline: string; profiles?: { full_name?: string; line_user_id?: string; is_admin?: boolean }; order_items?: Array<{ product_name: string; variant_name: string; quantity: number; kind?: string }> };
 }
 
 /**
@@ -151,7 +151,8 @@ async function deliverOrderEvent(
       : null,
     paymentDeadline: order.payment_deadline
       ? new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(new Date(order.payment_deadline))
-      : null
+      : null,
+    finalPaymentReportedLastFive: order.final_payment_reported_last_five
   };
   const message = buildOrderNotificationMessage(orderMessageData);
   if (!message) return { handled: true, memberReached: true };
@@ -167,7 +168,10 @@ async function deliverOrderEvent(
     ? `${eventType}:${orderId}:${order.status}:${order.updated_at || "current"}`
     : eventType === "fulfillment_updated"
       ? `${eventType}:${orderId}:${order.updated_at || "current"}`
-      : `${eventType}:${orderId}`;
+      // 尾款確認前可改填，每次回報各通知一次；訂金回報沿用一筆訂單一次
+      : eventType === "final_payment_reported"
+        ? `${eventType}:${orderId}:${order.final_payment_reported_at || "current"}`
+        : `${eventType}:${orderId}`;
   const routing = routeOrderNotificationRecipients(eventType, order.profiles?.line_user_id, telegramAdminRecipients(env), suppressAdminMemberLine);
   const telegramTasks = routing.telegramRecipients.map((chatId) => notifyTelegram(env, eventKey, chatId, `order_${eventType}`, telegramMessage));
   // 會員回報匯款只通知 Telegram 管理員；一般會員狀態走 LINE，管理員本人賣貨便備貨確認只保留 Telegram。

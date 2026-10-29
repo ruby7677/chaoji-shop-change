@@ -26,6 +26,16 @@ export function preorderCvsBalanceDue(order, hasPreorder) {
   return preorderCvsArrived(order, hasPreorder) && Boolean(order.bank_account_id) && !order.final_payment_confirmed_at;
 }
 
+/** 預購店到店／宅配到貨、尾款未確認：可在網站回報尾款末五碼（對應 SQL submit_order_final_payment） */
+export function finalPaymentReportable(order, hasPreorder) {
+  return preorderHomeBalanceDue(order, hasPreorder) || preorderCvsBalanceDue(order, hasPreorder);
+}
+
+/** 後台尾款確認表單的末五碼預設值：已確認的值優先，否則帶入會員在網站回報的末五碼 */
+export function adminFinalPaymentLastFive(order) {
+  return order?.final_payment_last_five || order?.final_payment_reported_last_five || "";
+}
+
 /** 現貨宅配待付款、運費還沒確認：不給匯款帳號，也不能回報末五碼 */
 export function awaitingStockHomeFee(order, hasPreorder) {
   return isStockHomeOrder(order, hasPreorder) && order.status === "pending_payment" && !homeFeeConfirmed(order);

@@ -5,7 +5,7 @@ import { closeDialog, showDialog, showToast } from "./app-core.js";
 import { initializeLiffClient, preloadLiffSdk } from "./liff-auth.js";
 import { refreshWebSession } from "./web-session.js";
 import { handleCopyBankAccount } from "./copy-bank-account.js";
-import { applyPaymentFormMode, orderCardMarkup, ordersEmptyMarkup, paymentOrderView, reportPayment } from "./order-views.js";
+import { applyPaymentFormMode, orderCardMarkup, ordersEmptyMarkup, paymentLastFiveDefault, paymentOrderView, reportPayment } from "./order-views.js";
 import { cachedAccessToken, forgetAccessToken, rememberAccessToken, restoreOrdersSession } from "./orders-session.js";
 import { takeEmbeddedConfig } from "./embedded-config.js";
 import { markBoot, noteBootResponse, reportBootTiming } from "./boot-timing.js";
@@ -149,7 +149,7 @@ function openPayment(order) {
   const { html, mode } = paymentOrderView(order);
   document.querySelector("#payment-order-detail").innerHTML = html;
   applyPaymentFormMode(mode);
-  document.querySelector("#payment-last-five").value = "";
+  document.querySelector("#payment-last-five").value = paymentLastFiveDefault(order);
   document.querySelector("#payment-error").classList.add("hidden");
   showDialog(paymentDialog);
 }

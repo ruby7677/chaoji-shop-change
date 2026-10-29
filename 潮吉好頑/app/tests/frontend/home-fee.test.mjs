@@ -1,8 +1,8 @@
 // 現貨宅配「待小幫手確認運費」：運費確認前不給匯款帳號、不能回報末五碼；確認後顯示含運應付與匯款按鈕。
 import test from "node:test";
 import assert from "node:assert/strict";
-import { awaitingStockHomeFee, homeFeeConfirmed, homePaidInFull, stockHomeFeePrepaid } from "../../public/home-fee-state.js";
-import { orderCardMarkup, paymentOrderView } from "../../public/order-views.js";
+import { adminFinalPaymentLastFive, awaitingStockHomeFee, finalPaymentReportable, homeFeeConfirmed, homePaidInFull, stockHomeFeePrepaid } from "../../public/home-fee-state.js";
+import { orderCardMarkup, paymentLastFiveDefault, paymentOrderView, reportPayment } from "../../public/order-views.js";
 
 const account = { bank_name: "台北富邦(012)", account_name: "曾**", account_number: "81680005517989" };
 const unpaid = {
@@ -61,14 +61,16 @@ test("我的訂單：運費確認前沒有回報按鈕，確認後依序顯示�
   assert.match(after, /尾款／運費<\/span><strong>NT\$150/);
 });
 
-test("預購宅配到貨、尾款與運費已確認：可查看尾款匯款帳號，末五碼回覆給小幫手", () => {
+test("預購宅配到貨、尾款與運費已確認：可查看尾款匯款帳號並在網站回報末五碼", () => {
   const arrived = { ...unpaid, status: "ready_for_pickup", shipping_fee: 150, shipping_fee_notified_at: "2026-10-12T11:00:00Z", amount_due: 6650, deposit_due: 3250, order_items: [{ ...unpaid.order_items[0], kind: "preorder" }] };
   const { html, mode } = paymentOrderView(arrived);
   assert.equal(mode, "balance");
   assert.match(html, /待付尾款（含運費）<\/span><strong>NT\$3,400/);
   assert.match(html, /81680005517989/);
   assert.match(html, /本次應付<\/span><strong>NT\$3,400/, "amount due matches the transfer card");
-  assert.match(orderCardMarkup(arrived), /data-order-payment="order-1">查看尾款匯款帳號/);
+  assert.match(orderCardMarkup(arrived), /data-order-payment="order-1">查看尾款帳號並回報末五碼/);
+  assert.match(html, /匯款後在下方填寫末五碼/);
+  assert.doesNotMatch(html, /回覆末五碼給小幫手/);
   assert.match(orderCardMarkup(arrived), /本次應付<\/span><strong>NT\$3,400/);
   assert.doesNotMatch(orderCardMarkup({ ...arrived, final_payment_confirmed_at: "2026-10-13T00:00:00Z" }), /data-order-payment/);
 });
@@ -89,4 +91,52 @@ test("預購店到店到貨：顯示已付訂金、紅字尾款（含運費）�
   const noAccount = orderCardMarkup({ ...cvsArrived, bank_accounts: null });
   assert.match(noAccount, /匯款帳號暫時無法載入/);
   assert.match(orderCardMarkup({ ...cvsArrived, status: "confirmed" }), /本次應付<\/span><strong>NT\$1,500/, "before arrival the deposit row keeps its label");
+});
+
+test("預購店到店到貨：可回報尾款末五碼；回報後標示待確認並可改填，確認後收起", () => {
+  const cvsArrived = {
+    ...unpaid, status: "ready_for_pickup", delivery_method: "cvs_delivery", shipping_fee: 60, amount_due: 3060, deposit_due: 1500, paid_amount: 1500,
+    order_items: [{ ...unpaid.order_items[0], kind: "preorder" }]
+  };
+  assert.match(orderCardMarkup(cvsArrived), /data-order-payment="order-1">回報尾款末五碼/);
+  const { html, mode } = paymentOrderView(cvsArrived);
+  assert.equal(mode, "balance");
+  assert.match(html, /待付尾款（含運費）<\/span><strong>NT\$1,560/);
+  assert.equal(paymentLastFiveDefault(cvsArrived), "");
+
+  const reported = { ...cvsArrived, final_payment_reported_last_five: "54321", final_payment_reported_at: "2026-10-29T12:00:00Z" };
+  const card = orderCardMarkup(reported);
+  assert.match(card, /已回報尾款，待確認/);
+  assert.match(card, /已回報尾款末五碼 <strong>54321<\/strong>/);
+  assert.match(card, /data-order-payment="order-1">修改尾款末五碼/);
+  assert.match(paymentOrderView(reported).html, /已回報尾款末五碼/);
+  assert.equal(paymentLastFiveDefault(reported), "54321");
+
+  const confirmed = orderCardMarkup({ ...reported, final_payment_confirmed_at: "2026-10-30T00:00:00Z" });
+  assert.doesNotMatch(confirmed, /已回報尾款|data-order-payment/);
+});
+
+test("後台尾款表單預設帶入會員回報的末五碼；已確認的值優先；可回報範圍不含到店取貨", () => {
+  assert.equal(adminFinalPaymentLastFive({ final_payment_reported_last_five: "54321" }), "54321");
+  assert.equal(adminFinalPaymentLastFive({ final_payment_last_five: "11111", final_payment_reported_last_five: "54321" }), "11111");
+  assert.equal(adminFinalPaymentLastFive({}), "");
+  const arrivedPickup = { ...unpaid, delivery_method: "store_pickup", status: "ready_for_pickup", amount_due: 2000, deposit_due: 1000 };
+  assert.equal(finalPaymentReportable(arrivedPickup, true), false);
+  const arrivedHomeNoFee = { ...unpaid, status: "ready_for_pickup", amount_due: 2000, deposit_due: 1000 };
+  assert.equal(finalPaymentReportable(arrivedHomeNoFee, true), false, "home preorders wait for the confirmed fee");
+});
+
+test("回報末五碼：到貨後的預購單送到尾款 API，其他訂單仍送訂金 API", async () => {
+  const requests = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => { requests.push([url, JSON.parse(init.body)]); return new Response(JSON.stringify({ order: { id: "order-1" } }), { status: 200 }); };
+  try {
+    const cvsArrived = { ...unpaid, status: "ready_for_pickup", delivery_method: "cvs_delivery", amount_due: 3060, deposit_due: 1500, paid_amount: 1500, order_items: [{ ...unpaid.order_items[0], kind: "preorder" }] };
+    await reportPayment(cvsArrived, "11111", "token");
+    await reportPayment(feeConfirmed, "22222", "token");
+  } finally {
+    globalThis.fetch = original;
+  }
+  assert.deepEqual(requests[0], ["/api/orders/order-1/final-payment", { payment_last_five: "11111" }]);
+  assert.deepEqual(requests[1], ["/api/orders/order-1/payment", { bank_account_id: "bank-1", payment_last_five: "22222" }]);
 });

@@ -52,6 +52,7 @@ export const databaseErrors: Record<string, string> = {
   PRODUCT_HAS_OPEN_ORDERS: "此商品還有未完成的訂單，請等訂單完成或取消後再刪除；也可以先取消上架",
   INSUFFICIENT_STOCK: "商品庫存不足，請重新整理購物車",
   ORDER_NOT_PAYABLE: "訂單已逾期、已回報付款或無法付款",
+  FINAL_PAYMENT_NOT_REPORTABLE: "此訂單目前不需回報尾款，或尾款已確認",
   LINE_FRIEND_REQUIRED: "請先加入官方 LINE，並重新檢查好友狀態",
   ORDER_RATE_LIMITED: "近期建立訂單次數過多，請稍後再試",
   PENDING_ORDER_LIMIT: "目前待處理訂單已達上限，請等待客服確認",

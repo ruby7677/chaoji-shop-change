@@ -1330,6 +1330,10 @@ body.is-product-view .product-page {
 /* 預購店到店到貨：我的訂單的尾款（含運費）紅字加大，下方附匯款帳號卡片 */
 .order-card .balance-due-row strong{color:#d4232b;font-size:1.25rem;font-weight:950;font-variant-numeric:tabular-nums}
 .order-card .order-balance-account{margin-top:12px}
+/* 會員已在網站回報尾款末五碼、待管理員確認 */
+.final-payment-reported{margin:12px 0 0;padding:10px 12px;border-radius:10px;background:#eef8f0;color:#1d5a2c;font-size:.9375rem;font-weight:750;line-height:1.5}
+.final-payment-reported strong{font-variant-numeric:tabular-nums;letter-spacing:.04em}
+.order-card .final-payment-reported + button,.order-card .order-balance-account + button{margin-top:12px}
 .checkout-deadline-warning{padding:1px 5px;border-radius:6px;background:#fdecea;color:#a12d22;font-weight:850;-webkit-box-decoration-break:clone;box-decoration-break:clone}
 /* ==== product-variants.css ==== */
 /* 多規格商品：首頁合併卡的「選擇規格」按鈕與「起」價，商品頁的規格單選按鈕（product-groups.js、product-page.js）。 */

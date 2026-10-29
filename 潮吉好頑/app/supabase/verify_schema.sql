@@ -88,6 +88,20 @@ select
     group by table_schema, table_name
     having count(*) = 3
   ) as final_payment_columns_exist,
+  -- 202610290001：會員回報尾款末五碼，只有登入會員可呼叫。
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'orders'
+      and column_name in ('final_payment_reported_last_five', 'final_payment_reported_at')
+    group by table_schema, table_name
+    having count(*) = 2
+  ) as final_payment_report_columns_exist,
+  coalesce((
+    select has_function_privilege('authenticated', fn, 'EXECUTE')
+       and not has_function_privilege('anon', fn, 'EXECUTE')
+    from (select to_regprocedure('public.submit_order_final_payment(uuid,text)') as fn) f
+    where fn is not null
+  ), false) as final_payment_report_rpc_member_only,
   to_regprocedure('public.admin_save_coupon(uuid,uuid,text,text,integer,boolean,timestamp with time zone,timestamp with time zone,integer,integer,boolean,uuid[],uuid[])') is not null as admin_save_coupon_exists,
   to_regprocedure('public.issue_birthday_coupons()') is not null as issue_birthday_coupons_exists,
   -- 202609250004_unify_notification_deliveries：LINE／Telegram 通知紀錄合併為單表，函式改為靜態 SQL。

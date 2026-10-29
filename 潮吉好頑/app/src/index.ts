@@ -20,7 +20,7 @@ import { isCvsStoresRequest, serveCvsStores } from "./cvs-stores-serve";
 import { type Env } from "./env";
 import { MAX_JSON_REQUEST_BYTES, SECURITY_HEADERS, enforceRateLimit, json, jsonText, serviceHeaders, withSecurityHeaders } from "./http";
 import { previewCheckoutCoupon } from "./coupon-preview";
-import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFriendship, memberPoints, ordersForRestoredSession, replaceMemberCart, submitOrderPayment } from "./member-api";
+import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFriendship, memberPoints, ordersForRestoredSession, replaceMemberCart, submitOrderFinalPayment, submitOrderPayment } from "./member-api";
 import { notifyOrderEvent, notifyOrderEventToMember, runScheduledNotifications, testTelegramNotification } from "./notifications";
 import { isKeepaliveHour, pingSupabase } from "./supabase-keepalive";
 import { BACKUP_CRON, runDailyBackup } from "./database-backup";
@@ -89,6 +89,12 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   if (request.method === "POST" && paymentMatch) {
     const response = await submitOrderPayment(request, env, paymentMatch[1]);
     if (response.ok) ctx.waitUntil(notifyOrderEvent(env, paymentMatch[1], "payment_reported"));
+    return response;
+  }
+  const finalPaymentMatch = url.pathname.match(/^\/api\/orders\/([0-9a-f-]{36})\/final-payment$/i);
+  if (request.method === "POST" && finalPaymentMatch) {
+    const response = await submitOrderFinalPayment(request, env, finalPaymentMatch[1]);
+    if (response.ok) ctx.waitUntil(notifyOrderEvent(env, finalPaymentMatch[1], "final_payment_reported"));
     return response;
   }
   if (request.method === "GET" && url.pathname === "/api/admin/dashboard") return adminDashboard(request, env);

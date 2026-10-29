@@ -24,13 +24,19 @@ const hasPreorderItem = (order) => (order.order_items || []).some((item) => item
 const isCvsReadyToShip = (order) => order.delivery_method === "cvs_delivery"
   && ((order.status === "confirmed" && !hasPreorderItem(order)) || (order.status === "ready_for_pickup" && Boolean(order.final_payment_confirmed_at)));
 
+// 店到店／宅配到貨後尚未確認尾款
+const finalPaymentAwaiting = (order) => ["cvs_delivery", "home_delivery"].includes(order.delivery_method)
+  && order.status === "ready_for_pickup" && !order.final_payment_confirmed_at;
+
 // 依緊急程度排序的待辦規則；只列出需要店長人工處理的狀態
 const TODO_RULES = [
   { match: (o) => o.status === "pending_review", icon: "bank", urgent: true, title: (o) => `確認款項 ${o.order_number}`, detail: (o) => `末五碼 ${o.payment_last_five || "未回報"}・應收 ${money(o.deposit_due || o.amount_due)}` },
   { match: (o) => awaitingStockHomeFee(o, hasPreorderItem(o)), icon: "truck", urgent: true, title: (o) => `宅配待填運費 ${o.order_number}`, detail: (o) => `商品 ${money(o.amount_due)}・確認運費後通知客人匯款` },
   { match: isCvsReadyToShip, icon: "bag", urgent: false, title: (o) => `店到店待寄出 ${o.order_number}`, detail: (o) => `訂單金額 ${money(o.amount_due)}` },
-  { match: (o) => o.delivery_method === "cvs_delivery" && o.status === "ready_for_pickup" && !o.final_payment_confirmed_at, icon: "truck", urgent: false, title: (o) => `店到店尾款／運費 ${o.order_number}`, detail: (o) => `待收 ${money(Math.max(Number(o.amount_due || 0) - Number(o.paid_amount || 0), 0))}` },
-  { match: (o) => o.delivery_method === "home_delivery" && o.status === "ready_for_pickup" && !o.final_payment_confirmed_at, icon: "truck", urgent: false, title: (o) => `宅配尾款／運費 ${o.order_number}`, detail: (o) => (o.shipping_fee ? `運費 ${money(o.shipping_fee)}，待確認入帳` : "尚未填寫實際運費") }
+  // 會員已在網站回報尾款末五碼：與確認款項同樣緊急，取代下面兩條一般尾款待辦
+  { match: (o) => finalPaymentAwaiting(o) && Boolean(o.final_payment_reported_last_five), icon: "bank", urgent: true, title: (o) => `確認尾款 ${o.order_number}`, detail: (o) => `會員已回報末五碼 ${o.final_payment_reported_last_five}・待收 ${money(Math.max(Number(o.amount_due || 0) - Number(o.paid_amount || 0), 0))}` },
+  { match: (o) => o.delivery_method === "cvs_delivery" && finalPaymentAwaiting(o) && !o.final_payment_reported_last_five, icon: "truck", urgent: false, title: (o) => `店到店尾款／運費 ${o.order_number}`, detail: (o) => `待收 ${money(Math.max(Number(o.amount_due || 0) - Number(o.paid_amount || 0), 0))}` },
+  { match: (o) => o.delivery_method === "home_delivery" && finalPaymentAwaiting(o) && !o.final_payment_reported_last_five, icon: "truck", urgent: false, title: (o) => `宅配尾款／運費 ${o.order_number}`, detail: (o) => (o.shipping_fee ? `運費 ${money(o.shipping_fee)}，待確認入帳` : "尚未填寫實際運費") }
 ];
 
 function todoItems(orders) {
