@@ -7,7 +7,7 @@ import { adminData, adminFetch, refreshAdminSections, relationOne } from "./admi
 import { adminOrderStage } from "./admin-order-stages.js";
 import { batchSelectionError, canBatchComplete, completionBatchConfirmation, outstandingBalance, summarizeBatchResults } from "./admin-batch.js";
 
-// 只在「待出貨」分類提供勾選（完成取貨發生在已確認／到貨的訂單；分類見 admin-order-stages.js）
+// 只在「待出貨／取貨」分類提供勾選（完成取貨發生在已確認／到貨的訂單；分類見 admin-order-stages.js）
 const BATCH_FILTER = "ready_to_ship";
 
 const selected = new Set();
@@ -69,7 +69,7 @@ function syncHint(orders) {
     hint.className = "admin-batch-hint";
     list.before(hint);
   }
-  hint.innerHTML = `<span>有 ${count} 筆訂單可完成取貨：在「待出貨」可勾選多筆一次完成。</span><button type="button" class="secondary-button" data-admin-status-tab="${BATCH_FILTER}">前往待出貨</button>`;
+  hint.innerHTML = `<span>有 ${count} 筆訂單可完成取貨：在「待出貨／取貨」可勾選多筆一次完成。</span><button type="button" class="secondary-button" data-admin-status-tab="${BATCH_FILTER}">前往待出貨／取貨</button>`;
 }
 
 // 訂單清單重新渲染後呼叫：移除已不在清單或不可完成的選取，並更新批次列

@@ -8,7 +8,7 @@ export const ORDER_STAGES = [
   ["awaiting_arrival", "待到貨"],
   // 已發到貨通知、尾款未確認（含會員已回報末五碼）；徽章只算已回報、等店長對帳的筆數
   ["awaiting_balance", "已通知待尾款確認", (stats) => stats.balanceReported],
-  ["ready_to_ship", "待出貨", (stats) => stats.stageCounts?.ready_to_ship],
+  ["ready_to_ship", "待出貨／取貨", (stats) => stats.stageCounts?.ready_to_ship],
   ["completed", "已完成"],
   ["cancelled", "失效訂單"]
 ];

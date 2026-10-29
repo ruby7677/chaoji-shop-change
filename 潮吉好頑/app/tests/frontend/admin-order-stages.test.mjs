@@ -10,7 +10,7 @@ const stock = [{ kind: "in_stock" }];
 const cvs = { delivery_method: "cvs_delivery", order_items: pre, amount_due: 3060, paid_amount: 1500, final_payment_confirmed_at: null, final_payment_reported_at: null };
 
 test("分頁順序：全部之後依序為待付訂…失效訂單，待出貨在已通知待尾款確認與已完成之間", () => {
-  assert.deepEqual(ORDER_STAGES.map(([, label]) => label), ["待付訂", "待訂金對帳", "待到貨", "已通知待尾款確認", "待出貨", "已完成", "失效訂單"]);
+  assert.deepEqual(ORDER_STAGES.map(([, label]) => label), ["待付訂", "待訂金對帳", "待到貨", "已通知待尾款確認", "待出貨／取貨", "已完成", "失效訂單"]);
 });
 
 test("預購交貨便每一步只落在一個分類", () => {
