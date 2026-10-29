@@ -55,7 +55,10 @@
 #admin-dialog.admin-app .admin-status-tabs { display: grid; flex: 1; gap: 8px; min-width: 0; }
 #admin-dialog.admin-app .admin-status-groups { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
 #admin-dialog.admin-app .admin-status-tab { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: 38px; padding: 0 14px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: #2b2926; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; }
-#admin-dialog.admin-app .admin-status-tab:hover { border-color: var(--admin-border); background: #fff; }
+/* 只給有滑鼠的裝置：手機點擊後 :hover 會黏在手指位置，分頁重繪置中後會讓旁邊未選的分頁出現白框 */
+@media (hover: hover) {
+  #admin-dialog.admin-app .admin-status-tab:hover { border-color: var(--admin-border); background: #fff; }
+}
 #admin-dialog.admin-app .admin-status-tab[aria-pressed="true"] { background: #141414; color: var(--admin-brand-sun); }
 #admin-dialog.admin-app .admin-status-tab b { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--admin-brand-tongue); color: #141414; font-size: 12px; text-align: center; }
 #admin-dialog.admin-app .admin-status-tab[aria-pressed="true"] b { background: var(--admin-brand-sun); }
