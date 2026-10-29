@@ -9,28 +9,17 @@ import { confirmationAmount, isQuickConfirmable, moneySummary, paymentConfirmati
 import { initOrderBatch, orderSelectMarkup, syncOrderBatch } from "./admin-order-batch.js";
 import { mountStockHomeFeeForm, mountStockHomeFeePaidNote } from "./admin-home-fee.js";
 import { adminFinalPaymentLastFive, homePaidInFull, stockHomeFeePrepaid } from "./home-fee-state.js";
+import { ORDER_STAGES, isOrderStage, orderMatchesFilter } from "./admin-order-stages.js";
 import { availableTransitions, isDangerousTarget, parseRefundAmount, refundFieldFor, riskOnlyEntryLabel, transitionConfirmation, transitionSubmitLabel } from "./admin-order-transition.js";
 
 
-const adminOrderStatusFilterGroups = [
-  { label: "待處理", options: [["pending_payment", "待付款"], ["pending_review", "待確認款項"]] },
-  { label: "處理中", options: [["confirmed", "已確認款項（依配送狀態）"], ["ready_for_pickup", "配送處理中（到貨／出貨／待尾款）"]] },
-  { label: "結案", options: [["completed", "已完成訂單"], ["cancelled", "已取消"]] }
-];
-
+// 篩選選單與上方分頁同一份分類（admin-order-stages.js）；分頁只同步這個選單並觸發 change
 export function renderAdminOrderStatusFilter() {
   const select = document.querySelector("#admin-order-status-filter");
   if (!select) return;
-  const orders = Array.isArray(adminData?.orders) ? adminData.orders : [];
-  const counts = Object.fromEntries(adminOrderStatusFilterGroups.flatMap((group) => group.options).map(([value]) => [value, 0]));
-  orders.forEach((order) => {
-    if (Object.prototype.hasOwnProperty.call(counts, order.status)) counts[order.status] += 1;
-  });
   const previous = select.value;
-  const countLabel = (value) => counts[value] ? `（${counts[value]}）` : "";
-  select.innerHTML = `<option value="all">全部訂單${orders.length ? `（${orders.length}）` : ""}</option>` + adminOrderStatusFilterGroups.map((group) => `<optgroup label="${group.label}">${group.options.map(([value, label]) => `<option value="${value}">${label}${countLabel(value)}</option>`).join("")}</optgroup>`).join("");
-  const available = new Set(["all", ...adminOrderStatusFilterGroups.flatMap((group) => group.options.map(([value]) => value))]);
-  select.value = available.has(previous) ? previous : "all";
+  select.innerHTML = '<option value="all">全部訂單</option>' + ORDER_STAGES.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+  select.value = previous === "all" || isOrderStage(previous) ? previous : "all";
 }
 
 function adminOrderHistory(orderId) {
@@ -51,7 +40,7 @@ export function renderAdminOrders() {
     // 與伺服器 admin_search_order_ids 比對相同欄位（含商品與規格名稱），否則伺服器找到的訂單會在這裡被濾掉
     const itemNames = (order.order_items || []).map((item) => `${item.product_name || ""} ${item.variant_name || ""}`).join(" ");
     const searchable = `${order.order_number} ${member?.full_name || ""} ${member?.phone || ""} ${order.payment_last_five || ""} ${order.final_payment_reported_last_five || ""} ${itemNames}`.toLowerCase();
-    const matchesStatus = status === "all" || order.status === status;
+    const matchesStatus = orderMatchesFilter(order, status);
     return matchesStatus && searchable.includes(keyword);
   }).sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
   if (!orders.length) {

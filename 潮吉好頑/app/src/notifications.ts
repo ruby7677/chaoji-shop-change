@@ -171,7 +171,10 @@ async function deliverOrderEvent(
       // 尾款確認前可改填，每次回報各通知一次；訂金回報沿用一筆訂單一次
       : eventType === "final_payment_reported"
         ? `${eventType}:${orderId}:${order.final_payment_reported_at || "current"}`
-        : `${eventType}:${orderId}`;
+        // 管理員取消勾選後再確認算新的一次確認；同一次確認重送（重試）不重複
+        : eventType === "final_payment_confirmed"
+          ? `${eventType}:${orderId}:${order.final_payment_confirmed_at || "current"}`
+          : `${eventType}:${orderId}`;
   const routing = routeOrderNotificationRecipients(eventType, order.profiles?.line_user_id, telegramAdminRecipients(env), suppressAdminMemberLine);
   const telegramTasks = routing.telegramRecipients.map((chatId) => notifyTelegram(env, eventKey, chatId, `order_${eventType}`, telegramMessage));
   // 會員回報匯款只通知 Telegram 管理員；一般會員狀態走 LINE，管理員本人賣貨便備貨確認只保留 Telegram。

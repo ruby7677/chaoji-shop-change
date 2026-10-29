@@ -32,7 +32,8 @@ export const NOTIFICATION_COPY = {
       shippedSeller: "已出貨，請留意到貨的簡訊通知",
       shippedHome: "已出貨，請留意貨運的電話／簡訊通知",
       cvsStockConfirmed: "已確認訂單(付款完成)，待出貨",
-      arrivedCvs: "商品已到貨，請匯尾款",
+      arrivedCvs: "商品已到貨，待付尾款／運費",
+      finalPaymentConfirmed: "尾款確認完成，待出貨後通知",
       shippedCvs: "已出貨，請留意到貨的簡訊通知",
       completedPickup: "已完成取貨"
     },

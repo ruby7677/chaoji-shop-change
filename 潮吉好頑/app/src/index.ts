@@ -118,6 +118,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
     // 沒成功時告訴管理員重按一次（每次儲存都是新的通知事件）
     const notificationQueued = await notifyOrderEventToMember(env, orderFulfillmentMatch[1], "fulfillment_updated").catch(() => false);
     const body = await response.json() as Record<string, unknown>;
+    if (body.final_payment_newly_confirmed === true) ctx.waitUntil(notifyOrderEvent(env, orderFulfillmentMatch[1], "final_payment_confirmed"));
     return json({ ...body, notification_queued: notificationQueued });
   }
   if (request.method === "PUT" && url.pathname === "/api/admin/point-settings") return updatePointSettings(request, env);

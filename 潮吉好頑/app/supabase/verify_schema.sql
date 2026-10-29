@@ -102,6 +102,13 @@ select
     from (select to_regprocedure('public.submit_order_final_payment(uuid,text)') as fn) f
     where fn is not null
   ), false) as final_payment_report_rpc_member_only,
+  -- 202610290002_admin_order_stage_filter：後台訂單分類只由管理函式內部使用，API 角色不可直接執行。
+  coalesce((
+    select not has_function_privilege('anon', fn, 'EXECUTE')
+       and not has_function_privilege('authenticated', fn, 'EXECUTE')
+    from (select to_regprocedure('private.admin_order_stage(public.orders)') as fn) f
+    where fn is not null
+  ), false) as admin_order_stage_private,
   to_regprocedure('public.admin_save_coupon(uuid,uuid,text,text,integer,boolean,timestamp with time zone,timestamp with time zone,integer,integer,boolean,uuid[],uuid[])') is not null as admin_save_coupon_exists,
   to_regprocedure('public.issue_birthday_coupons()') is not null as issue_birthday_coupons_exists,
   -- 202609250004_unify_notification_deliveries：LINE／Telegram 通知紀錄合併為單表，函式改為靜態 SQL。

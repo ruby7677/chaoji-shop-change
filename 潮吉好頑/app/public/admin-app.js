@@ -63,8 +63,6 @@ export async function testTelegramNotification() {
 
 // 概況統計卡：寫入數字；數字為 0 時加上 is-zero，讓「待確認款項」等強調卡回到一般外觀，不在沒有待辦時發出警示
 function renderStatValues() {
-  const readyStat = document.querySelector('[data-stat="readyForPickup"]');
-  if (readyStat?.previousElementSibling) readyStat.previousElementSibling.textContent = "待取貨／待尾款";
   Object.entries(adminData.stats || {}).forEach(([key, value]) => {
     const node = document.querySelector(`[data-stat="${key}"]`);
     if (!node) return;
@@ -380,7 +378,7 @@ export function applyAdminQuickFilter(filter) {
     switchAdminTab("members");
   } else {
     const statusFilter = document.querySelector("#admin-order-status-filter");
-    if (statusFilter) statusFilter.value = ["pending_review", "ready_for_pickup"].includes(filter) ? filter : "all";
+    if (statusFilter) statusFilter.value = ["pending_review", "ready_to_ship"].includes(filter) ? filter : "all";
     switchAdminTab("orders");
     reloadAdminList("orders", true);
   }

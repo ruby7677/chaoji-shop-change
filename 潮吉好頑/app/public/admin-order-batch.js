@@ -4,10 +4,11 @@ import { money } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { showToast } from "./app-core.js";
 import { adminData, adminFetch, refreshAdminSections, relationOne } from "./admin-app.js";
+import { adminOrderStage } from "./admin-order-stages.js";
 import { batchSelectionError, canBatchComplete, completionBatchConfirmation, outstandingBalance, summarizeBatchResults } from "./admin-batch.js";
 
-// 只在「處理中」的這些篩選下提供勾選（完成取貨發生在這些狀態）
-const BATCH_FILTERS = new Set(["confirmed", "ready_for_pickup"]);
+// 只在「待出貨」分類提供勾選（完成取貨發生在已確認／到貨的訂單；分類見 admin-order-stages.js）
+const BATCH_FILTER = "ready_to_ship";
 
 const selected = new Set();
 let bar = null;
@@ -18,7 +19,7 @@ const statusFilter = () => document.querySelector("#admin-order-status-filter")?
 const ordersById = () => new Map((adminData?.orders || []).map((order) => [order.id, order]));
 
 export function isOrderBatchMode() {
-  return BATCH_FILTERS.has(statusFilter());
+  return statusFilter() === BATCH_FILTER;
 }
 
 // 訂單卡標題前的勾選框；只給可完成的訂單
@@ -60,18 +61,15 @@ function syncHint(orders) {
   const list = document.querySelector("#admin-order-list");
   if (!list) return;
   let hint = document.querySelector(".admin-batch-hint");
-  // 只算落在可篩選狀態（已確認／配送處理中）的訂單，並直接前往數量最多的那個狀態
-  const eligible = isOrderBatchMode() ? [] : [...orders.values()].filter((order) => BATCH_FILTERS.has(order.status) && canBatchComplete(order));
+  const eligible = isOrderBatchMode() ? [] : [...orders.values()].filter((order) => adminOrderStage(order) === BATCH_FILTER && canBatchComplete(order));
   const count = eligible.length;
   if (!count) { hint?.remove(); return; }
-  const target = [...BATCH_FILTERS].sort((a, b) => eligible.filter((order) => order.status === b).length - eligible.filter((order) => order.status === a).length)[0];
-  const targetLabel = target === "ready_for_pickup" ? "配送處理中" : "已確認";
   if (!hint) {
     hint = document.createElement("p");
     hint.className = "admin-batch-hint";
     list.before(hint);
   }
-  hint.innerHTML = `<span>有 ${count} 筆訂單可完成取貨：在「處理中」可勾選多筆一次完成。</span><button type="button" class="secondary-button" data-admin-status-tab="${target}">前往${targetLabel}</button>`;
+  hint.innerHTML = `<span>有 ${count} 筆訂單可完成取貨：在「待出貨」可勾選多筆一次完成。</span><button type="button" class="secondary-button" data-admin-status-tab="${BATCH_FILTER}">前往待出貨</button>`;
 }
 
 // 訂單清單重新渲染後呼叫：移除已不在清單或不可完成的選取，並更新批次列

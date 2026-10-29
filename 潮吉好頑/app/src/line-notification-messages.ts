@@ -10,7 +10,7 @@ export { NOTIFICATION_COPY };
 
 export { buildLineBirthdayFlexMessage } from "./line-birthday-flex";
 
-export type OrderNotificationEventType = "created" | "payment_reported" | "final_payment_reported" | "status_changed" | "fulfillment_updated";
+export type OrderNotificationEventType = "created" | "payment_reported" | "final_payment_reported" | "final_payment_confirmed" | "status_changed" | "fulfillment_updated";
 
 export function routeOrderNotificationRecipients(
   eventType: OrderNotificationEventType,
@@ -161,6 +161,12 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
     ]);
   }
 
+  // 預購交貨便／宅配：管理員這次儲存才確認尾款入帳（仿照訂金確認的「付訂完成，待到貨通知」），會員與管理員各一則
+  if (data.eventType === "final_payment_confirmed") {
+    if (!isPreorder || !(isCvs || isHome)) return null;
+    return message(copy.status.finalPaymentConfirmed, [productLine, `${copy.labels.delivery}：${data.deliveryLine}`]);
+  }
+
   // 現貨宅配待付款：小幫手確認運費後通知客人含運總額，客人收到後才匯款
   if (data.eventType === "fulfillment_updated" && isHome && !isPreorder && data.orderStatus === "pending_payment") {
     // 卡片標題已是「運費已確認，請完成匯款」，狀態列維持「待確認付款」
@@ -262,6 +268,7 @@ function orderFlexTitle(data: OrderMessageData) {
   if (data.eventType === "created") return "訂單建立提醒";
   if (data.eventType === "payment_reported") return "匯款回報已送出";
   if (data.eventType === "final_payment_reported") return "尾款匯款回報";
+  if (data.eventType === "final_payment_confirmed") return "尾款確認通知";
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "賣貨便") return "賣貨便出貨通知";
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "宅配") return "宅配出貨通知";
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === NOTIFICATION_COPY.order.delivery.cvs) return "7-11 店到店出貨通知";
@@ -300,6 +307,9 @@ function orderFlexSummary(data: OrderMessageData) {
   }
   if (data.eventType === "payment_reported") {
     return "已收到您的匯款回報，待管理員確認後會再通知您。";
+  }
+  if (data.eventType === "final_payment_confirmed") {
+    return "已確認您的尾款與運費入帳，商品寄出後會再通知您。";
   }
   if (data.eventType === "status_changed" && data.orderStatus === "completed" && data.deliveryLine === "到店取貨") {
     return "訂單已完成取貨，謝謝您的支持！";

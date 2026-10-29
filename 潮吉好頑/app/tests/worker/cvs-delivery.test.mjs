@@ -159,7 +159,7 @@ test("free shipping shows 免運 and preorders add the deposit and notice", () =
 test("preorder cvs arrival asks for the balance; in-stock cvs has no arrival message", () => {
   const arrival = { ...cvsBase, eventType: "status_changed", orderStatus: "ready_for_pickup" };
   const arrivalText = messages.buildOrderNotificationMessage({ ...arrival, hasPreorder: true });
-  assert.match(arrivalText, /訂單狀態：商品已到貨，請匯尾款\n/);
+  assert.match(arrivalText, /訂單狀態：商品已到貨，待付尾款／運費\n/);
   assert.doesNotMatch(arrivalText, /私訊小幫手/);
   assert.equal(messages.buildOrderNotificationMessage(arrival), null);
   assert.equal(messages.buildOrderNotificationMessage({ ...cvsBase, eventType: "fulfillment_updated", orderStatus: "ready_for_pickup", hasPreorder: true }), null);
