@@ -8,7 +8,6 @@ import { selectHeroSlides } from "./hero-slides.js";
 import { showToast } from "./app-core.js";
 import { takePrefetchedCatalog } from "./catalog-prefetch.js";
 import { thumbnailUrlFor } from "./product-image-src.js";
-import { productPage } from "./app.js";
 
 export let products = [];
 // 型錄是否成功載入：失敗時不顯示假商品，購物車也不可用空型錄過濾後覆寫（cart.js 依此略過還原與同步）
@@ -129,12 +128,18 @@ export function renderProducts({ revealFrom = 0 } = {}) {
   if (slot) slot.innerHTML = loadMoreMarkup(shown.length, matches.length);
 }
 
+// 商品頁由 app.js 建立後注入，避免本模組反向 import 入口檔形成循環
+let openProductPage = null;
+export function setProductPageOpener(open) {
+  openProductPage = open;
+}
+
 // 商品卡、推薦卡與輪播按鈕都以規格 ID 進入獨立商品頁。
 export function openProductDetail(id) {
   const product = products.find((item) => item.id === id);
   if (!product) return;
-  if (!product.product_id) return showToast("商品資料載入中，請稍後再試");
-  productPage.open(product.product_id, product.id);
+  if (!product.product_id || !openProductPage) return showToast("商品資料載入中，請稍後再試");
+  openProductPage(product.product_id, product.id);
 }
 
 // 回傳是否成功；失敗（網路、伺服器錯誤）不丟錯，由 renderProducts 顯示重新載入提示

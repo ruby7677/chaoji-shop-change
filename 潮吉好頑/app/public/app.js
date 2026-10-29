@@ -10,7 +10,7 @@ import { addToCartWithFeedback, addVariantQuantityToCart, buyNowFromCard, buyNow
 import { bankAccounts, clearCheckoutFieldErrorFor, openCheckoutReview, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields, syncPaymentFields } from "./checkout-form.js";
 import { ensureLineFriendship, handleLineFriendRequest } from "./member-benefits.js";
 import { currentOrders, openOrders, showPaymentDialog, submitPayment } from "./member-orders.js";
-import { loadProducts, openProductDetail, products, renderHeroSpotlight, renderProducts, search, selectCategory } from "./storefront-catalog.js";
+import { loadProducts, openProductDetail, products, renderHeroSpotlight, renderProducts, search, selectCategory, setProductPageOpener } from "./storefront-catalog.js";
 import { markAuthSettled, whenAuthReady } from "./auth-ready.js";
 import { markBoot, reportBootTiming } from "./boot-timing.js";
 import { failAuthBoot, finishAuthBoot, startAuthBoot } from "./auth-boot.js";
@@ -107,7 +107,7 @@ document.addEventListener("input", (event) => {
   if (event.target.closest("#checkout-form")) clearCheckoutFieldErrorFor(event.target);
 });
 initAnchorScroll();
-export const productPage = createProductPage({
+const productPage = createProductPage({
   getProducts: () => products,
   addToCart: addVariantQuantityToCart,
   buyNow: buyNowVariant,
@@ -115,6 +115,7 @@ export const productPage = createProductPage({
   showDialog,
   closeDialog
 });
+setProductPageOpener((productId, variantId) => productPage.open(productId, variantId));
 createVariantSheet({
   getProducts: () => products,
   addToCart: addVariantQuantityToCart,
