@@ -72,3 +72,21 @@ test("預購宅配到貨、尾款與運費已確認：可查看尾款匯款帳�
   assert.match(orderCardMarkup(arrived), /本次應付<\/span><strong>NT\$3,400/);
   assert.doesNotMatch(orderCardMarkup({ ...arrived, final_payment_confirmed_at: "2026-10-13T00:00:00Z" }), /data-order-payment/);
 });
+
+test("預購店到店到貨：顯示已付訂金、紅字尾款（含運費）與匯款帳號；確認入帳後收起帳號", () => {
+  const cvsArrived = {
+    ...unpaid, status: "ready_for_pickup", delivery_method: "cvs_delivery", shipping_fee: 60, amount_due: 3060, deposit_due: 1500,
+    order_items: [{ ...unpaid.order_items[0], kind: "preorder" }]
+  };
+  const html = orderCardMarkup(cvsArrived);
+  assert.match(html, /已付訂金<\/span><strong>NT\$1,500/);
+  assert.doesNotMatch(html, /本次應付/);
+  assert.match(html, /class="payment-row balance-due-row"><span>尾款／運費<\/span><strong>NT\$1,560/);
+  assert.match(html, /data-copy-bank-account="81680005517989"/);
+  const confirmed = orderCardMarkup({ ...cvsArrived, final_payment_confirmed_at: "2026-10-30T00:00:00Z" });
+  assert.match(confirmed, /尾款／運費<\/span><strong>已確認/);
+  assert.doesNotMatch(confirmed, /81680005517989/);
+  const noAccount = orderCardMarkup({ ...cvsArrived, bank_accounts: null });
+  assert.match(noAccount, /匯款帳號暫時無法載入/);
+  assert.match(orderCardMarkup({ ...cvsArrived, status: "confirmed" }), /本次應付<\/span><strong>NT\$1,500/, "before arrival the deposit row keeps its label");
+});

@@ -27,7 +27,7 @@ export const NOTIFICATION_COPY = {
       remoteConfirmed: "已確認訂單付訂完成，待到貨通知",
       sellerStockConfirmed: "已確認訂單，備貨中",
       homeStockConfirmed: "已確認訂單(付款完成)，現貨備貨中",
-      arrivedStorePreorder: "商品已到貨，私訊小幫手約取貨時間",
+      arrivedStorePreorder: "商品已到貨，請確認尾款",
       arrivedSellerPreorder: "商品已到貨，私訊小幫手開賣貨便",
       arrivedHome: "商品已到貨，待小幫手確認尾款及運費後通知",
       homeFeeConfirmed: "運費已確認，請完成匯款",
@@ -35,7 +35,7 @@ export const NOTIFICATION_COPY = {
       shippedSeller: "已出貨，請留意到貨的簡訊通知",
       shippedHome: "已出貨，請留意貨運的電話／簡訊通知",
       cvsStockConfirmed: "已確認訂單(付款完成)，待出貨",
-      arrivedCvs: "商品已到貨，私訊小幫手確認尾款及運費",
+      arrivedCvs: "商品已到貨，請匯尾款",
       shippedCvs: "已出貨，請留意到貨的簡訊通知",
       completedPickup: "已完成取貨"
     },
@@ -81,7 +81,8 @@ export const NOTIFICATION_COPY = {
       homeShippingPending: "待到貨與尾款一併確認通知",
       homeShippingPendingStock: "待小幫手確認運費",
       homeBalanceAccount: "匯款帳號與訂金相同，可在「查看訂單」查看",
-      homeBalanceReport: "匯款後請回覆末五碼給小幫手"
+      homeBalanceReport: "匯款後請回覆末五碼給小幫手",
+      cvsArrivedOrdersHint: "點擊⬇️查看訂單，查詢尾款/匯款帳號"
     }
   },
   lowStock: {
@@ -270,13 +271,16 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
     return message(copy.status.shippedSeller, [productLine, `${copy.labels.delivery}：${copy.delivery.sellerShipped}`]);
   }
 
+  // 預購到貨待付：訂單總額（店到店含運費）扣掉已付訂金；LINE 卡片以這列取代「付款方式」
+  const arrivalBalanceLine = `${copy.labels.balance}：${money(Math.max(data.amountDue - (data.paidAmount || data.depositDue), 0))}`;
   const isArrival = data.eventType === "fulfillment_updated"
     || (data.eventType === "status_changed" && ["partially_ready", "ready_for_pickup"].includes(data.orderStatus));
   if (isArrival) {
     if (isCvs) {
       // 交貨便只有預購會標記到貨；儲存尾款不代表寄出，出貨通知在完成時發送。
       if (data.eventType === "fulfillment_updated" || !isPreorder) return null;
-      return message(copy.status.arrivedCvs, [productLine]);
+      // 無標籤的提醒會排在 LINE 卡片最下方（取件門市之後），引導客人點「查看訂單」看尾款與帳號
+      return message(copy.status.arrivedCvs, [productLine, arrivalBalanceLine, "", copy.delivery.cvsArrivedOrdersHint]);
     }
     if (isSeller) {
       if (isPreorder) return message(copy.status.arrivedSellerPreorder, [productLine]);
@@ -291,7 +295,7 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
       if (!isPreorder) return null;
       return message(copy.status.arrivedHome, [productLine]);
     }
-    if (isPreorder) return message(copy.status.arrivedStorePreorder, [productLine, `${copy.labels.delivery}：${copy.delivery.storePreorderArrived}`]);
+    if (isPreorder) return message(copy.status.arrivedStorePreorder, [productLine, `${copy.labels.delivery}：${copy.delivery.storePreorderArrived}`, arrivalBalanceLine]);
     return null;
   }
 
@@ -414,7 +418,8 @@ export function buildLineOrderFlexMessage(data: OrderMessageData, altText: strin
   ];
   if (!shownLabels.has(labels.items)) contents.push(flexRow(labels.items, data.items.slice(0, 500)));
   if (!shownLabels.has(labels.delivery)) contents.push(flexRow(labels.delivery, data.deliveryLine));
-  if (!shownLabels.has(labels.payment)) contents.push(flexRow(labels.payment, data.paymentLine));
+  // 已列出尾款／運費（預購到貨）時不再補付款方式
+  if (!shownLabels.has(labels.payment) && !shownLabels.has(labels.balance)) contents.push(flexRow(labels.payment, data.paymentLine));
 
   // 以下是 LINE 卡片額外補充給客戶的資料（Telegram 文字沒有），只增不減
   // 確認付款只收訂金（預購）時，列出還要付的尾款；全額付清或賣貨便外部收款不顯示

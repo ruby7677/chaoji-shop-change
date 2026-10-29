@@ -158,9 +158,39 @@ test("free shipping shows 免運 and preorders add the deposit and notice", () =
 
 test("preorder cvs arrival asks for the balance; in-stock cvs has no arrival message", () => {
   const arrival = { ...cvsBase, eventType: "status_changed", orderStatus: "ready_for_pickup" };
-  assert.match(messages.buildOrderNotificationMessage({ ...arrival, hasPreorder: true }), /商品已到貨，私訊小幫手確認尾款及運費/);
+  const arrivalText = messages.buildOrderNotificationMessage({ ...arrival, hasPreorder: true });
+  assert.match(arrivalText, /訂單狀態：商品已到貨，請匯尾款\n/);
+  assert.doesNotMatch(arrivalText, /私訊小幫手/);
   assert.equal(messages.buildOrderNotificationMessage(arrival), null);
   assert.equal(messages.buildOrderNotificationMessage({ ...cvsBase, eventType: "fulfillment_updated", orderStatus: "ready_for_pickup", hasPreorder: true }), null);
+});
+
+test("preorder cvs arrival card ends with the 查看訂單 hint below the pickup store", () => {
+  const data = { ...cvsBase, eventType: "status_changed", orderStatus: "ready_for_pickup", hasPreorder: true, pickupStore: "高雄市前鎮區 新憲德門市（241458）" };
+  const text = messages.buildOrderNotificationMessage(data);
+  assert.match(text, /點擊⬇️查看訂單，查詢尾款\/匯款帳號$/);
+  const body = messages.buildLineOrderFlexMessage(data, text, "https://example.test/orders").contents.body.contents;
+  const last = body.at(-1);
+  assert.equal(last.text, "點擊⬇️查看訂單，查詢尾款/匯款帳號");
+  const storeIndex = body.findIndex((item) => JSON.stringify(item).includes("新憲德門市"));
+  assert.ok(storeIndex > 0 && storeIndex < body.length - 1, "the hint sits after the pickup store row");
+});
+
+test("preorder arrival cards replace 付款方式 with 尾款／運費 = balance + shipping", () => {
+  const rowsOf = (data) => {
+    const text = messages.buildOrderNotificationMessage(data);
+    return JSON.stringify(messages.buildLineOrderFlexMessage(data, text, "https://example.test/orders"));
+  };
+  const cvs = rowsOf({ ...cvsBase, eventType: "status_changed", orderStatus: "ready_for_pickup", hasPreorder: true, amountDue: 3060, depositDue: 1500, paidAmount: 1500 });
+  assert.match(cvs, /"text":"尾款／運費".*?"text":"NT\$1,560"/);
+  assert.doesNotMatch(cvs, /付款方式/);
+  const store = rowsOf({ ...cvsBase, deliveryLine: "到店取貨", eventType: "status_changed", orderStatus: "ready_for_pickup", hasPreorder: true, shippingFee: 0, amountDue: 3000, depositDue: 1500, paidAmount: 1500 });
+  assert.match(store, /"text":"尾款／運費".*?"text":"NT\$1,500"/);
+  assert.match(store, /商品已到貨，請確認尾款/);
+  assert.doesNotMatch(store, /私訊小幫手/);
+  assert.doesNotMatch(store, /付款方式/);
+  // 其他通知仍保留付款方式
+  assert.match(rowsOf({ ...cvsBase, eventType: "status_changed", orderStatus: "confirmed" }), /付款方式/);
 });
 
 test("the LINE card lists the pickup store", () => {
