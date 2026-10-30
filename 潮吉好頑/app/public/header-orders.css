@@ -35,7 +35,7 @@
     stroke-linecap: round;
     stroke-linejoin: round;
   }
-  .site-header nav .nav-orders-button:hover { background: var(--home-ink); color: var(--home-yellow); }
+  @media (hover: hover) { .site-header nav .nav-orders-button:hover { background: var(--home-ink); color: var(--home-yellow); } }
   .site-header nav .nav-orders-button:focus-visible { outline: 3px solid var(--home-ink); outline-offset: 3px; }
   /* LINE 客服改為右下角浮動按鈕（業主要求 2026-10-16），主選單列只留文字連結與「我的訂單」；
      文字連結之間維持 24px，「我的訂單」靠右，所有寬度都不換行。店取列的 LINE 按鈕手機版仍隱藏，避免重複。 */

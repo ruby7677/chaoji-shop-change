@@ -10,7 +10,7 @@
   margin:calc(6px - var(--dlg-pt)) calc(6px - var(--dlg-px)) calc(var(--dlg-pt) - 50px) auto;
   border-radius:999px;background:rgba(255,255,255,.92);box-shadow:none;color:var(--home-ink);font-size:26px;line-height:1
 }
-:is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog) .dialog-close:hover{background:var(--home-paper)}
+@media (hover:hover){:is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog) .dialog-close:hover{background:var(--home-paper)}}
 :is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog) .dialog-close ~ h2{padding-right:40px}
 /* 視窗打開時焦點放在視窗本身（tabindex=-1，由 app-core.js 的 showDialog 設定），不再自動停在關閉鈕而出現提示框；鍵盤按 Tab 仍會先到關閉鈕 */
 :is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog):focus{outline:none}

@@ -24,8 +24,10 @@
 }
 .line-service-button span,
 .trust-rail a.trust-rail-link.line-service-button span { font-size: 1rem; text-decoration: none; }
-.line-service-button:hover,
-.trust-rail a.trust-rail-link.line-service-button:hover { background: #05a647; }
+@media (hover: hover) {
+  .line-service-button:hover,
+  .trust-rail a.trust-rail-link.line-service-button:hover { background: #05a647; }
+}
 .line-service-button:focus-visible { outline: 3px solid #141414; outline-offset: 2px; }
 /* 店取列：地址在左、按鈕在右並垂直置中（手機亦同一列）；拿掉原文字連結的分隔線，觸控目標 44px */
 .trust-rail a.trust-rail-link.line-service-button { align-self: center; justify-self: end; }

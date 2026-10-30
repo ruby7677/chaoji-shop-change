@@ -189,7 +189,7 @@ body.is-product-view .product-page {
   text-decoration-thickness: 1px;
   text-underline-offset: 4px;
 }
-.product-card h3:hover { text-decoration-color: currentColor; }
+@media (hover: hover) { .product-card h3:hover { text-decoration-color: currentColor; } }
 
 .pp-missing { max-width: 520px; margin: 48px auto; text-align: center; }
 .pp-missing h1 { font-size: 1.8rem; }
@@ -234,11 +234,13 @@ body.is-product-view .product-page {
   font-size: 26px;
   line-height: 1;
 }
-#product-lightbox .pp-lightbox-close:hover,
 #product-lightbox .pp-lightbox-close:focus-visible {
   border-color: var(--home-yellow);
   color: var(--home-yellow);
   outline: none;
+}
+@media (hover: hover) {
+  #product-lightbox .pp-lightbox-close:hover { border-color: var(--home-yellow); color: var(--home-yellow); }
 }
 .pp-gallery--lightbox .pp-gallery-track { border-radius: 0; }
 .pp-gallery--lightbox .pp-gallery-slide { aspect-ratio: auto; height: calc(100dvh - 140px); border-radius: 0; background: transparent; }
