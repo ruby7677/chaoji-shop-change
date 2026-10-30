@@ -1,7 +1,8 @@
 /* 店取資訊與 LINE 客服（業主要求 2026-09-24）：
    - 「LINE 客服 ↗」在所有尺寸都是 LINE 標準綠（#06C755）填滿的圓角按鈕。
-   - 螢幕夠寬（≥1200px）時，店取地址（營業時間在地址下方）與 LINE 客服移到頁首導航列，並隱藏首頁中段的店取列；
-     較窄時頁首這份隱藏、維持原位。兩份同時只顯示一份（display:none 不會被報讀器重複朗讀）。 */
+   - 螢幕夠寬（≥1200px）時，店取地址（營業時間在地址下方）移到頁首導航列，並隱藏首頁中段的店取列；
+     較窄時頁首這份隱藏、維持原位。兩份同時只顯示一份（display:none 不會被報讀器重複朗讀）。
+   - 頁首不放 LINE 客服按鈕（業主要求 2026-10-30），桌面版改用右下角浮動按鈕。 */
 .line-service-button,
 .trust-rail a.trust-rail-link.line-service-button {
   display: inline-flex;
@@ -43,7 +44,6 @@
   .header-store {
     display: flex;
     align-items: center;
-    gap: 14px;
     margin-left: auto;
     padding-left: 18px;
     border-left: 1px solid var(--home-line, #e5dfcf);
