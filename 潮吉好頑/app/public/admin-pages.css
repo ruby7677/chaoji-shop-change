@@ -90,8 +90,18 @@
 /* ---------- 一鍵確認款項（最重要、不可逆的店長操作，獨立成主按鈕） ---------- */
 #admin-dialog.admin-app .admin-order-quick { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
 #admin-dialog.admin-app .admin-order-quick-button { min-height: 48px; padding: 0 16px; border: 1px solid #141414; border-radius: 12px; background: var(--admin-brand-sun); color: #141414; font-size: 15px; font-weight: 800; cursor: pointer; }
-#admin-dialog.admin-app .admin-order-quick-button:hover { background: var(--admin-brand-tongue); }
-#admin-dialog.admin-app .admin-order-quick small { color: var(--admin-text-muted); font-size: 12px; }
+@media (hover: hover) {
+  #admin-dialog.admin-app .admin-order-quick-button:hover { background: var(--admin-brand-tongue); }
+}
+
+/* 匯款末五碼（訂金一鍵確認、匯款列、會員回報尾款）：店長拿去比對銀行明細，數字醒目，帳戶與回報時間留小字 */
+#admin-dialog.admin-app .admin-order-last-five-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; color: var(--admin-text-muted); font-size: 13px; line-height: 1.4; }
+#admin-dialog.admin-app .admin-order-last-five-line small { color: var(--admin-text-muted); font-size: 12px; }
+#admin-dialog.admin-app .admin-last-five { padding: 2px 10px; border: 1px solid #e3cb7d; border-radius: 8px; background: var(--admin-warning-surface); color: #141414; font-size: 18px; font-weight: 800; letter-spacing: .08em; line-height: 1.3; font-variant-numeric: tabular-nums; }
+#admin-dialog.admin-app .admin-order-bank { flex-wrap: wrap; align-items: baseline; }
+/* 會員回報的尾款末五碼另起一列，不和訂金末五碼擠在同一列左右兩端 */
+#admin-dialog.admin-app .admin-order-bank .admin-order-final-report { flex-basis: 100%; }
+#admin-dialog.admin-app .admin-last-five-missing { color: var(--admin-text-muted); font-size: 13px; font-weight: 600; }
 
 /* ---------- 金額明細與其他操作收合（details/summary，減少捲動） ---------- */
 #admin-dialog.admin-app .admin-order-money > summary,
