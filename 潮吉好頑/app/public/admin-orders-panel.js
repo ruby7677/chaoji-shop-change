@@ -9,7 +9,7 @@ import { confirmationAmount, isQuickConfirmable, moneySummary, paymentConfirmati
 import { initOrderBatch, orderSelectMarkup, syncOrderBatch } from "./admin-order-batch.js";
 import { mountStockHomeFeeForm, mountStockHomeFeePaidNote } from "./admin-home-fee.js";
 import { adminFinalPaymentLastFive, homePaidInFull, stockHomeFeePrepaid } from "./home-fee-state.js";
-import { ORDER_STAGES, isOrderStage, orderMatchesFilter } from "./admin-order-stages.js";
+import { ORDER_STAGES, adminOrderStage, isOrderStage, orderMatchesFilter } from "./admin-order-stages.js";
 import { lastFiveMarkup } from "./admin-last-five.js";
 import { availableTransitions, isDangerousTarget, parseRefundAmount, refundFieldFor, riskOnlyEntryLabel, transitionConfirmation, transitionSubmitLabel } from "./admin-order-transition.js";
 
@@ -95,11 +95,16 @@ export function renderAdminOrders() {
     const quickBlock = quick ? `<div class="admin-order-quick"><button class="primary-button admin-order-quick-button" type="button" data-admin-order-quick-confirm="${escapeHtml(order.id)}">${escapeHtml(quickButtonLabel)}</button>${quickInfoLine}</div>` : "";
     const moneyGrid = `<details class="admin-order-money"><summary>${escapeHtml(moneySummary(order))}</summary><div class="admin-order-payment"><span class="admin-order-total">總額 <b>${money(order.amount_due)}</b></span><span class="admin-order-payment-method">運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span class="admin-order-deposit">訂金應付 <b>${money(order.deposit_due)}</b></span><span class="admin-order-paid">已確認 <b>${money(order.paid_amount || 0)}</b></span><span class="admin-order-balance">待收尾款 <b>${money(balance)}</b></span><span class="admin-order-discount admin-order-coupon">優惠券折抵 <b>${adminDiscountLabel(couponDiscount)}</b></span><span class="admin-order-discount admin-order-points">點數折抵 <b>${adminDiscountLabel(pointDiscount)}</b></span></div></details>`;
     // 一鍵確認卡片已在上方顯示末五碼／收款帳戶，這裡不重複顯示匯款列
-    // 會員在網站回報的尾款末五碼：確認尾款前醒目提示，下方尾款表單已預先帶入
-    const finalReportRow = order.final_payment_reported_last_five && !order.final_payment_confirmed_at
-      ? `<span class="admin-order-last-five-line admin-order-final-report">會員回報尾款末五碼 ${lastFiveMarkup(order.final_payment_reported_last_five)}<small>${order.final_payment_reported_at ? `${formatDateTime(order.final_payment_reported_at)} 回報・` : ""}請核對入帳</small></span>`
-      : "";
-    const bankRow = quick ? "" : `<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span class="admin-order-last-five-line">匯款末五碼 ${lastFiveMarkup(order.payment_last_five)}</span>${finalReportRow}</div>`;
+    // 醒目框只給「現在要對帳」的末五碼：訂金確認後，訂金末五碼改為一般文字，避免在待尾款階段被當成尾款
+    const depositPending = order.status === "pending_review";
+    const depositLabel = orderIncludesPreorder(order) ? "訂金末五碼" : "匯款末五碼";
+    const depositLastFive = depositPending || !order.payment_last_five ? lastFiveMarkup(order.payment_last_five) : `<b>${escapeHtml(order.payment_last_five)}</b>`;
+    // 已通知待尾款確認：會員在網站回報的尾款末五碼醒目提示（下方尾款表單已預先帶入）；尚未回報時明確寫出
+    const finalReportRow = adminOrderStage(order) !== "awaiting_balance" ? ""
+      : order.final_payment_reported_last_five
+        ? `<span class="admin-order-last-five-line admin-order-final-report">會員回報尾款末五碼 ${lastFiveMarkup(order.final_payment_reported_last_five)}<small>${order.final_payment_reported_at ? `${formatDateTime(order.final_payment_reported_at)} 回報・` : ""}請核對入帳</small></span>`
+        : `<span class="admin-order-last-five-line admin-order-final-report">尾款末五碼 ${lastFiveMarkup("", "會員尚未回報")}</span>`;
+    const bankRow = quick ? "" : `<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span class="admin-order-last-five-line">${depositLabel} ${depositLastFive}</span>${finalReportRow}</div>`;
     const transitionForm = transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status" required>${optionsWithPlaceholder}</select></label><div class="admin-order-note-row"><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消訂單必填；其他操作可選填"></textarea></label><label class="admin-order-refund" hidden>退款金額（NT$）<input name="refund_amount" type="number" min="0" step="1" inputmode="numeric" /></label></div><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>';
     // 一鍵確認卡片把其餘操作（取消、備註）收進 details，避免與主按鈕搶注意力
     // 只剩取消時同樣收成次要入口，不讓高風險表單佔據卡片
