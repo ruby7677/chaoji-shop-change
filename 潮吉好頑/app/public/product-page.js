@@ -256,13 +256,15 @@ export function createProductPage(deps) {
   });
   page.addEventListener("change", (event) => {
     if (!event.target.matches('input[name="pp-variant"]') || !state) return;
+    const keyboard = document.activeElement === event.target;
     state.variantId = event.target.value;
     state.quantity = 1;
     history.replaceState(history.state, "", `/products/${encodeURIComponent(state.productId)}?v=${encodeURIComponent(state.variantId)}`);
     renderBuy();
     showVariantImage();
-    // 購買欄整段重畫：把焦點還給剛選的規格，鍵盤使用者可繼續用方向鍵切換
-    page.querySelector('input[name="pp-variant"]:checked')?.focus({ preventScroll: true });
+    // 購買欄整段重畫：鍵盤切換時把焦點還給剛選的規格，可繼續用方向鍵切換；
+    // 點按時不補焦點，否則 iOS 會把程式給的焦點當成 :focus-visible 而顯示黃色外框
+    if (keyboard) page.querySelector('input[name="pp-variant"]:checked')?.focus({ preventScroll: true });
   });
 
   // 商品頁中點首頁錨點（頁首選單、麵包屑、購物須知）要先回首頁再捲動到區塊。

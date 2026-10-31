@@ -108,10 +108,13 @@ export function createVariantSheet(deps) {
   });
   dialog?.addEventListener("change", (event) => {
     if (!event.target.matches('input[name="vs-variant"]') || !state) return;
+    // 只有規格本來就有焦點（鍵盤切換）才在重畫後還回焦點；點按時 iOS 不會把焦點給 radio，
+    // 程式補上的焦點會被當成 :focus-visible 而出現黃色外框
+    const keyboard = document.activeElement === event.target;
     state.variantId = event.target.value;
     state.quantity = 1;
     render();
-    dialog.querySelector('input[name="vs-variant"]:checked')?.focus({ preventScroll: true });
+    if (keyboard) dialog.querySelector('input[name="vs-variant"]:checked')?.focus({ preventScroll: true });
   });
   dialog?.addEventListener("close", () => { state = null; deps.syncScrollLock(); });
 
