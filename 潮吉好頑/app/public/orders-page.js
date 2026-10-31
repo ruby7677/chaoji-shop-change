@@ -5,7 +5,7 @@ import { closeDialog, showDialog, showToast } from "./app-core.js";
 import { initializeLiffClient, preloadLiffSdk } from "./liff-auth.js";
 import { refreshWebSession } from "./web-session.js";
 import { handleCopyBankAccount } from "./copy-bank-account.js";
-import { applyPaymentFormMode, orderCardMarkup, ordersEmptyMarkup, paymentLastFiveDefault, paymentOrderView, reportPayment } from "./order-views.js";
+import { applyPaymentFormMode, ordersListMarkup, paymentLastFiveDefault, paymentOrderView, reportPayment } from "./order-views.js";
 import { cachedAccessToken, forgetAccessToken, rememberAccessToken, restoreOrdersSession } from "./orders-session.js";
 import { takeEmbeddedConfig } from "./embedded-config.js";
 import { markBoot, noteBootResponse, reportBootTiming } from "./boot-timing.js";
@@ -109,7 +109,7 @@ async function fetchOrders(token) {
 }
 
 function renderOrders() {
-  list.innerHTML = orders.length ? orders.map(orderCardMarkup).join("") : ordersEmptyMarkup();
+  list.innerHTML = ordersListMarkup(orders);
   list.querySelector("[data-orders-shop]")?.replaceWith(Object.assign(document.createElement("a"), { className: "secondary-button", href: shopUrl(), textContent: "前往商品區" }));
 }
 

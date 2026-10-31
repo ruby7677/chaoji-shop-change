@@ -48,7 +48,7 @@ export async function listBankAccounts(request: Request, env: Env): Promise<Resp
 
 // 會員訂單以會員自己的 JWT 讀取，由 RLS（members view own orders／order items）限定本人；
 // member_id 條件保留作第二層防護。收款帳戶是店家資料、會員不能直接讀表，另以 service role 依 id 補上。
-const MEMBER_ORDER_SELECT = "id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,pickup_store_city,pickup_store_district,pickup_store_name,pickup_store_code,shipment_tracking_number,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,final_payment_reported_last_five,final_payment_reported_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,payment_last_five,bank_account_id,created_at,order_items(product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)";
+const MEMBER_ORDER_SELECT = "id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,pickup_store_city,pickup_store_district,pickup_store_name,pickup_store_code,shipment_tracking_number,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,final_payment_reported_last_five,final_payment_reported_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,paid_amount,refunded_amount,payment_deadline,payment_last_five,bank_account_id,created_at,order_items(product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)";
 
 type MemberOrderRow = { bank_account_id?: string | null; bank_accounts?: unknown };
 type BankAccountRow = { id: string; label: string; bank_name: string; account_name: string; account_number: string };

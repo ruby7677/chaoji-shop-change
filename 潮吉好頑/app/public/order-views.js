@@ -127,8 +127,43 @@ export function ordersEmptyMarkup() {
   return '<div class="orders-empty"><strong>目前還沒有訂單</strong><p>先挑一件喜歡的玩具，加入選物盒後就能在這裡追蹤付款與到貨進度。</p><button class="secondary-button" type="button" data-orders-shop>前往商品區</button></div>';
 }
 
+function itemsMarkup(order) {
+  return (order.order_items || []).map((item) => `${escapeHtml(item.product_name)}${item.variant_name === "單一規格" ? "" : ` · ${escapeHtml(item.variant_name)}`} × ${item.quantity}`).join("<br />");
+}
+
+// 已取消（含舊的退款狀態）的訂單不再有付款進度，只顯示結果與款項去向
+const CLOSED_STATUSES = new Set(["cancelled", "refund_pending", "refunded"]);
+export const isClosedOrder = (order) => CLOSED_STATUSES.has(order?.status);
+
+function closedOrderNotice(order) {
+  const refunded = Number(order.refunded_amount || 0);
+  const paid = Number(order.paid_amount || 0);
+  if (refunded > 0) return `已退款 ${money(refunded)}；如有疑問請洽小幫手。`;
+  if (paid > 0) return `已付 ${money(paid)}，款項處理方式請洽小幫手。`;
+  return "此訂單已取消，不需要再匯款；保留的商品已釋出。";
+}
+
+export function closedOrderCardMarkup(order) {
+  const deliveryMethod = order.delivery_method || "store_pickup";
+  const deliveryLabel = `${orderInventoryTypeLabel(order)}．${deliveryMethodLabels[deliveryMethod] || "到店取貨"}`;
+  const details = `<div class="payment-row"><span>訂單總額</span><strong>${money(order.amount_due)}</strong></div>${deliveryMethod === "cvs_delivery" ? cvsDetailRows(order) : ""}`;
+  return `<article class="order-card is-closed"><div class="order-card-head"><div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(deliveryLabel)}</small></div><span class="status-chip">${escapeHtml(orderStatusLabel(order))}</span></div>`
+    + `<div class="order-items">${itemsMarkup(order)}</div><p class="order-closed-notice">${linkCustomerServiceText(closedOrderNotice(order))}</p>`
+    + `<details class="order-closed-details"><summary>查看明細</summary>${details}</details></article>`;
+}
+
+// 進行中的訂單在上；已取消的集中在最下方、預設收合
+export function ordersListMarkup(orders) {
+  if (!orders.length) return ordersEmptyMarkup();
+  const open = orders.filter((order) => !isClosedOrder(order));
+  const closed = orders.filter(isClosedOrder);
+  const openMarkup = open.length ? open.map(orderCardMarkup).join("") : '<p class="orders-none-open">目前沒有進行中的訂單。</p>';
+  const closedMarkup = closed.length ? `<details class="orders-closed-group"><summary>已取消的訂單（${closed.length}）</summary>${closed.map(closedOrderCardMarkup).join("")}</details>` : "";
+  return openMarkup + closedMarkup;
+}
+
 export function orderCardMarkup(order) {
-  const items = (order.order_items || []).map((item) => `${escapeHtml(item.product_name)}${item.variant_name === "單一規格" ? "" : ` · ${escapeHtml(item.variant_name)}`} × ${item.quantity}`).join("<br />");
+  const items = itemsMarkup(order);
   const deliveryMethod = order.delivery_method || "store_pickup";
   const sellerPending = deliveryMethod === "seller_delivery" && order.status === "pending_payment" && !order.bank_account_id;
   const preorderSellerPending = deliveryMethod === "seller_delivery" && order.status === "pending_payment" && Boolean(order.bank_account_id);

@@ -1,5 +1,5 @@
 @charset "UTF-8";
-/* 自動產生（scripts/build-css.mjs），請改原始檔：product-showcase.css、hero-desktop.css、hero-ratio.css、store-info.css、product-page.css、storefront-legibility.css、hero-flag-shine.css、header-orders.css、card-subgrid.css、filter-chips.css、catalog-paging.css、member-profile.css、dialog-close.css、checkout-cvs.css、checkout-coupon.css、home-fee.css、product-variants.css、floating-actions.css */
+/* 自動產生（scripts/build-css.mjs），請改原始檔：product-showcase.css、hero-desktop.css、hero-ratio.css、store-info.css、product-page.css、storefront-legibility.css、hero-flag-shine.css、header-orders.css、card-subgrid.css、filter-chips.css、catalog-paging.css、member-profile.css、dialog-close.css、checkout-cvs.css、checkout-coupon.css、home-fee.css、order-closed.css、product-variants.css、floating-actions.css */
 /* ==== product-showcase.css ==== */
 /* 商品展示升級樣式：Hero 預購輪播、商品頁多圖、詳細介紹、推薦商品。
    規劃見 app/PRODUCT_SHOWCASE_PLAN.md；載入順序在 styles.css 之後。 */
@@ -1343,6 +1343,25 @@ body.is-product-view .product-page {
 .final-payment-reported strong{font-variant-numeric:tabular-nums;letter-spacing:.04em}
 .order-card .final-payment-reported + button,.order-card .order-balance-account + button{margin-top:12px}
 .checkout-deadline-warning{padding:1px 5px;border-radius:6px;background:#fdecea;color:#a12d22;font-weight:850;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+/* ==== order-closed.css ==== */
+/* 我的訂單：已取消的訂單集中在清單最下方並預設收合，卡片只留結果與明細（order-views.js ordersListMarkup） */
+.orders-none-open { margin: 0 0 14px; color: var(--home-muted, var(--muted)); font-size: .92rem; }
+/* 蓋掉全站 details／summary 的底線、內距與「＋／－」符號（styles.css 的 details[open] summary::after 會套到內層，選擇器需帶 details 才壓得過） */
+.orders-closed-group, .order-closed-details { padding: 0; border-bottom: 0; }
+details.order-closed-details > summary::after { content: none; }
+.orders-closed-group { margin-top: 18px; }
+.orders-closed-group > summary { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 16px; border: 1px solid var(--home-line, var(--line)); border-radius: 12px; background: #fff; color: var(--home-ink, var(--ink)); font-weight: 800; cursor: pointer; list-style: none; }
+.orders-closed-group > summary::-webkit-details-marker { display: none; }
+details.orders-closed-group > summary::after { content: ""; float: none; flex: none; width: 9px; height: 9px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); transition: transform .2s ease; }
+details.orders-closed-group[open] > summary::after { transform: rotate(-135deg); }
+.orders-closed-group[open] > summary { margin-bottom: 12px; }
+.order-card.is-closed { background: #faf8f3; }
+.orders-closed-group .order-card + .order-card { margin-top: 12px; }
+.order-card.is-closed h3 { color: var(--home-muted, var(--muted)); }
+.order-closed-notice { margin: 10px 0 0; color: var(--home-ink, var(--ink)); font-size: .92rem; line-height: 1.6; }
+.order-closed-details { margin-top: 8px; }
+.order-closed-details > summary { display: inline-flex; align-items: center; min-height: 44px; color: var(--home-muted, var(--muted)); font-size: .88rem; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { details.orders-closed-group > summary::after { transition: none; } }
 /* ==== product-variants.css ==== */
 /* 多規格商品：首頁合併卡的「選擇規格」按鈕與「起」價，商品頁的規格單選按鈕（product-groups.js、product-page.js）。 */
 
