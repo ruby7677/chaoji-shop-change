@@ -3,7 +3,7 @@
 // 精簡列只切換 class（CSS 隱藏卡片內容），不搬動 DOM。
 import { adminIcon } from "./admin-icons.js";
 import { escapeHtml } from "./product-format.js";
-import { ORDER_STAGES, stageCount } from "./admin-order-stages.js";
+import { ORDER_STAGES, stageCount, stageOpenCount } from "./admin-order-stages.js";
 // 這些訂單需要店長動作，預設展開
 const ACTION_STATUSES = new Set(["pending_review"]);
 
@@ -15,14 +15,16 @@ const collapsed = new Set();
 
 const statusSelect = () => document.querySelector("#admin-order-status-filter");
 
-const badge = (n) => (n ? `<b>${n > 99 ? "99+" : n}</b>` : "");
+const shortCount = (n) => (n > 99 ? "99+" : n);
+// 需要處理的筆數用醒目徽章；其餘未結案分類只顯示一般筆數
+const badge = (n, open) => (n ? `<b>${shortCount(n)}</b>` : open ? `<small class="admin-status-count">${shortCount(open)}</small>` : "");
 
-// 單排分頁：全部＋各分類（ORDER_STAGE_FILTER_PLAN.md），窄畫面橫向捲動；徽章為需要處理的筆數
+// 單排分頁：全部＋各分類（ORDER_STAGE_FILTER_PLAN.md），窄畫面橫向捲動
 function renderTabs() {
   const stats = deps.getStats() || {};
   const current = statusSelect()?.value || "all";
-  const tab = (value, label, count = 0) => `<button type="button" class="admin-status-tab" data-admin-status-tab="${value}" aria-pressed="${value === current}">${escapeHtml(label)}${badge(count)}</button>`;
-  tabBar.innerHTML = `<div class="admin-status-groups">${tab("all", "全部")}${ORDER_STAGES.map(([value, label]) => tab(value, label, stageCount(value, stats))).join("")}</div>`;
+  const tab = (value, label, count = 0, open = 0) => `<button type="button" class="admin-status-tab" data-admin-status-tab="${value}" aria-pressed="${value === current}">${escapeHtml(label)}${badge(count, open)}</button>`;
+  tabBar.innerHTML = `<div class="admin-status-groups">${tab("all", "全部")}${ORDER_STAGES.map(([value, label]) => tab(value, label, stageCount(value, stats), stageOpenCount(value, stats))).join("")}</div>`;
   // 重繪會把橫捲位置歸零：只捲分頁列本身讓目前分頁可見（scrollIntoView 會連帶捲動整個清單）
   const row = tabBar.firstElementChild;
   const active = row?.querySelector('[aria-pressed="true"]');

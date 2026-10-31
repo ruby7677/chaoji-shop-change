@@ -2,7 +2,8 @@
 .filter-count{display:none}
 @media (min-width:761px){
   .shelf-title{flex:0 0 auto;white-space:nowrap}
-  .filter-row{gap:10px;justify-content:flex-end}
+  /* 由左排起：分類多到換行時，第二列接在左側，不會只剩一顆按鈕掛在右邊 */
+  .filter-row{gap:10px;justify-content:flex-start}
   .filter-row .filter{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 18px;border:1.5px solid #bfb39b;background:#fff;color:var(--home-ink);font-size:.95rem;font-weight:800;box-shadow:0 2px 6px rgba(58,48,30,.08);transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
   @media (hover:hover){.filter-row .filter:hover{border-color:var(--home-yellow);transform:translateY(-2px);box-shadow:0 8px 16px rgba(58,48,30,.14)}}
   .filter-row .filter:focus-visible{outline:3px solid var(--home-yellow);outline-offset:2px}

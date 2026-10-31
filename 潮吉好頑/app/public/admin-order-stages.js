@@ -38,6 +38,11 @@ export function stageCount(stage, stats) {
   return count ? Math.max(0, Number(count(stats || {}) || 0)) : 0;
 }
 
+/** 未結案分類的訂單筆數（admin_dashboard_stats.stageCounts，不含已完成與失效）；分頁上以一般數字顯示，與待處理徽章區分 */
+export function stageOpenCount(stage, stats) {
+  return Math.max(0, Number(stats?.stageCounts?.[stage] || 0));
+}
+
 /** 篩選值是否符合訂單：分類值比對 adminOrderStage，其他（舊的狀態值）直接比對狀態 */
 export function orderMatchesFilter(order, filter) {
   if (filter === "all") return true;

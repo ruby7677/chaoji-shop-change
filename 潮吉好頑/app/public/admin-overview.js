@@ -5,6 +5,7 @@ import { adminIcon } from "./admin-icons.js";
 import { escapeHtml, money } from "./product-format.js";
 import { openStockAdjust } from "./admin-stock-adjust.js";
 import { awaitingStockHomeFee } from "./home-fee-state.js";
+import { stockStateText } from "./admin-stock-state.js";
 
 // 後台 API 每位管理員每分鐘限 60 次（API_ADMIN_RATE_LIMITER），概況以較長快取避免佔用額度；
 // 按右上角重新整理可強制更新
@@ -63,7 +64,7 @@ function render(overview, stats) {
       <button class="admin-dash-action" type="button" data-admin-dash-order="${escapeHtml(order.order_number)}">處理</button></li>`;
   }).join("")}</ul>` : emptyMarkup("目前沒有需要人工處理的訂單。");
   const lowBody = low.length ? `<ul class="admin-dash-list">${low.slice(0, LOW_STOCK_SHOWN).map((variant) => `<li class="${variant.stock_on_hand <= 0 ? "is-urgent" : ""}"><span class="admin-dash-icon">${adminIcon("box")}</span>
-      <div><strong>${escapeHtml(variant.product_name)}</strong><small>${escapeHtml(variant.name)}・庫存 ${variant.stock_on_hand}／安全庫存 ${variant.safety_stock}</small></div>
+      <div><strong>${escapeHtml(variant.product_name)}</strong><small>${escapeHtml(variant.name)}・${escapeHtml(stockStateText(variant))}</small></div>
       <button class="admin-dash-action is-quiet" type="button" data-admin-dash-restock="${escapeHtml(variant.id)}">補貨</button></li>`).join("")}</ul>` : emptyMarkup("所有規格都高於安全庫存。");
   const recentBody = recent.length ? `<ul class="admin-dash-list is-compact">${recent.map((order) => {
     const member = memberOf(order);
@@ -74,7 +75,7 @@ function render(overview, stats) {
   }).join("")}</ul>` : emptyMarkup("尚無訂單。");
   const todoSubtitle = overview.todoTruncated ? `超過 ${todos.length} 件需要處理，先列出最新的 ${todos.length} 件` : `${todos.length} 件需要處理`;
   root.innerHTML = `<div class="admin-dash-main">${cardMarkup("今日待辦", todoSubtitle, todoBody)}</div>
-    <div class="admin-dash-side">${cardMarkup("低庫存提醒", `${lowCount} 個規格低於安全庫存`, lowBody)}
+    <div class="admin-dash-side">${cardMarkup("低庫存提醒", `${lowCount} 個規格已售完或不高於安全庫存`, lowBody)}
     ${cardMarkup("最新訂單", "點選可直接開啟該筆訂單", recentBody)}</div>`;
 }
 

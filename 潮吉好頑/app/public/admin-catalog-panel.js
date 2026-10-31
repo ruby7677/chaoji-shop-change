@@ -10,6 +10,7 @@ import { movementMatches } from "./admin-stock-math.js";
 import "./admin-product-delete.js";
 import { adminCreateDeliveryMethods, ensureAdminDeliveryMethodsUI, readDeliveryMethods } from "./admin-delivery-methods.js";
 import { variantImagePayload } from "./admin-variant-image.js";
+import { isSoldOut } from "./admin-stock-state.js";
 
 function sortedAdminCategories() {
   return (adminData?.categories || []).slice().sort((left, right) => Number(left.display_order || 0) - Number(right.display_order || 0) || String(left.name || "").localeCompare(String(right.name || ""), "zh-Hant"));
@@ -208,7 +209,7 @@ export function renderAdminLowStock() {
   if (!list) return;
   const lowStock = (adminData.productOptions || adminData.managementOptions?.products || []).flatMap((product) => (product.product_variants || []).filter((variant) => Number(variant.stock_on_hand) <= Number(variant.safety_stock)).map((variant) => ({ product, variant })));
   if (count) count.textContent = `${lowStock.length} 項`;
-  list.innerHTML = lowStock.length ? lowStock.map(({ product, variant }) => `<div class="admin-low-stock-row"><div><strong>${escapeHtml(product.name)} · ${escapeHtml(variant.name)}</strong><small>安全庫存 ${variant.safety_stock}</small></div><span>${variant.stock_on_hand}</span><button class="secondary-button" type="button" data-admin-low-stock-variant="${escapeHtml(variant.id)}">調整庫存</button></div>`).join("") : '<p class="admin-low-stock-empty">目前沒有低於安全庫存的規格。</p>';
+  list.innerHTML = lowStock.length ? lowStock.map(({ product, variant }) => `<div class="admin-low-stock-row"><div><strong>${escapeHtml(product.name)} · ${escapeHtml(variant.name)}</strong><small>${isSoldOut(variant) ? "已售完・" : ""}安全庫存 ${variant.safety_stock}</small></div><span>${variant.stock_on_hand}</span><button class="secondary-button" type="button" data-admin-low-stock-variant="${escapeHtml(variant.id)}">調整庫存</button></div>`).join("") : '<p class="admin-low-stock-empty">目前沒有已售完或低於安全庫存的規格。</p>';
 }
 
 function normalizePreorderDate(value) {

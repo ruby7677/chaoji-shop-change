@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { ORDER_STAGES, adminOrderStage, orderMatchesFilter, stageCount } from "../../public/admin-order-stages.js";
+import { ORDER_STAGES, adminOrderStage, orderMatchesFilter, stageCount, stageOpenCount } from "../../public/admin-order-stages.js";
 import { adminOrderStatusLabel, orderStatusLabel } from "../../public/app-core.js";
 
 const pre = [{ kind: "preorder" }];
@@ -61,4 +61,11 @@ test("SQL 分類值清單與前端一致", () => {
   const sql = readFileSync(new URL("../../supabase/migrations/202610290002_admin_order_stage_filter.sql", import.meta.url), "utf8");
   const listed = sql.match(/v_stages constant text\[\] := array\[([^\]]+)\]/)[1].match(/'([a-z_]+)'/g).map((value) => value.slice(1, -1));
   assert.deepEqual(listed, ORDER_STAGES.map(([value]) => value));
+});
+
+test("分頁一般筆數取自未結案分類計數，沒有資料時為 0", () => {
+  const stats = { stageCounts: { awaiting_arrival: 4, pending_payment: 2 } };
+  assert.equal(stageOpenCount("awaiting_arrival", stats), 4);
+  assert.equal(stageOpenCount("completed", stats), 0);
+  assert.equal(stageOpenCount("pending_payment", {}), 0);
 });

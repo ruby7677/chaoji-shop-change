@@ -62,6 +62,11 @@
 #admin-dialog.admin-app .admin-status-tab[aria-pressed="true"] { background: #141414; color: var(--admin-brand-sun); }
 #admin-dialog.admin-app .admin-status-tab b { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--admin-brand-tongue); color: #141414; font-size: 12px; text-align: center; }
 #admin-dialog.admin-app .admin-status-tab[aria-pressed="true"] b { background: var(--admin-brand-sun); }
+#admin-dialog.admin-app .admin-status-tab .admin-status-count { color: var(--admin-text-muted); font-size: 12px; font-weight: 700; }
+#admin-dialog.admin-app .admin-status-tab[aria-pressed="true"] .admin-status-count { color: inherit; opacity: .75; }
+/* 「全部」裡的失效訂單（已取消／退款）淡化，進行中的訂單較醒目 */
+#admin-dialog.admin-app .admin-order-card.is-closed { background: var(--admin-surface-subtle); }
+#admin-dialog.admin-app .admin-order-card.is-closed header h3 { color: var(--admin-text-muted); }
 #admin-dialog.admin-app .admin-status-tools { display: inline-flex; flex: none; align-items: center; gap: 4px; min-height: 38px; }
 #admin-dialog.admin-app .admin-status-tool { min-height: 34px; padding: 0 10px; border: 1px solid var(--admin-border); border-radius: 8px; background: #fff; color: var(--admin-text-muted); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 #admin-dialog.admin-app .admin-status-tool:hover { border-color: #141414; color: #141414; }
@@ -141,7 +146,7 @@
 #admin-dialog.admin-app .audit-raw small { display: block; margin-top: 4px; }
 
 /* 概況強調卡在數字為 0 時回到一般外觀（admin-app.js renderStatValues 加上 is-zero） */
-#admin-dialog.admin-app .stats .stat-card.is-zero:first-child,
+#admin-dialog.admin-app .stats .stat-card.is-zero:first-child { border-color: var(--admin-border); background: #fff; }
 #admin-dialog.admin-app .stats .stat-card.is-zero:first-child small { color: var(--admin-text-muted); }
 #admin-dialog.admin-app .audit-log-card > div { flex: 1; min-width: 0; }
 

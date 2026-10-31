@@ -340,6 +340,9 @@ export async function loadAdminSection(tabOrSection, { force = false } = {}) {
 }
 
 export function switchAdminTab(tab) {
+  // 換到別的分頁時從頂端開始看（各分頁共用同一個捲動容器）；重按目前分頁不動捲動位置
+  const previous = document.querySelector("[data-admin-tab].active")?.dataset.adminTab;
+  if (previous && previous !== tab) document.querySelector(".admin-content")?.scrollTo({ top: 0 });
   document.querySelectorAll("[data-admin-tab]").forEach((button) => button.classList.toggle("active", button.dataset.adminTab === tab));
   document.querySelectorAll("[data-admin-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.adminPanel !== tab));
   const hook = adminTabHooks.get(tab);

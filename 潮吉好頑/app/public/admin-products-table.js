@@ -76,19 +76,19 @@ function thumbMarkup(product) {
   return `<span class="admin-product-thumbnail admin-row-thumb">${src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" />` : deps.fallbackMarkup()}</span>`;
 }
 
-function productCellMarkup(product) {
+function productCellMarkup(product, sameAsPrevious = false) {
   const tags = `${product.is_published ? "" : '<span class="admin-pill gray">商品未上架</span>'}${product.points_eligible === false ? '<span class="admin-pill amber">不積點</span>' : ""}${deliveryRestrictionLabel(product) ? `<span class="admin-pill amber">${escapeHtml(deliveryRestrictionLabel(product))}</span>` : ""}`;
-  return `<td class="lead-cell"><span class="admin-prod-cell">${thumbMarkup(product)}<span><span class="cell-main">${escapeHtml(product.name)}</span>`
+  return `<td class="lead-cell${sameAsPrevious ? " is-same-product" : ""}"><span class="admin-prod-cell">${thumbMarkup(product)}<span><span class="cell-main">${escapeHtml(product.name)}</span>`
     + `<span class="cell-sub">${escapeHtml(categoryName(product))}</span>${tags ? `<span class="cell-tags">${tags}</span>` : ""}</span></span></td>`;
 }
 
-function rowMarkup(product, variant, maxStock) {
+function rowMarkup(product, variant, maxStock, sameAsPrevious) {
   const label = `${product.name}／${variant.name}`;
   const sale = discountPercent(variant);
   const low = variant.stock_on_hand <= variant.safety_stock;
   const percent = maxStock ? Math.round((Math.max(0, variant.stock_on_hand) / maxStock) * 100) : 0;
   const deposit = variant.kind !== "preorder" && Number(variant.deposit_rate) > 0 ? `<span class="cell-sub">訂金 ${Math.round(Number(variant.deposit_rate) * 100)}%</span>` : (variant.kind === "preorder" ? '<span class="cell-sub">訂金 50%</span>' : "");
-  return `<tr data-variant-row="${escapeHtml(variant.id)}">${productCellMarkup(product)}`
+  return `<tr data-variant-row="${escapeHtml(variant.id)}">${productCellMarkup(product, sameAsPrevious)}`
     + `<td data-l="規格">${variantSelectMarkup(product, variant, escapeHtml)}${escapeHtml(variant.name)}</td>`
     + `<td data-l="類型">${kindPill(variant.kind)}</td>`
     + `<td class="num" data-l="售價"><span class="admin-price-cell">${priceMarkup(variant)}${sale ? `<span class="admin-pill danger">限時優惠 −${sale}%</span>` : ""}${deposit}</span></td>`
@@ -110,7 +110,7 @@ const isRowUnpublished = ({ product, variant }) => !product.is_published || (var
 
 function tableMarkup(rows, maxStock) {
   return `<div class="admin-table-wrap"><table class="admin-stack-table">${TABLE_HEAD}<tbody>`
-    + rows.map(({ product, variant }) => (variant ? rowMarkup(product, variant, maxStock) : emptyProductRow(product))).join("")
+    + rows.map(({ product, variant }, index) => (variant ? rowMarkup(product, variant, maxStock, rows[index - 1]?.product.id === product.id) : emptyProductRow(product))).join("")
     + "</tbody></table></div>";
 }
 
