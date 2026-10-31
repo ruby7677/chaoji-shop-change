@@ -4,7 +4,7 @@ import { auth, closeDialog, showDialog, showToast } from "./app-core.js";
 import { ensurePaymentMethodUI } from "./checkout-form.js";
 import { whenAuthReady } from "./auth-ready.js";
 import { beginLineLogin } from "./member-profile.js";
-import { applyPaymentFormMode, orderCardMarkup, ordersEmptyMarkup, paymentOrderView, reportPayment } from "./order-views.js";
+import { applyPaymentFormMode, ordersListMarkup, paymentLastFiveDefault, paymentOrderView, reportPayment } from "./order-views.js";
 
 export let currentOrders = [];
 let activePaymentOrder = null;
@@ -19,7 +19,7 @@ function renderPaymentOrder(order) {
 export function showPaymentDialog(order) {
   activePaymentOrder = order;
   renderPaymentOrder(order);
-  document.querySelector("#payment-last-five").value = "";
+  document.querySelector("#payment-last-five").value = paymentLastFiveDefault(order);
   document.querySelector("#payment-error").classList.add("hidden");
   const dialog = document.querySelector("#payment-dialog");
   showDialog(dialog);
@@ -55,7 +55,7 @@ export async function submitPayment(event) {
 
 function renderOrders() {
   const container = document.querySelector("#orders-list");
-  container.innerHTML = currentOrders.length ? currentOrders.map(orderCardMarkup).join("") : ordersEmptyMarkup();
+  container.innerHTML = ordersListMarkup(currentOrders);
 }
 
 export async function openOrders() {

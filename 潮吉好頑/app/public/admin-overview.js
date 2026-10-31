@@ -5,6 +5,7 @@ import { adminIcon } from "./admin-icons.js";
 import { escapeHtml, money } from "./product-format.js";
 import { openStockAdjust } from "./admin-stock-adjust.js";
 import { awaitingStockHomeFee } from "./home-fee-state.js";
+import { stockStateText } from "./admin-stock-state.js";
 
 // 後台 API 每位管理員每分鐘限 60 次（API_ADMIN_RATE_LIMITER），概況以較長快取避免佔用額度；
 // 按右上角重新整理可強制更新
@@ -24,13 +25,19 @@ const hasPreorderItem = (order) => (order.order_items || []).some((item) => item
 const isCvsReadyToShip = (order) => order.delivery_method === "cvs_delivery"
   && ((order.status === "confirmed" && !hasPreorderItem(order)) || (order.status === "ready_for_pickup" && Boolean(order.final_payment_confirmed_at)));
 
+// 店到店／宅配到貨後尚未確認尾款
+const finalPaymentAwaiting = (order) => ["cvs_delivery", "home_delivery"].includes(order.delivery_method)
+  && order.status === "ready_for_pickup" && !order.final_payment_confirmed_at;
+
 // 依緊急程度排序的待辦規則；只列出需要店長人工處理的狀態
 const TODO_RULES = [
   { match: (o) => o.status === "pending_review", icon: "bank", urgent: true, title: (o) => `確認款項 ${o.order_number}`, detail: (o) => `末五碼 ${o.payment_last_five || "未回報"}・應收 ${money(o.deposit_due || o.amount_due)}` },
   { match: (o) => awaitingStockHomeFee(o, hasPreorderItem(o)), icon: "truck", urgent: true, title: (o) => `宅配待填運費 ${o.order_number}`, detail: (o) => `商品 ${money(o.amount_due)}・確認運費後通知客人匯款` },
   { match: isCvsReadyToShip, icon: "bag", urgent: false, title: (o) => `店到店待寄出 ${o.order_number}`, detail: (o) => `訂單金額 ${money(o.amount_due)}` },
-  { match: (o) => o.delivery_method === "cvs_delivery" && o.status === "ready_for_pickup" && !o.final_payment_confirmed_at, icon: "truck", urgent: false, title: (o) => `店到店尾款／運費 ${o.order_number}`, detail: (o) => `待收 ${money(Math.max(Number(o.amount_due || 0) - Number(o.paid_amount || 0), 0))}` },
-  { match: (o) => o.delivery_method === "home_delivery" && o.status === "ready_for_pickup" && !o.final_payment_confirmed_at, icon: "truck", urgent: false, title: (o) => `宅配尾款／運費 ${o.order_number}`, detail: (o) => (o.shipping_fee ? `運費 ${money(o.shipping_fee)}，待確認入帳` : "尚未填寫實際運費") }
+  // 會員已在網站回報尾款末五碼：與確認款項同樣緊急，取代下面兩條一般尾款待辦
+  { match: (o) => finalPaymentAwaiting(o) && Boolean(o.final_payment_reported_last_five), icon: "bank", urgent: true, title: (o) => `確認尾款 ${o.order_number}`, detail: (o) => `會員已回報末五碼 ${o.final_payment_reported_last_five}・待收 ${money(Math.max(Number(o.amount_due || 0) - Number(o.paid_amount || 0), 0))}` },
+  { match: (o) => o.delivery_method === "cvs_delivery" && finalPaymentAwaiting(o) && !o.final_payment_reported_last_five, icon: "truck", urgent: false, title: (o) => `店到店尾款／運費 ${o.order_number}`, detail: (o) => `待收 ${money(Math.max(Number(o.amount_due || 0) - Number(o.paid_amount || 0), 0))}` },
+  { match: (o) => o.delivery_method === "home_delivery" && finalPaymentAwaiting(o) && !o.final_payment_reported_last_five, icon: "truck", urgent: false, title: (o) => `宅配尾款／運費 ${o.order_number}`, detail: (o) => (o.shipping_fee ? `運費 ${money(o.shipping_fee)}，待確認入帳` : "尚未填寫實際運費") }
 ];
 
 function todoItems(orders) {
@@ -57,7 +64,7 @@ function render(overview, stats) {
       <button class="admin-dash-action" type="button" data-admin-dash-order="${escapeHtml(order.order_number)}">處理</button></li>`;
   }).join("")}</ul>` : emptyMarkup("目前沒有需要人工處理的訂單。");
   const lowBody = low.length ? `<ul class="admin-dash-list">${low.slice(0, LOW_STOCK_SHOWN).map((variant) => `<li class="${variant.stock_on_hand <= 0 ? "is-urgent" : ""}"><span class="admin-dash-icon">${adminIcon("box")}</span>
-      <div><strong>${escapeHtml(variant.product_name)}</strong><small>${escapeHtml(variant.name)}・庫存 ${variant.stock_on_hand}／安全庫存 ${variant.safety_stock}</small></div>
+      <div><strong>${escapeHtml(variant.product_name)}</strong><small>${escapeHtml(variant.name)}・${escapeHtml(stockStateText(variant))}</small></div>
       <button class="admin-dash-action is-quiet" type="button" data-admin-dash-restock="${escapeHtml(variant.id)}">補貨</button></li>`).join("")}</ul>` : emptyMarkup("所有規格都高於安全庫存。");
   const recentBody = recent.length ? `<ul class="admin-dash-list is-compact">${recent.map((order) => {
     const member = memberOf(order);
@@ -68,7 +75,7 @@ function render(overview, stats) {
   }).join("")}</ul>` : emptyMarkup("尚無訂單。");
   const todoSubtitle = overview.todoTruncated ? `超過 ${todos.length} 件需要處理，先列出最新的 ${todos.length} 件` : `${todos.length} 件需要處理`;
   root.innerHTML = `<div class="admin-dash-main">${cardMarkup("今日待辦", todoSubtitle, todoBody)}</div>
-    <div class="admin-dash-side">${cardMarkup("低庫存提醒", `${lowCount} 個規格低於安全庫存`, lowBody)}
+    <div class="admin-dash-side">${cardMarkup("低庫存提醒", `${lowCount} 個規格已售完或不高於安全庫存`, lowBody)}
     ${cardMarkup("最新訂單", "點選可直接開啟該筆訂單", recentBody)}</div>`;
 }
 

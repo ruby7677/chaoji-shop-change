@@ -97,14 +97,26 @@ export function watchSessionExpiry() {
   timer = window.setTimeout(() => { void handleSessionExpired({ early: true }); }, Math.max(0, expiresAt - RENEW_BEFORE_MS - Date.now()));
 }
 
+// 結帳、建單等需要會員的操作前呼叫：token 已到期或即將到期就先換發，換發失敗會登出，呼叫端再依 auth 狀態導去登入
+export async function ensureFreshSession() {
+  const token = deps?.getAccessToken();
+  if (token && accessTokenExpiresSoon(token)) await handleSessionExpired({ early: true });
+}
+
+// 每分鐘檢查一次：電腦休眠後計時器可能延後，分頁一直在前景時也不會有 visibilitychange
+export const EXPIRY_CHECK_INTERVAL_MS = 60 * 1000;
+
 // deps：getAccessToken、tryRestore、clearSession、closeDialog、showToast
 export function initAuthExpiry(options) {
   if (deps) return;
   deps = options;
-  // 手機休眠或分頁在背景時計時器會暫停；回到頁面時補檢查
-  document.addEventListener("visibilitychange", () => {
+  const check = () => {
     if (document.visibilityState !== "visible") return;
-    const token = deps.getAccessToken();
-    if (token && accessTokenExpiresSoon(token)) void handleSessionExpired({ early: true });
-  });
+    void ensureFreshSession();
+  };
+  // 手機休眠或分頁在背景時計時器會暫停；回到頁面、視窗取得焦點或從 bfcache 還原時補檢查
+  document.addEventListener("visibilitychange", check);
+  window.addEventListener("focus", check);
+  window.addEventListener("pageshow", check);
+  window.setInterval(check, EXPIRY_CHECK_INTERVAL_MS);
 }

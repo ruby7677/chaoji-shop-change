@@ -9,14 +9,18 @@ type AdminDashboardSection = "overview" | "orders" | "members" | "products" | "i
 
 const ADMIN_DASHBOARD_SECTIONS: AdminDashboardSection[] = ["overview", "orders", "members", "products", "inventory", "discounts", "settings"];
 
-const ADMIN_PRODUCTS_SELECT = "id,name,description,image_path,image_updated_at,purchase_limit,points_eligible,is_published,display_order,category_id,details,hero_rank,hero_tagline,product_images(id,storage_path,sort_order,updated_at,width,height),categories(id,name,is_active),product_variants(id,name,sku,kind,price,compare_at_price,stock_on_hand,safety_stock,preorder_arrival,deposit_rate,seller_link,is_published,display_order,updated_at)";
+const ADMIN_PRODUCTS_SELECT = "id,name,description,image_path,image_updated_at,purchase_limit,points_eligible,allowed_delivery_methods,is_published,display_order,category_id,details,hero_rank,hero_tagline,product_images(id,storage_path,sort_order,updated_at,width,height),categories(id,name,is_active),product_variants(id,name,sku,kind,price,compare_at_price,stock_on_hand,safety_stock,preorder_arrival,deposit_rate,seller_link,is_published,display_order,show_stock,image_id,updated_at)";
 
-const ADMIN_ORDERS_SELECT = "id,member_id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,pickup_store_city,pickup_store_district,pickup_store_name,pickup_store_code,shipment_tracking_number,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,paid_amount,payment_deadline,payment_last_five,bank_account_id,admin_note,confirmed_at,payment_confirmed_at,completed_at,cancelled_at,created_at,profiles!orders_member_id_fkey(full_name,phone),bank_accounts(label,bank_name,account_name,account_number),order_items(id,product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)";
+const ADMIN_ORDERS_SELECT = "id,member_id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,pickup_store_city,pickup_store_district,pickup_store_name,pickup_store_code,shipment_tracking_number,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,final_payment_reported_last_five,final_payment_reported_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,paid_amount,payment_deadline,payment_last_five,bank_account_id,admin_note,confirmed_at,payment_confirmed_at,completed_at,cancelled_at,created_at,profiles!orders_member_id_fkey(full_name,phone),bank_accounts(label,bank_name,account_name,account_number),order_items(id,product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)";
 
 const ADMIN_ORDER_HISTORY_SELECT = "id,order_id,from_status,to_status,note,created_at,profiles(full_name)";
 
 
 const ADMIN_MEMBER_SELECT = "id,full_name,phone,birthday,address,is_admin,created_at,point_balance,lifetime_spend,order_count";
+
+// 會員分頁的消費紀錄只顯示編號、狀態、金額、時間與取貨方式（public/admin-members-panel.js）；
+// order_items(kind) 供狀態文字判斷是否含預購。不沿用 ADMIN_ORDERS_SELECT，避免每次多傳品項、銀行帳號等完整訂單資料。
+const ADMIN_MEMBER_ORDERS_SELECT = "id,member_id,order_number,status,delivery_method,amount_due,created_at,order_items(kind)";
 
 const ADMIN_POINT_ENTRIES_SELECT = "id,member_id,order_id,kind,points,reason,created_at,profiles!point_ledger_member_id_fkey(full_name),actor:profiles!point_ledger_actor_id_fkey(full_name),orders(order_number)";
 
@@ -102,15 +106,16 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
       if (!searchResponse.ok) return databaseError(searchResponse);
       const searchResult = await searchResponse.json() as { ids?: unknown; pagination?: Record<string, unknown> };
       const ids = Array.isArray(searchResult.ids) ? searchResult.ids.filter((id): id is string => typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id)) : [];
-      if (!ids.length) return json({ members: [], pointEntries: [], pointSettings: null, orders: [], pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+      // 回傳 memberOrders 而非 orders：前台把各分區回應合併進同一份資料，用 orders 會蓋掉訂單分頁的列表
+      if (!ids.length) return json({ members: [], pointEntries: [], pointSettings: null, memberOrders: [], pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
       const idFilter = adminIdFilter(ids);
-      const [members, pointEntries, pointSettings, orders] = await Promise.all([
+      const [members, pointEntries, pointSettings, memberOrders] = await Promise.all([
         rows("admin_member_summary", ADMIN_MEMBER_SELECT, { id: idFilter, order: "created_at.desc", limit: String(page.pageSize) }),
         rows("point_ledger", ADMIN_POINT_ENTRIES_SELECT, { member_id: idFilter, order: "created_at.desc", limit: "500" }),
         rows("point_settings", "earn_amount_per_point,point_value,min_redeem_points,max_redeem_mode,max_redeem_value,updated_at", { id: "eq.true", limit: "1" }),
-        rows("orders", ADMIN_ORDERS_SELECT, { member_id: idFilter, order: "created_at.desc", limit: "500" })
+        rows("orders", ADMIN_MEMBER_ORDERS_SELECT, { member_id: idFilter, order: "created_at.desc", limit: "500" })
       ]);
-      return json({ members: orderRowsByIds(members, ids), pointEntries, pointSettings: pointSettings[0] || null, orders, pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
+      return json({ members: orderRowsByIds(members, ids), pointEntries, pointSettings: pointSettings[0] || null, memberOrders, pagination: { members: searchResult.pagination || { page: page.page, pageSize: page.pageSize, hasMore: false }, pointEntries: { page: page.page, pageSize: page.pageSize, hasMore: false }, orders: { page: page.page, pageSize: page.pageSize, hasMore: false } } });
     }
     if (section === "products") {
       const page = adminPage(request, 100);

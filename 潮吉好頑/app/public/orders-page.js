@@ -5,8 +5,13 @@ import { closeDialog, showDialog, showToast } from "./app-core.js";
 import { initializeLiffClient, preloadLiffSdk } from "./liff-auth.js";
 import { refreshWebSession } from "./web-session.js";
 import { handleCopyBankAccount } from "./copy-bank-account.js";
-import { applyPaymentFormMode, orderCardMarkup, ordersEmptyMarkup, paymentOrderView, reportPayment } from "./order-views.js";
+import { applyPaymentFormMode, ordersListMarkup, paymentLastFiveDefault, paymentOrderView, reportPayment } from "./order-views.js";
 import { cachedAccessToken, forgetAccessToken, rememberAccessToken, restoreOrdersSession } from "./orders-session.js";
+import { takeEmbeddedConfig } from "./embedded-config.js";
+import { markBoot, noteBootResponse, reportBootTiming } from "./boot-timing.js";
+
+// module 執行時整棵 import 樹已載完（計時報告的「JS」時間點）
+markBoot("JS 載入完成");
 
 const list = document.querySelector("#orders-list");
 const paymentDialog = document.querySelector("#payment-dialog");
@@ -15,6 +20,8 @@ let config = null;
 let inLineClient = /\bLine\//i.test(navigator.userAgent);
 let accessToken = null;
 let orders = [];
+// 恢復登入時 Worker 一併回傳的訂單：只用一次，之後（重新整理、回報匯款後）照常請求
+let restoredOrders = null;
 let activeOrder = null;
 
 const SKELETON = '<div class="skeleton-stack" role="status" aria-label="載入訂單中"><div class="skeleton-card"><span></span><i></i><i></i></div><div class="skeleton-card"><span></span><i></i><i></i></div></div>';
@@ -35,8 +42,11 @@ function showMessage(title, message, { action = "shop", label = "前往商店" }
   list.innerHTML = `<div class="orders-empty"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(message)}</p>${button}</div>`;
 }
 
-// 不用瀏覽器快取的舊設定（Worker 回應可快取 5 分鐘），避免新設定的訂單頁 LIFF ID 還沒生效
+// 先用 Worker 內嵌在 HTML 的設定（src/orders-page.ts）；沒有內嵌時才請求，且不用瀏覽器快取的舊設定
+// （Worker 回應可快取 5 分鐘），避免新設定的訂單頁 LIFF ID 還沒生效
 async function loadConfig() {
+  config = takeEmbeddedConfig();
+  if (config) return;
   const response = await fetch("/api/config", { cache: "no-cache" });
   if (!response.ok) throw new Error("設定載入失敗");
   config = await response.json();
@@ -51,7 +61,10 @@ async function obtainAccessToken({ useCache = true } = {}) {
   let state = null;
   let liffError = null;
   if (config.ordersLiffId) {
-    try { state = await initializeLiffClient(config.ordersLiffId); }
+    try {
+      state = await initializeLiffClient(config.ordersLiffId);
+      markBoot("LIFF 初始化");
+    }
     catch (error) { liffError = error; console.warn("Orders LIFF unavailable; trying the web session.", error); }
   }
   // 只有 LIFF 真的初始化成功且在 LINE App 內，才走 LIFF 恢復登入；UA 判斷只用來決定商店連結
@@ -62,10 +75,11 @@ async function obtainAccessToken({ useCache = true } = {}) {
       globalThis.liff.login({ redirectUri: location.href });
       return "redirect";
     }
-    const restored = await restoreOrdersSession({ idToken: state.idToken });
+    const restored = await restoreOrdersSession({ idToken: state.idToken, fetchImpl: noteRestoreResponse });
     if (restored.outcome === "retry") throw new Error("登入服務暫時忙碌，請稍後再試");
     if (restored.outcome !== "restored") return null;
     rememberAccessToken(restored.accessToken);
+    restoredOrders = restored.orders || null;
     return restored.accessToken;
   }
   const refreshed = await refreshWebSession();
@@ -78,8 +92,16 @@ async function obtainAccessToken({ useCache = true } = {}) {
   return null;
 }
 
+// 計時報告記下登入恢復的狀態碼與執行機房（未開計時時不做任何事）
+async function noteRestoreResponse(...args) {
+  const response = await fetch(...args);
+  noteBootResponse("恢復", response);
+  return response;
+}
+
 async function fetchOrders(token) {
   const response = await fetch("/api/orders", { headers: { Authorization: `Bearer ${token}` } });
+  noteBootResponse("訂單", response);
   const result = await response.json().catch(() => ({}));
   if (response.status === 401) return null;
   if (!response.ok) throw new Error(result.error || "訂單紀錄載入失敗");
@@ -87,7 +109,7 @@ async function fetchOrders(token) {
 }
 
 function renderOrders() {
-  list.innerHTML = orders.length ? orders.map(orderCardMarkup).join("") : ordersEmptyMarkup();
+  list.innerHTML = ordersListMarkup(orders);
   list.querySelector("[data-orders-shop]")?.replaceWith(Object.assign(document.createElement("a"), { className: "secondary-button", href: shopUrl(), textContent: "前往商品區" }));
 }
 
@@ -99,12 +121,14 @@ async function loadOrders({ useCache = true } = {}) {
     syncShopLinks();
     accessToken = await obtainAccessToken({ useCache });
     if (accessToken === "redirect") return;
+    if (accessToken) markBoot("訂單頁登入");
     if (!accessToken) {
       return showMessage("請先登入商店", inLineClient
         ? "第一次使用請先開啟商店完成 LINE 登入，之後從選單點「我的訂單」就能直接查看。"
         : "請在 LINE 官方帳號選單開啟，或前往商店以 LINE 登入後查看訂單。", { label: "前往商店登入" });
     }
-    let result = await fetchOrders(accessToken);
+    let result = restoredOrders || await fetchOrders(accessToken);
+    restoredOrders = null;
     // 保存的 token 已失效：清掉後重新恢復一次
     if (result === null && useCache) {
       forgetAccessToken();
@@ -125,7 +149,7 @@ function openPayment(order) {
   const { html, mode } = paymentOrderView(order);
   document.querySelector("#payment-order-detail").innerHTML = html;
   applyPaymentFormMode(mode);
-  document.querySelector("#payment-last-five").value = "";
+  document.querySelector("#payment-last-five").value = paymentLastFiveDefault(order);
   document.querySelector("#payment-error").classList.add("hidden");
   showDialog(paymentDialog);
 }
@@ -171,4 +195,9 @@ document.querySelector("#payment-form").addEventListener("submit", submitPayment
 
 // LINE 內且沒有可用的 token 時一定會用到 LIFF：SDK 與 /api/config 同時下載，不用等設定回來才開始
 if (inLineClient && !cachedAccessToken()) preloadLiffSdk();
-loadOrders();
+// 第一次載入完成（顯示訂單或提示）後出計時報告；前往 LINE 登入時不報告，轉址回來的那次才報告
+loadOrders().then(() => {
+  if (accessToken === "redirect") return;
+  markBoot("訂單顯示");
+  reportBootTiming("orders");
+});

@@ -136,10 +136,17 @@ export function createWebSession<E extends WebSessionEnv>(deps: WebSessionDeps<E
     return issue(env, refreshed, userId, payload.iat);
   }
 
+  // 會員按「登出」：清掉續期 cookie，之後這個瀏覽器只能重新走 LINE 授權。不需要設定或 Supabase，故障時也能登出。
+  function logout(request: Request): Response {
+    if (request.headers.get(WEB_SESSION_HEADER) !== "1") return json({ error: "登出請求格式錯誤" }, { status: 400 });
+    return withCookies(json({ ok: true }), clearWebSessionCookies());
+  }
+
   async function route(request: Request, env: E, url: URL): Promise<Response | null> {
     if (request.method !== "POST") return null;
     if (url.pathname === "/api/auth/web-session/start") return start(request, env);
     if (url.pathname === "/api/auth/web-session/refresh") return refresh(request, env);
+    if (url.pathname === "/api/auth/web-session/logout") return logout(request);
     return null;
   }
 

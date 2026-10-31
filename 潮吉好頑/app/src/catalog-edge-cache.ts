@@ -12,6 +12,7 @@ export const CATALOG_EDGE_TTL_SECONDS = 300;
 const KEY_PATH = "/__edge-cache/catalog/v1";
 const INVALIDATED_PATH = "/__edge-cache/catalog/v1-invalidated-at";
 const LOADED_AT_HEADER = "X-Catalog-Loaded-At";
+const HERO_IMAGE_HEADER = "X-Catalog-Hero-Image";
 
 type EdgeCache = { match(key: string): Promise<Response | undefined>; put(key: string, response: Response): Promise<void>; delete(key: string): Promise<boolean> };
 
@@ -32,7 +33,19 @@ async function invalidatedAt(cache: EdgeCache, origin: string): Promise<number> 
   return marker ? Number(await marker.text()) || 0 : 0;
 }
 
-export async function readEdgeCatalog(origin: string): Promise<Product[] | null> {
+/**
+ * 邊緣副本：原始 JSON 文字（Product[]）與首頁第一張輪播圖網址。
+ * heroImage 為 undefined 代表副本沒記錄（舊副本），呼叫端要自行由型錄算出；null 代表沒有可預載的圖。
+ */
+export type EdgeCatalogEntry = { text: string; heroImage?: string | null };
+
+/** 邊緣副本的原始 JSON 文字（Product[]）：/api/catalog 直接沿用，不必解析再重新轉字串。 */
+export async function readEdgeCatalogText(origin: string): Promise<string | null> {
+  return (await readEdgeCatalogEntry(origin))?.text ?? null;
+}
+
+/** 首頁用：連同輪播圖網址一起讀，命中時首頁完全不必解析型錄。 */
+export async function readEdgeCatalogEntry(origin: string): Promise<EdgeCatalogEntry | null> {
   knownOrigins.add(origin);
   if (pendingInvalidation) await pendingInvalidation;
   const cache = edgeCache();
@@ -41,21 +54,36 @@ export async function readEdgeCatalog(origin: string): Promise<Product[] | null>
     const [cached, invalidated] = await Promise.all([cache.match(keyFor(origin)), invalidatedAt(cache, origin)]);
     if (!cached) return null;
     const loadedAt = Number(cached.headers.get(LOADED_AT_HEADER)) || 0;
-    return loadedAt > invalidated ? await cached.json() as Product[] : null;
+    if (loadedAt <= invalidated) return null;
+    const text = await cached.text();
+    // 只擋明顯損毀的副本（不是陣列）；不在這裡解析，解析留給真正需要物件的呼叫端
+    if (!(text.startsWith("[") && text.endsWith("]"))) return null;
+    const hero = cached.headers.get(HERO_IMAGE_HEADER);
+    return hero === null ? { text } : { text, heroImage: hero ? decodeURIComponent(hero) : null };
   } catch {
     return null;
   }
 }
 
-/** loadedAt：開始向 Supabase 讀取這份型錄的時間（毫秒）。 */
-export async function writeEdgeCatalog(origin: string, products: Product[], loadedAt: number): Promise<void> {
+export async function readEdgeCatalog(origin: string): Promise<Product[] | null> {
+  const text = await readEdgeCatalogText(origin);
+  if (text === null) return null;
+  try { return JSON.parse(text) as Product[]; } catch { return null; }
+}
+
+/**
+ * loadedAt：開始向 Supabase 讀取這份型錄的時間（毫秒）。products 可傳已轉好的 JSON 文字，避免重複轉字串。
+ * heroImage：首頁第一張輪播圖網址（null＝沒有），一起存起來讓其他 isolate 的首頁不必解析型錄。
+ */
+export async function writeEdgeCatalog(origin: string, products: Product[] | string, loadedAt: number, heroImage?: string | null): Promise<void> {
   const cache = edgeCache();
   if (!cache) return;
   try {
     if (loadedAt <= await invalidatedAt(cache, origin)) return;
-    await cache.put(keyFor(origin), new Response(JSON.stringify(products), {
-      headers: { "Content-Type": "application/json", [LOADED_AT_HEADER]: String(loadedAt), ...cacheHeaders }
-    }));
+    const headers: Record<string, string> = { "Content-Type": "application/json", [LOADED_AT_HEADER]: String(loadedAt), ...cacheHeaders };
+    // header 只能放 ASCII：網址先編碼；空字串代表「沒有可預載的圖」
+    if (heroImage !== undefined) headers[HERO_IMAGE_HEADER] = heroImage ? encodeURIComponent(heroImage) : "";
+    await cache.put(keyFor(origin), new Response(typeof products === "string" ? products : JSON.stringify(products), { headers }));
   } catch { /* 寫入失敗只是少一次快取，不影響回應 */ }
 }
 

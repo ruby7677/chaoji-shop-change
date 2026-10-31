@@ -62,6 +62,14 @@
 #admin-dialog.admin-app .admin-row-button.is-sale { border-color: #f3c1c1; color: #b42318; }
 #admin-dialog.admin-app .admin-row-button .admin-icon { width: 16px; height: 16px; }
 
+/* 桌機表格：售價、限購、規格名稱不在字中間折行；同商品的後續規格列只留空白商品欄，讀屏仍讀得到商品名稱 */
+@media (min-width: 1180px) {
+  #admin-dialog.admin-app .admin-stack-table td:is([data-l="售價"], [data-l="限購"]) { white-space: nowrap; }
+  #admin-dialog.admin-app .admin-stack-table td[data-l="規格"] { min-width: 7.5em; word-break: keep-all; }
+  #admin-dialog.admin-app .admin-stack-table td.is-same-product .admin-prod-cell { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #admin-dialog.admin-app .admin-stack-table tr:has(+ tr > td.is-same-product) > td.lead-cell { border-bottom-color: transparent; }
+}
+
 /* ---------- 窄畫面：每個規格一張卡片，欄位逐行「標籤：值」 ---------- */
 @media (max-width: 1179px) {
   #admin-dialog.admin-app .admin-table-wrap { overflow: visible; border: 0; background: transparent; }
@@ -157,3 +165,14 @@
 #admin-dialog.admin-app .admin-product-delete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 20px; border-top: 1px solid var(--admin-border); }
 #admin-dialog.admin-app .admin-product-delete h4 { margin: 0 0 4px; color: var(--admin-danger); }
 #admin-dialog.admin-app .admin-product-delete p { margin: 0; max-width: 46ch; color: var(--admin-text-muted); font-size: 14px; }
+
+/* 規格圖片（admin-variant-image.js）：商品多圖縮圖單選，選取時以深色框標示；手機一列 4 張、桌機 6 張 */
+#admin-dialog.admin-app .admin-variant-image-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 6px 0; }
+@media (min-width: 761px) { #admin-dialog.admin-app .admin-variant-image-list { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+#admin-dialog.admin-app .admin-variant-image-option { position: relative; display: grid; place-items: center; aspect-ratio: 1; overflow: hidden; border: 2px solid var(--admin-border); border-radius: 10px; background: #f6f4ee; cursor: pointer; }
+#admin-dialog.admin-app .admin-variant-image-option input { position: absolute; opacity: 0; pointer-events: none; }
+#admin-dialog.admin-app .admin-variant-image-option img { width: 100%; height: 100%; object-fit: cover; }
+#admin-dialog.admin-app .admin-variant-image-option.is-none span { display: grid; gap: 2px; padding: 4px; text-align: center; font-size: 13px; font-weight: 700; }
+#admin-dialog.admin-app .admin-variant-image-option.is-none small { font-weight: 500; color: var(--admin-muted, #6b665c); }
+#admin-dialog.admin-app .admin-variant-image-option:has(input:checked) { border-color: #141414; box-shadow: 0 0 0 2px #141414; }
+#admin-dialog.admin-app .admin-variant-image-option:has(input:focus-visible) { outline: 3px solid #776118; outline-offset: 2px; }

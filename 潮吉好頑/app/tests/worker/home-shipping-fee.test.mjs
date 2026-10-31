@@ -120,7 +120,7 @@ test("saving the balance and fee after a preorder home arrival notifies the amou
   const text = messages.buildOrderNotificationMessage(data);
   assert.match(text, /運費：NT\$150/);
   assert.match(text, /待付尾款：NT\$3,400/);
-  assert.match(text, /匯款後請回覆末五碼給小幫手/);
+  assert.match(text, /匯款後請在「查看訂單」回報末五碼/);
   const card = JSON.stringify(messages.buildLineOrderFlexMessage(data, text, "https://liff.line.me/orders"));
   assert.match(card, /尾款及運費已確認，請完成匯款/);
   assert.equal(messages.buildOrderNotificationMessage({ ...data, finalPaymentConfirmed: true }), null, "no reminder once the balance is confirmed");

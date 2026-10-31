@@ -127,6 +127,59 @@ test("a snapshot smaller than one part uses a single put", async () => {
   assert.equal(new TextDecoder().decode(bucket.objects.get("k").bytes), "abc");
 });
 
+test("a small snapshot never allocates a part-sized buffer", async () => {
+  // 一段 4 GiB 的緩衝區一定配置失敗：小快照必須完全不碰分段緩衝區
+  const { bucket, events } = multipartBucket();
+  await backup.storeStream(bucket, "k", streamOf("ab", "c"), 4 * 1024 ** 3);
+  assert.ok(!events.some(([type]) => type === "create"));
+  assert.equal(new TextDecoder().decode(bucket.objects.get("k").bytes), "abc");
+});
+
+test("reports the stored size and chunk count for both the single put and multipart paths", async () => {
+  assert.deepEqual(await backup.storeStream(multipartBucket().bucket, "k", streamOf("ab", "c"), 4), { bytes: 3, chunks: 2 });
+  assert.deepEqual(await backup.storeStream(multipartBucket().bucket, "k", streamOf("abc", "defgh", "ij"), 4), { bytes: 10, chunks: 3 });
+});
+
+test("a snapshot of exactly one part is uploaded as a single part", async () => {
+  const { bucket, events } = multipartBucket();
+  await backup.storeStream(bucket, "k", streamOf("ab", "cd"), 4);
+  assert.deepEqual(events.filter(([type]) => type === "part").map(([, number, size]) => [number, size]), [[1, 4]]);
+  assert.equal(new TextDecoder().decode(bucket.objects.get("k").bytes), "abcd");
+});
+
+test("an empty snapshot body is stored as an empty object", async () => {
+  const { bucket } = multipartBucket();
+  await backup.storeStream(bucket, "k", streamOf(), 4);
+  assert.equal(bucket.objects.get("k").bytes.length, 0);
+});
+
+test("on Workers the body is read in large blocks with readAtLeast instead of one small chunk at a time", async () => {
+  // 模擬 Workers 的 BYOB reader：每次 readAtLeast 讀滿一塊，最後一塊不足時 done 仍為 false，下一次才 done
+  const data = new TextEncoder().encode("x".repeat(backup.BACKUP_READ_BLOCK + 10));
+  const calls = [];
+  let offset = 0;
+  const body = {
+    getReader: ({ mode } = {}) => {
+      assert.equal(mode, "byob");
+      return {
+        releaseLock() {},
+        async readAtLeast(min, view) {
+          calls.push(min);
+          const count = Math.min(view.byteLength, data.length - offset);
+          view.set(data.subarray(offset, offset + count));
+          offset += count;
+          return { done: count === 0, value: view.subarray(0, count) };
+        }
+      };
+    }
+  };
+  const { bucket, events } = multipartBucket();
+  assert.deepEqual(await backup.storeStream(bucket, "k", body), { bytes: data.length, chunks: 2 });
+  assert.equal(calls.length, 3);
+  assert.ok(!events.some(([type]) => type === "create"));
+  assert.equal(bucket.objects.get("k").bytes.length, data.length);
+});
+
 test("a failed part aborts the upload and leaves no object", async () => {
   const { bucket, events } = multipartBucket({ failPart: 2 });
   await assert.rejects(backup.storeStream(bucket, "k", streamOf("abcdefghij"), 4), /part 2 failed/);

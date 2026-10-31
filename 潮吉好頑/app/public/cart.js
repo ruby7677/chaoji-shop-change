@@ -1,5 +1,7 @@
 // 購物車：品項與取貨方式、現貨／預購分組、本機保存與會員雲端同步、加入購物車回饋與前往結帳。
 import { escapeHtml, isPreorderItem, money } from "./product-format.js";
+import { ALL_DELIVERY_METHODS, allowedDeliveryMethods, deliveryConflictMessage, resolveDeliveryMethod } from "./cart-delivery-rules.js";
+import { cartGroupMarkup, cartItemMarkup } from "./cart-markup.js";
 import { planBuyNowQuantity, variantMaxQuantity } from "./cart-quantity.js";
 import { auth, showToast, syncPageScrollLock } from "./app-core.js";
 import { catalogLoaded, products } from "./storefront-catalog.js";
@@ -9,7 +11,7 @@ import { createCartSyncRetry } from "./cart-sync-retry.js";
 import { markCartGuestStart, planLoginCart, readCartOwner, readStoredCartItems, shrinkBaseToCart, shrinkCartGuestBase, writeCartOwner } from "./cart-merge.js";
 
 export const cart = [];
-const DELIVERY_METHODS = ["store_pickup", "cvs_delivery", "home_delivery"];
+const DELIVERY_METHODS = ALL_DELIVERY_METHODS;
 
 let cartDeliveryMethod = "store_pickup";
 
@@ -78,10 +80,6 @@ try {
 export function selectedDeliveryMethod() { return document.querySelector("input[name='delivery_method']:checked")?.value || "store_pickup"; }
 export function selectedPaymentMethod() { return document.querySelector("input[name='payment_method']:checked")?.value || "bank_transfer"; }
 
-function cartItemMarkup(item) {
-  return `<div class="cart-item"><div><h3>${escapeHtml(item.name)}</h3><small>${money(item.price)} · ${escapeHtml(item.category)} · ${isPreorderItem(item) ? "預購" : "現貨"}</small><div class="quantity"><button type="button" data-quantity="${escapeHtml(item.id)}" data-delta="-1" aria-label="減少「${escapeHtml(item.name)}」數量">−</button><b>${item.quantity}</b><button type="button" data-quantity="${escapeHtml(item.id)}" data-delta="1" aria-label="增加「${escapeHtml(item.name)}」數量">＋</button></div></div><div><strong>${money(item.price * item.quantity)}</strong><button class="remove" type="button" data-remove="${escapeHtml(item.id)}">移除</button></div></div>`;
-}
-
 function renderCartSplitGroups() {
   const itemsNode = document.querySelector("#cart-items");
   const groups = cartGroups();
@@ -98,19 +96,24 @@ function renderCartSplitGroups() {
   wrapper.className = "cart-split-groups";
   wrapper.innerHTML = `<p class="cart-split-note">購物車含現貨與預購，系統會分開建立 2 筆訂單；付款期限、庫存確認與 LINE 通知也會分開計算。</p>` + ["in_stock", "preorder"].map((scope) => {
     const group = groups[scope];
-    const title = scope === "in_stock" ? "現貨商品" : "預購商品";
-    const subtotal = group.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const method = selectedCartDeliveryMethod(scope);
+    const allowed = allowedDeliveryMethods(group);
     const options = [
       ["store_pickup", "到店取貨", "台南市中西區民生路二段 93 號"],
       ["cvs_delivery", "7-11店到店(交貨便)", cvsOptionNote(scope === "preorder")],
       ["home_delivery", "宅配", "現貨建單後待小幫手確認運費並以 LINE 通知；預購到貨後通知尾款與運費。"]
-    ];
-    return `<section class="cart-group" data-cart-group="${scope}"><header><div><span class="eyebrow">${scope === "in_stock" ? "READY" : "PREORDER"}</span><h3>${title}</h3></div><strong>${money(subtotal)}</strong></header><div class="cart-group-items">${group.map(cartItemMarkup).join("")}</div><fieldset class="cart-group-delivery"><legend>此組商品取貨方式</legend>${options.map(([value, label, note]) => `<label class="cart-delivery-option"><input type="radio" name="cart_group_delivery_method_${scope}" value="${value}" data-group-delivery="${scope}" ${method === value ? "checked" : ""} /> <span><strong>${label}</strong><small>${note}</small></span></label>`).join("")}</fieldset><p class="cart-delivery-feedback hidden" data-group-feedback="${scope}" role="status" aria-live="polite"></p><button class="primary-button cart-group-checkout" type="button" data-checkout-scope="${scope}">${scope === "in_stock" ? "結帳現貨商品" : "結帳預購商品"}</button></section>`;
+    ].filter(([value]) => !allowed.length || allowed.includes(value));
+    return cartGroupMarkup({ scope, group, method: selectedCartDeliveryMethod(scope), options });
   }).join("");
   itemsNode.appendChild(wrapper);
 }
 
+// 商品限制取貨方式：選擇改為該組共同允許的方式，並隱藏全域選項中不可用的項目（沒有共同方式時不隱藏，由結帳鈕擋下）
+function applyDeliveryRestrictions(groups) {
+  for (const scope of Object.keys(cartGroupDeliveryMethods)) cartGroupDeliveryMethods[scope] = resolveDeliveryMethod(cartGroupDeliveryMethods[scope], allowedDeliveryMethods(groups[scope]));
+  const allowed = allowedDeliveryMethods(cart);
+  cartDeliveryMethod = resolveDeliveryMethod(cartDeliveryMethod, allowed);
+  document.querySelectorAll("input[name='cart_delivery_method']").forEach((input) => input.closest("label")?.classList.toggle("hidden", allowed.length > 0 && !allowed.includes(input.value)));
+}
 function cvsOptionNote(preorder) { return preorder ? `${cvsFeeRule}；運費到貨後與尾款一併收取。` : `${cvsFeeRule}，運費併入本次匯款。`; }
 function syncGlobalCartDeliveryCopy() {
   const allPreorder = cart.length > 0 && cart.every(isPreorderItem);
@@ -129,6 +132,7 @@ export function renderCart() {
   const currentGroups = cartGroups();
   const remainingScope = currentGroups.in_stock.length && !currentGroups.preorder.length ? "in_stock" : currentGroups.preorder.length && !currentGroups.in_stock.length ? "preorder" : null;
   if (remainingScope && cartGroupDeliveryMethods[remainingScope]) cartDeliveryMethod = cartGroupDeliveryMethods[remainingScope];
+  applyDeliveryRestrictions(currentGroups);
   document.querySelectorAll("input[name='cart_delivery_method']").forEach((input) => { input.checked = input.value === cartDeliveryMethod; });
   document.querySelector("#cart-total").textContent = money(total);
   document.querySelector("#cart-empty").classList.toggle("hidden", cart.length > 0);
@@ -399,18 +403,22 @@ function cartDeliveryHint(scope = null) {
 }
 function syncCartDeliveryFeedback(scope = null) {
   const feedback = scope ? document.querySelector(`[data-group-feedback='${scope}']`) : document.querySelector("#cart-delivery-feedback");
-  const message = cartDeliveryHint(scope);
+  const conflict = deliveryConflictMessage(cartItemsForScope(scope));
+  const message = conflict || cartDeliveryHint(scope);
   if (!feedback) return message;
   feedback.textContent = message;
   feedback.classList.toggle("hidden", !message);
-  feedback.classList.toggle("is-ready", Boolean(message));
+  feedback.classList.toggle("is-ready", Boolean(message) && !conflict);
+  feedback.classList.toggle("is-error", Boolean(conflict));
   return message;
 }
 function updateCartCheckoutAction() {
   const button = document.querySelector("#cart-drawer [data-checkout]");
   const groups = cartGroups();
   const mixed = groups.in_stock.length > 0 && groups.preorder.length > 0;
+  document.querySelectorAll(".cart-group-checkout").forEach((groupButton) => { groupButton.disabled = Boolean(deliveryConflictMessage(cartItemsForScope(groupButton.dataset.checkoutScope))); });
   if (button) {
+    button.disabled = !mixed && Boolean(deliveryConflictMessage(cart));
     button.classList.toggle("hidden", mixed);
     if (!mixed) {
       if (syncCartDeliveryFeedback()) button.setAttribute("aria-describedby", "cart-delivery-feedback");
@@ -423,6 +431,8 @@ export function handleCartCheckout(scope = null) {
   const groups = cartGroups();
   if (!scope && groups.in_stock.length && groups.preorder.length) return showToast("購物車含現貨與預購，請分別點選各組的結帳按鈕", "warning");
   const checkoutScope = scope || (groups.preorder.length ? "preorder" : "in_stock");
+  const conflict = deliveryConflictMessage(cartItemsForScope(checkoutScope));
+  if (conflict) return showToast(conflict, "warning");
   openCheckout(checkoutScope);
 }
 // 商品頁加入購物車：依庫存與限購檢查後加入指定數量。伺服器建單時仍會重新驗證。

@@ -16,6 +16,8 @@ export const databaseErrors: Record<string, string> = {
   CVS_PICKUP_STORE_INVALID: "取件門市資料過長，請確認縣市、鄉鎮區與門市名稱",
   CVS_PICKUP_STORE_CODE_INVALID: "7-11 門市店號必須是 6 位數字",
   CVS_SHIPPING_FEE_FIXED: "7-11 店到店運費依訂單金額固定計算，不可修改",
+  DELIVERY_METHOD_NOT_ALLOWED: "購物車內有商品不支援所選的取貨方式，請重新選擇取貨方式或分開購買",
+  INVALID_DELIVERY_METHODS: "請至少選擇一種可用的取貨方式",
   SELLER_DELIVERY_RETIRED: "賣貨便已停用，請改選 7-11 店到店（交貨便）",
   INVALID_TRACKING_NUMBER: "寄件編號只能包含英文、數字與連字號，最多 40 字",
   TRACKING_NUMBER_CVS_ONLY: "只有 7-11 店到店訂單可以填寫寄件編號",
@@ -50,6 +52,7 @@ export const databaseErrors: Record<string, string> = {
   PRODUCT_HAS_OPEN_ORDERS: "此商品還有未完成的訂單，請等訂單完成或取消後再刪除；也可以先取消上架",
   INSUFFICIENT_STOCK: "商品庫存不足，請重新整理購物車",
   ORDER_NOT_PAYABLE: "訂單已逾期、已回報付款或無法付款",
+  FINAL_PAYMENT_NOT_REPORTABLE: "此訂單目前不需回報尾款，或尾款已確認",
   LINE_FRIEND_REQUIRED: "請先加入官方 LINE，並重新檢查好友狀態",
   ORDER_RATE_LIMITED: "近期建立訂單次數過多，請稍後再試",
   PENDING_ORDER_LIMIT: "目前待處理訂單已達上限，請等待客服確認",
@@ -110,6 +113,7 @@ export const databaseErrors: Record<string, string> = {
   VARIANT_NAME_EXISTS: "此商品已有同名的規格，請換一個規格名稱",
   INVALID_PRODUCT: "商品資料不正確",
   INVALID_COMPARE_AT_PRICE: "原價資料不正確",
+  INVALID_VARIANT_IMAGE: "規格圖片須為此商品已上傳的圖片",
   AUDIT_LOG_IMMUTABLE: "稽核紀錄不可修改或刪除",
   AUDIT_TARGET_REQUIRED: "稽核目標不可為空",
   INVALID_IMAGE_PATH: "商品圖片資料不正確",
@@ -126,7 +130,8 @@ export const databaseErrors: Record<string, string> = {
 export async function databaseError(response: Response) {
   let payload: { message?: string } = {};
   try { payload = await response.json() as { message?: string }; } catch { /* ignore malformed upstream errors */ }
-  const matched = Object.keys(databaseErrors).find((code) => payload.message?.includes(code));
+  // 代碼可能是另一個代碼的前綴（INVALID_DELIVERY_METHOD／INVALID_DELIVERY_METHODS），取最長的符合者
+  const matched = Object.keys(databaseErrors).filter((code) => payload.message?.includes(code)).sort((a, b) => b.length - a.length)[0];
   const status = matched === "LINE_FRIEND_REQUIRED" ? 403 : response.status >= 500 ? 503 : 400;
   return json({ error: matched ? databaseErrors[matched] : "訂單服務暫時無法處理" }, { status });
 }

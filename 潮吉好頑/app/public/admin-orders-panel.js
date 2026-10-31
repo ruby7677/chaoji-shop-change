@@ -8,29 +8,19 @@ import { adminData, adminFetch, refreshAdminSections, relationOne, renderAdminPa
 import { confirmationAmount, isQuickConfirmable, moneySummary, paymentConfirmation } from "./admin-order-payment.js";
 import { initOrderBatch, orderSelectMarkup, syncOrderBatch } from "./admin-order-batch.js";
 import { mountStockHomeFeeForm, mountStockHomeFeePaidNote } from "./admin-home-fee.js";
-import { homePaidInFull, stockHomeFeePrepaid } from "./home-fee-state.js";
+import { adminFinalPaymentLastFive, homePaidInFull, stockHomeFeePrepaid } from "./home-fee-state.js";
+import { ORDER_STAGES, adminOrderStage, isOrderStage, orderMatchesFilter } from "./admin-order-stages.js";
+import { lastFiveMarkup } from "./admin-last-five.js";
 import { availableTransitions, isDangerousTarget, parseRefundAmount, refundFieldFor, riskOnlyEntryLabel, transitionConfirmation, transitionSubmitLabel } from "./admin-order-transition.js";
 
 
-const adminOrderStatusFilterGroups = [
-  { label: "待處理", options: [["pending_payment", "待付款"], ["pending_review", "待確認款項"]] },
-  { label: "處理中", options: [["confirmed", "已確認款項（依配送狀態）"], ["ready_for_pickup", "配送處理中（到貨／出貨／待尾款）"]] },
-  { label: "結案", options: [["completed", "已完成訂單"], ["cancelled", "已取消"]] }
-];
-
+// 篩選選單與上方分頁同一份分類（admin-order-stages.js）；分頁只同步這個選單並觸發 change
 export function renderAdminOrderStatusFilter() {
   const select = document.querySelector("#admin-order-status-filter");
   if (!select) return;
-  const orders = Array.isArray(adminData?.orders) ? adminData.orders : [];
-  const counts = Object.fromEntries(adminOrderStatusFilterGroups.flatMap((group) => group.options).map(([value]) => [value, 0]));
-  orders.forEach((order) => {
-    if (Object.prototype.hasOwnProperty.call(counts, order.status)) counts[order.status] += 1;
-  });
   const previous = select.value;
-  const countLabel = (value) => counts[value] ? `（${counts[value]}）` : "";
-  select.innerHTML = `<option value="all">全部訂單${orders.length ? `（${orders.length}）` : ""}</option>` + adminOrderStatusFilterGroups.map((group) => `<optgroup label="${group.label}">${group.options.map(([value, label]) => `<option value="${value}">${label}${countLabel(value)}</option>`).join("")}</optgroup>`).join("");
-  const available = new Set(["all", ...adminOrderStatusFilterGroups.flatMap((group) => group.options.map(([value]) => value))]);
-  select.value = available.has(previous) ? previous : "all";
+  select.innerHTML = '<option value="all">全部訂單</option>' + ORDER_STAGES.map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+  select.value = previous === "all" || isOrderStage(previous) ? previous : "all";
 }
 
 function adminOrderHistory(orderId) {
@@ -48,8 +38,10 @@ export function renderAdminOrders() {
   const status = document.querySelector("#admin-order-status-filter").value;
   const orders = (adminData.orders || []).filter((order) => {
     const member = relationOne(order.profiles);
-    const searchable = `${order.order_number} ${member?.full_name || ""} ${member?.phone || ""} ${order.payment_last_five || ""}`.toLowerCase();
-    const matchesStatus = status === "all" || order.status === status;
+    // 與伺服器 admin_search_order_ids 比對相同欄位（含商品與規格名稱），否則伺服器找到的訂單會在這裡被濾掉
+    const itemNames = (order.order_items || []).map((item) => `${item.product_name || ""} ${item.variant_name || ""}`).join(" ");
+    const searchable = `${order.order_number} ${member?.full_name || ""} ${member?.phone || ""} ${order.payment_last_five || ""} ${order.final_payment_reported_last_five || ""} ${itemNames}`.toLowerCase();
+    const matchesStatus = orderMatchesFilter(order, status);
     return matchesStatus && searchable.includes(keyword);
   }).sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
   if (!orders.length) {
@@ -99,11 +91,20 @@ export function renderAdminOrders() {
     const quick = isQuickConfirmable(order, transitions);
     const isSellerExternal = order.delivery_method === "seller_delivery" && !order.bank_account_id;
     const quickButtonLabel = isSellerExternal ? "確認賣貨便訂單" : `確認收到 ${money(confirmationAmount(order))}`;
-    const quickInfoLine = isSellerExternal ? "" : `<small>末五碼 ${escapeHtml(order.payment_last_five || "尚未回報")} · ${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</small>`;
+    const quickInfoLine = isSellerExternal ? "" : `<p class="admin-order-last-five-line">末五碼 ${lastFiveMarkup(order.payment_last_five)}<small>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</small></p>`;
     const quickBlock = quick ? `<div class="admin-order-quick"><button class="primary-button admin-order-quick-button" type="button" data-admin-order-quick-confirm="${escapeHtml(order.id)}">${escapeHtml(quickButtonLabel)}</button>${quickInfoLine}</div>` : "";
     const moneyGrid = `<details class="admin-order-money"><summary>${escapeHtml(moneySummary(order))}</summary><div class="admin-order-payment"><span class="admin-order-total">總額 <b>${money(order.amount_due)}</b></span><span class="admin-order-payment-method">運費 <b>${order.shipping_fee ? money(order.shipping_fee) : "免運"}</b></span><span class="admin-order-deposit">訂金應付 <b>${money(order.deposit_due)}</b></span><span class="admin-order-paid">已確認 <b>${money(order.paid_amount || 0)}</b></span><span class="admin-order-balance">待收尾款 <b>${money(balance)}</b></span><span class="admin-order-discount admin-order-coupon">優惠券折抵 <b>${adminDiscountLabel(couponDiscount)}</b></span><span class="admin-order-discount admin-order-points">點數折抵 <b>${adminDiscountLabel(pointDiscount)}</b></span></div></details>`;
     // 一鍵確認卡片已在上方顯示末五碼／收款帳戶，這裡不重複顯示匯款列
-    const bankRow = quick ? "" : `<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span>匯款末五碼：<b>${escapeHtml(order.payment_last_five || "尚未回報")}</b></span></div>`;
+    // 醒目框只給「現在要對帳」的末五碼：訂金確認後，訂金末五碼改為一般文字，避免在待尾款階段被當成尾款
+    const depositPending = order.status === "pending_review";
+    const depositLabel = orderIncludesPreorder(order) ? "訂金末五碼" : "匯款末五碼";
+    const depositLastFive = depositPending || !order.payment_last_five ? lastFiveMarkup(order.payment_last_five) : `<b>${escapeHtml(order.payment_last_five)}</b>`;
+    // 已通知待尾款確認：會員在網站回報的尾款末五碼醒目提示（下方尾款表單已預先帶入）；尚未回報時明確寫出
+    const finalReportRow = adminOrderStage(order) !== "awaiting_balance" ? ""
+      : order.final_payment_reported_last_five
+        ? `<span class="admin-order-last-five-line admin-order-final-report">會員回報尾款末五碼 ${lastFiveMarkup(order.final_payment_reported_last_five)}<small>${order.final_payment_reported_at ? `${formatDateTime(order.final_payment_reported_at)} 回報・` : ""}請核對入帳</small></span>`
+        : `<span class="admin-order-last-five-line admin-order-final-report">尾款末五碼 ${lastFiveMarkup("", "會員尚未回報")}</span>`;
+    const bankRow = quick ? "" : `<div class="admin-order-bank"><span>${escapeHtml(account?.label || account?.bank_name || "未指定帳戶")}</span><span class="admin-order-last-five-line">${depositLabel} ${depositLastFive}</span>${finalReportRow}</div>`;
     const transitionForm = transitions.length ? `<form class="admin-order-action" data-admin-order-form="${order.id}"><label>下一步<select name="target_status" required>${optionsWithPlaceholder}</select></label><div class="admin-order-note-row"><label>管理備註<textarea name="note" rows="2" maxlength="1000" placeholder="取消訂單必填；其他操作可選填"></textarea></label><label class="admin-order-refund" hidden>退款金額（NT$）<input name="refund_amount" type="number" min="0" step="1" inputmode="numeric" /></label></div><button class="primary-button" type="submit">更新訂單</button></form>` : '<p class="admin-order-terminal">此訂單目前沒有可執行的下一步。</p>';
     // 一鍵確認卡片把其餘操作（取消、備註）收進 details，避免與主按鈕搶注意力
     // 只剩取消時同樣收成次要入口，不讓高風險表單佔據卡片
@@ -111,7 +112,7 @@ export function renderAdminOrders() {
     const actionBlock = quick && transitions.length
       ? `<details class="admin-order-more"><summary>其他操作（取消訂單、備註）</summary>${transitionForm}</details>`
       : riskOnlyLabel ? `<details class="admin-order-more"><summary>${escapeHtml(riskOnlyLabel)}</summary>${transitionForm}</details>` : transitionForm;
-    return `<article class="admin-order-card" data-admin-order-card="${escapeHtml(order.id)}"><header>${orderSelectMarkup(order)}<div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(orderDeliveryLabel)}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(adminOrderStatusLabel(order))}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div>${quickBlock}${moneyGrid}${shippingInfo}${bankRow}${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${actionBlock}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
+    return `<article class="admin-order-card${adminOrderStage(order) === "cancelled" ? " is-closed" : ""}" data-admin-order-card="${escapeHtml(order.id)}"><header>${orderSelectMarkup(order)}<div><h3>${escapeHtml(order.order_number)}</h3><small>${formatDateTime(order.created_at)} · ${escapeHtml(orderDeliveryLabel)}${order.confirmed_at || order.payment_confirmed_at ? ` · 確認：${formatDateTime(order.confirmed_at || order.payment_confirmed_at)}` : ""}</small></div><span class="status-chip status-${order.status}">${escapeHtml(adminOrderStatusLabel(order))}</span></header><div class="admin-order-member"><strong>${escapeHtml(member?.full_name || "未填姓名")}</strong><span>${escapeHtml(member?.phone || "未填手機")}</span></div><div class="admin-order-items">${items}</div>${quickBlock}${moneyGrid}${shippingInfo}${bankRow}${order.admin_note ? `<p class="admin-order-note">目前備註：${escapeHtml(order.admin_note)}</p>` : ""}${actionBlock}<details class="admin-order-history"><summary>狀態紀錄（${adminOrderHistory(order.id).length}）</summary>${history ? `<ol>${history}</ol>` : '<p>尚無管理異動紀錄。</p>'}</details></article>`;
   }).join("");
   renderAdminPagination("orders");
   container.querySelectorAll(".admin-order-card").forEach((card, index) => {
@@ -149,7 +150,7 @@ export function renderAdminOrders() {
         const lastFiveLabel = currentStockHomePending ? "匯款末五碼" : "尾款匯款末五碼";
         const submitLabel = currentStockHomePending ? "儲存運費／匯款末五碼" : "儲存尾款／運費";
         const notePlaceholder = currentStockHomePending ? "例如：客服確認運費金額、匯款確認日期" : "例如：宅配箱型、客服通知日期";
-        form.innerHTML = `<div class="form-grid"><div>${shippingFeeField}</div><label>${lastFiveLabel}<input name="final_payment_last_five" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" value="${escapeHtml(order.final_payment_last_five || "")}" placeholder="付款後填寫" /></label><label class="check-field"><input name="final_payment_confirmed" type="checkbox" ${order.final_payment_confirmed_at ? "checked" : ""} /> ${finalPaymentLabel}</label><label class="wide">收款備註<textarea name="note" rows="2" maxlength="1000" placeholder="${notePlaceholder}">${escapeHtml(order.admin_note || "")}</textarea></label></div><button class="secondary-button" type="submit">${submitLabel}</button>`;
+        form.innerHTML = `<div class="form-grid"><div>${shippingFeeField}</div><label>${lastFiveLabel}<input name="final_payment_last_five" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" value="${escapeHtml(adminFinalPaymentLastFive(order))}" placeholder="付款後填寫" /></label><label class="check-field"><input name="final_payment_confirmed" type="checkbox" ${order.final_payment_confirmed_at ? "checked" : ""} /> ${finalPaymentLabel}</label><label class="wide">收款備註<textarea name="note" rows="2" maxlength="1000" placeholder="${notePlaceholder}">${escapeHtml(order.admin_note || "")}</textarea></label></div><button class="secondary-button" type="submit">${submitLabel}</button>`;
         card.insertBefore(form, insertBefore);
       } else if (!terminalStatuses.includes(order.status)) {
         const prompt = document.createElement("p");

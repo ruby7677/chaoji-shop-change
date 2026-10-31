@@ -4,7 +4,7 @@
 import { fetchWithTimeout } from "./http";
 
 // 概況只需要列表與狀態文字用得到的欄位；order_items(kind) 供前端判斷預購狀態文字。
-const OVERVIEW_ORDER_SELECT = "id,order_number,status,delivery_method,bank_account_id,payment_last_five,deposit_due,amount_due,paid_amount,shipping_fee,shipping_fee_notified_at,final_payment_confirmed_at,created_at,profiles!orders_member_id_fkey(full_name),order_items(kind)";
+const OVERVIEW_ORDER_SELECT = "id,order_number,status,delivery_method,bank_account_id,payment_last_five,deposit_due,amount_due,paid_amount,shipping_fee,shipping_fee_notified_at,final_payment_confirmed_at,final_payment_reported_last_five,created_at,profiles!orders_member_id_fkey(full_name),order_items(kind)";
 // 與前端 TODO_RULES 對應的人工待辦：確認款項、宅配尾款／運費、店到店待寄出與尾款（現貨宅配待填運費另外查詢）。
 // 店到店是否為預購要看 order_items，資料庫先取 confirmed／ready_for_pickup 的店到店訂單，由前端規則精確判斷。
 const TODO_FILTER = "(status.eq.pending_review,and(delivery_method.eq.home_delivery,status.eq.ready_for_pickup,final_payment_confirmed_at.is.null),and(delivery_method.eq.cvs_delivery,status.in.(confirmed,ready_for_pickup)))";

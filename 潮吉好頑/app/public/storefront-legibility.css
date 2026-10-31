@@ -114,7 +114,7 @@
 
 /* 商品卡陰影改中性墨色：原本的暖棕色陰影在白底上像一圈泛黃的光暈 */
 .product-card { box-shadow: 0 10px 30px rgba(21, 21, 21, .06); }
-.product-card:hover { box-shadow: 0 18px 36px rgba(21, 21, 21, .11); }
+@media (hover: hover) { .product-card:hover { box-shadow: 0 18px 36px rgba(21, 21, 21, .11); } }
 
 /* 購物須知開頭說明：限制行長在約 40 字 */
 .policy-intro > p { max-width: 40em; }
