@@ -19,7 +19,7 @@
 - 允許：管理員指定同商品圖片、清除指定；未帶旗標時不變。
 - 拒絕：指定其他商品的圖片、非管理員呼叫。
 - 刪除該圖片後規格 `image_id` 變 null、規格仍在；`verify_schema.sql` 與 `backup_snapshot` 測試若列欄位一併更新。
-**Status**: Complete（本機程式與測試；`test:db` 待 CI）
+**Status**: Complete（CI database job 通過；2026-10-31 已套用正式 DB）
 
 ## Stage 2: Worker
 **Goal**：`src/catalog.ts` select 加 `image_id` 並回傳；`src/admin-catalog.ts` PATCH `/api/admin/variants/:id` 接受 `image_id`（字串 UUID 或 null，欄位存在才送 `p_update_image=true`，格式錯誤回 400）；`src/admin-dashboard.ts` 的 `ADMIN_PRODUCTS_SELECT` 規格加 `image_id`。
@@ -39,4 +39,4 @@
 ## Stage 5: 驗證與上線
 - Gate：`npm run check:js`、`npm run typecheck`、`npm test`、`npm run test:db`（或 CI database job）、`git diff --check`、dry-run。
 - 上線順序：**先套 migration（需業主同意）→ 再部署 Worker**（新參數有預設值，舊 Worker 仍可呼叫）。
-**Status**: In Progress（待套 migration 後部署）
+**Status**: Complete（2026-10-31 部署 Version 77dac968）
