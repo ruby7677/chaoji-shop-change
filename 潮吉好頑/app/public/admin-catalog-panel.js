@@ -9,6 +9,7 @@ import { prepareProductImage, uploadAdminProductImage, validateProductImage } fr
 import { movementMatches } from "./admin-stock-math.js";
 import "./admin-product-delete.js";
 import { adminCreateDeliveryMethods, ensureAdminDeliveryMethodsUI, readDeliveryMethods } from "./admin-delivery-methods.js";
+import { variantImagePayload } from "./admin-variant-image.js";
 
 function sortedAdminCategories() {
   return (adminData?.categories || []).slice().sort((left, right) => Number(left.display_order || 0) - Number(right.display_order || 0) || String(left.name || "").localeCompare(String(right.name || ""), "zh-Hant"));
@@ -364,7 +365,7 @@ export async function submitDynamicAdminForm(event) {
     try {
       const kind = formData.get("kind");
       const compareAtPrice = String(formData.get("compare_at_price") || "").trim();
-      await adminFetch(`/api/admin/variants/${variantId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), kind, price: Number(formData.get("price")), compare_at_price: compareAtPrice ? Number(compareAtPrice) : null, safety_stock: Number(formData.get("safety_stock") || 0), show_stock: formData.get("show_stock") === "on", deposit_rate: kind === "preorder" ? 0.5 : Number(formData.get("deposit_rate") || 0) / 100, preorder_arrival: preorderArrivalValue(formData.get("preorder_arrival_from"), formData.get("preorder_arrival_until"), formData.get("preorder_arrival_raw")), display_order: Number(formData.get("display_order") || 0), seller_link: formData.get("seller_link"), is_published: formData.get("is_published") === "on" }) });
+      await adminFetch(`/api/admin/variants/${variantId}`, { method: "PATCH", body: JSON.stringify({ name: formData.get("name"), kind, price: Number(formData.get("price")), compare_at_price: compareAtPrice ? Number(compareAtPrice) : null, safety_stock: Number(formData.get("safety_stock") || 0), show_stock: formData.get("show_stock") === "on", deposit_rate: kind === "preorder" ? 0.5 : Number(formData.get("deposit_rate") || 0) / 100, preorder_arrival: preorderArrivalValue(formData.get("preorder_arrival_from"), formData.get("preorder_arrival_until"), formData.get("preorder_arrival_raw")), display_order: Number(formData.get("display_order") || 0), seller_link: formData.get("seller_link"), is_published: formData.get("is_published") === "on", ...variantImagePayload(formData) }) });
       invalidateAdminManagementOptions();
     } finally {
       if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; }

@@ -4,6 +4,7 @@
 import { escapeHtml, money } from "./product-format.js";
 import { adminProductGalleryMarkup, adminProductShowcaseMarkup } from "./admin-product-gallery.js";
 import { deliveryMethodsFieldHtml } from "./admin-delivery-methods.js";
+import { variantImageFieldMarkup } from "./admin-variant-image.js";
 
 export const relationOne = (value) => (Array.isArray(value) ? value[0] : value);
 
@@ -34,7 +35,7 @@ function arrivalFieldset(variant, helpers) {
 
 const depositPercent = (variant) => Math.round(Number(variant.deposit_rate) * 100);
 
-export function variantFormMarkup(variant, helpers) {
+export function variantFormMarkup(variant, helpers, product) {
   return `<form class="admin-form" data-edit-variant-form="${escapeHtml(variant.id)}"><div class="form-grid">`
     + `<label>規格名稱<input name="name" required value="${escapeHtml(variant.name)}" /></label>`
     + `<label>類型<select name="kind"><option value="in_stock" ${variant.kind === "in_stock" ? "selected" : ""}>現貨</option><option value="preorder" ${variant.kind === "preorder" ? "selected" : ""}>預購</option></select></label>`
@@ -44,6 +45,7 @@ export function variantFormMarkup(variant, helpers) {
     + `<label class="check-field"><input name="show_stock" type="checkbox" ${variant.show_stock ? "checked" : ""} /> 前台顯示庫存<small>勾選後前台顯示剩餘數量；切換類型會套用預設（預購顯示、現貨不顯示）</small></label>`
     + `<label>訂金比例（%）<input name="deposit_rate" type="number" min="0" max="100" value="${depositPercent(variant)}" /></label>`
     + arrivalFieldset(variant, helpers)
+    + variantImageFieldMarkup(product, variant)
     + `<label>前台排序<input name="display_order" type="number" value="${variant.display_order}" /><small>數字越大越前面；新增時自動取目前最大值 + 1</small></label>`
     + `<input name="seller_link" type="hidden" value="${escapeHtml(variant.seller_link || "")}" />`
     + `<label class="check-field"><input name="is_published" type="checkbox" ${variant.is_published ? "checked" : ""} /> 上架此規格</label>`
@@ -99,12 +101,12 @@ function deleteSectionMarkup(product) {
     + `<button class="secondary-button danger-button" type="button" data-product-delete="${escapeHtml(product.id)}" data-product-name="${escapeHtml(product.name)}">刪除商品</button></section>`;
 }
 
-function variantDetailsMarkup(variant, helpers, open) {
+function variantDetailsMarkup(product, variant, helpers, open) {
   const sale = discountPercent(variant);
   return `<details class="admin-edit-variant" data-edit-variant="${escapeHtml(variant.id)}" ${open ? "open" : ""}><summary>`
     + `<span class="admin-edit-variant-name"><b>${escapeHtml(variant.name)}</b></span>`
     + `<span class="admin-edit-variant-meta">${kindPill(variant.kind)}${sale ? `<span class="admin-pill danger">−${sale}%</span>` : ""}${variant.is_published ? "" : '<span class="admin-pill gray">未上架</span>'}${priceMarkup(variant)}</span>`
-    + `</summary>${variantFormMarkup(variant, helpers)}</details>`;
+    + `</summary>${variantFormMarkup(variant, helpers, product)}</details>`;
 }
 
 const EDIT_TABS = [
@@ -135,7 +137,7 @@ export function editSheetMarkup(product, helpers, openVariants = new Set(), acti
   const productPanel = editTabPanelMarkup("product", tab === "product", `<section class="admin-edit-section">${productFormMarkup(product, helpers)}</section>${deleteSectionMarkup(product)}`);
   const mediaPanel = editTabPanelMarkup("media", tab === "media", adminProductGalleryMarkup(product) + adminProductShowcaseMarkup(product));
   const variantsInner = `<section class="admin-edit-section"><header class="admin-edit-section-head"><h4>商品規格 <span>${variants.length}</span></h4><button class="secondary-button" type="button" data-products-add-variant="${escapeHtml(product.id)}">新增規格</button></header>`
-    + (variants.map((variant) => variantDetailsMarkup(variant, helpers, openVariants.has(variant.id))).join("") || '<div class="empty-state">此商品尚無規格。</div>')
+    + (variants.map((variant) => variantDetailsMarkup(product, variant, helpers, openVariants.has(variant.id))).join("") || '<div class="empty-state">此商品尚無規格。</div>')
     + "</section>";
   const variantsPanel = editTabPanelMarkup("variants", tab === "variants", variantsInner);
   return tabBar + productPanel + mediaPanel + variantsPanel;

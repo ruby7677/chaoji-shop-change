@@ -113,6 +113,7 @@ export const databaseErrors: Record<string, string> = {
   VARIANT_NAME_EXISTS: "此商品已有同名的規格，請換一個規格名稱",
   INVALID_PRODUCT: "商品資料不正確",
   INVALID_COMPARE_AT_PRICE: "原價資料不正確",
+  INVALID_VARIANT_IMAGE: "規格圖片須為此商品已上傳的圖片",
   AUDIT_LOG_IMMUTABLE: "稽核紀錄不可修改或刪除",
   AUDIT_TARGET_REQUIRED: "稽核目標不可為空",
   INVALID_IMAGE_PATH: "商品圖片資料不正確",

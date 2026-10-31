@@ -48,7 +48,7 @@ const ADMIN_IMAGE_ORDER_ROUTE = new RegExp(`^/api/admin/products/(${UUID})/image
 const ADMIN_IMAGE_ROUTE = new RegExp(`^/api/admin/products/(${UUID})/images/(${UUID})$`, "i");
 const ADMIN_SHOWCASE_ROUTE = new RegExp(`^/api/admin/products/(${UUID})/showcase$`, "i");
 // 與首頁 /api/catalog 相同欄位，前台規格選擇、限購與價格邏輯可直接共用。
-const STOREFRONT_VARIANT_SELECT = "id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_path,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,allowed_delivery_methods,show_stock";
+const STOREFRONT_VARIANT_SELECT = "id,category,name,price,compare_at_price,stock,type,preorder_arrival,seller_link,display_order,product_id,has_image,image_path,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,allowed_delivery_methods,show_stock,image_id";
 
 type GalleryImageRow = { id: string; storage_path: string; width: number | null; height: number | null; alt_text: string | null; updated_at: string };
 type StorefrontVariantRow = Record<string, unknown> & { product_id?: string; has_image?: boolean; image_path?: string | null; image_updated_at?: string };

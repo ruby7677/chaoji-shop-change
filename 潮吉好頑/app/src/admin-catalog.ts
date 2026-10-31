@@ -116,12 +116,21 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
 type VariantInput = {
   product_id?: string; name?: string; sku?: string; kind?: "in_stock" | "preorder"; price?: number;
   safety_stock?: number; preorder_arrival?: string; deposit_rate?: number; seller_link?: string; compare_at_price?: number | null;
-  is_published?: boolean; display_order?: number; move_to_top?: boolean; stock?: number | null; show_stock?: boolean;
+  is_published?: boolean; display_order?: number; move_to_top?: boolean; stock?: number | null; show_stock?: boolean; image_id?: string | null;
 };
 
 // 前台是否顯示庫存數量：沒帶或格式不對時傳 null，資料庫新增時依類型預設（預購顯示、現貨不顯示）、編輯時保留原值
 function showStockInput(value: unknown) {
   return typeof value === "boolean" ? value : null;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// 規格圖片：沒帶＝不變；null＝清除（改用商品主圖）；其他須為 UUID，是否屬於同一商品由資料庫檢查
+function variantImageInput(value: unknown): { update: boolean; imageId: string | null } | null {
+  if (value === undefined) return { update: false, imageId: null };
+  if (value === null) return { update: true, imageId: null };
+  return typeof value === "string" && UUID_PATTERN.test(value) ? { update: true, imageId: value } : null;
 }
 
 function normalizedVariant(body: VariantInput, includeProduct = false) {
@@ -178,6 +187,8 @@ export async function updateVariant(request: Request, env: Env, variantId: strin
   const validated = normalizedVariant(body);
   if ("error" in validated) return json({ error: validated.error }, { status: 400 });
   const payload = { ...validated.value };
+  const image = variantImageInput(body.image_id);
+  if (!image) return json({ error: "規格圖片資料不正確" }, { status: 400 });
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_variant`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
       p_actor_id: admin.user.id, p_variant_id: variantId, p_name: payload.name, p_sku: payload.sku,
@@ -185,7 +196,8 @@ export async function updateVariant(request: Request, env: Env, variantId: strin
       p_update_compare_at_price: body.compare_at_price !== undefined, p_safety_stock: payload.safety_stock,
       p_preorder_arrival: payload.preorder_arrival, p_deposit_rate: payload.deposit_rate,
       p_seller_link: payload.seller_link, p_is_published: payload.is_published, p_display_order: payload.display_order,
-      p_show_stock: showStockInput(body.show_stock)
+      p_show_stock: showStockInput(body.show_stock),
+      p_image_id: image.imageId, p_update_image: image.update
     })
   });
   if (!response.ok) return databaseError(response);

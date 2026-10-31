@@ -67,19 +67,21 @@ function deliveryMethodsField(methods: string[] | undefined) {
 }
 
 async function loadPublicCatalog(env: Env): Promise<Product[]> {
-  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,display_order,product_id,has_image,image_path,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,allowed_delivery_methods,hero_rank,hero_tagline,image_width,image_height,show_stock&is_published=eq.true&order=display_order.desc,id.desc`, {
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/storefront_variants?select=id,category,name,price,compare_at_price,stock,type,preorder_arrival,display_order,product_id,has_image,image_path,image_updated_at,product_name,description,variant_name,purchase_limit,points_eligible,allowed_delivery_methods,hero_rank,hero_tagline,image_width,image_height,show_stock,image_id&is_published=eq.true&order=display_order.desc,id.desc`, {
     headers: { apikey: env.SUPABASE_ANON_KEY as string, Authorization: `Bearer ${env.SUPABASE_ANON_KEY}` }
   });
   if (!response.ok) throw new Error("Unable to load catalog");
-  const rows = await response.json() as Array<Product & { has_image?: boolean; image_path?: string | null; image_updated_at?: string; image_width?: number | null; image_height?: number | null }>;
+  const rows = await response.json() as Array<Product & { has_image?: boolean; image_path?: string | null; image_updated_at?: string; image_width?: number | null; image_height?: number | null; image_id?: string | null }>;
   const categoryOrder = await loadCategoryOrder(env);
-  return rows.map(({ has_image, image_path, image_updated_at, image_width, image_height, allowed_delivery_methods, ...product }) => {
+  return rows.map(({ has_image, image_path, image_updated_at, image_width, image_height, allowed_delivery_methods, image_id, ...product }) => {
     const urls = has_image && product.product_id ? primaryImageUrls(env, product.product_id, image_path, image_updated_at) : null;
     return {
       ...product,
       ...deliveryMethodsField(allowed_delivery_methods),
       ...(categoryOrder.has(product.category) ? { category_order: categoryOrder.get(product.category) } : {}),
       image_url: urls?.image_url,
+      // 規格指定的商品多圖（商品頁切換規格時跳到該張）；沒指定時不送，型錄維持精簡
+      ...(image_id ? { image_id } : {}),
       ...(urls && image_width && image_height ? { image_width, image_height } : {})
     };
   });

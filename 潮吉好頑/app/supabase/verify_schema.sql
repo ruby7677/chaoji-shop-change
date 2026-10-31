@@ -212,7 +212,7 @@ select
   to_regprocedure('public.admin_create_category(uuid,text,integer,boolean)') is not null as admin_create_category_exists,
   to_regprocedure('public.admin_update_category(uuid,uuid,text,integer,boolean)') is not null as admin_update_category_exists,
   to_regprocedure('public.admin_create_variant(uuid,uuid,text,text,public.product_kind,integer,integer,integer,text,numeric,text,boolean,integer,integer,boolean)') is not null as admin_create_variant_exists,
-  to_regprocedure('public.admin_update_variant(uuid,uuid,text,text,public.product_kind,integer,integer,boolean,integer,text,numeric,text,boolean,integer,boolean)') is not null as admin_update_variant_exists,
+  to_regprocedure('public.admin_update_variant(uuid,uuid,text,text,public.product_kind,integer,integer,boolean,integer,text,numeric,text,boolean,integer,boolean,uuid,boolean)') is not null as admin_update_variant_exists,
   to_regprocedure('public.admin_update_product(uuid,uuid,text,text,uuid,integer,boolean,boolean,integer,text[])') is not null as admin_update_product_exists,
   to_regprocedure('public.admin_update_product_image(uuid,uuid,text,timestamp with time zone)') is not null as admin_update_product_image_exists,
   to_regprocedure('public.admin_search_product_ids(uuid,text,text,integer,integer,text,text)') is not null as admin_search_product_ids_exists,

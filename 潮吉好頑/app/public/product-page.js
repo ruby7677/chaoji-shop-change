@@ -6,6 +6,7 @@ import { productCardFromVariants } from "./product-groups.js";
 import { variantMaxQuantity } from "./cart-quantity.js";
 import { formatProductDetails } from "./product-details-format.js";
 import { bindProductGallery, productGalleryMarkup } from "./product-gallery.js";
+import { variantImageIndex } from "./variant-image.js";
 import { createProductRouter, productIdFromLocation } from "./product-router.js";
 
 // 與 index.html 的 <title>、meta description 相同
@@ -76,6 +77,13 @@ export function createProductPage(deps) {
     const images = galleryImages();
     target.innerHTML = productGalleryMarkup(images, name);
     gallery = bindProductGallery(target, { images, name, showDialog: deps.showDialog, closeDialog: deps.closeDialog });
+    showVariantImage({ instant: true });
+  }
+
+  // 規格有指定圖片時，主圖跳到該張（後台「規格圖片」）；沒指定時維持目前位置
+  function showVariantImage(options) {
+    const index = variantImageIndex(galleryImages(), selectedVariant());
+    if (index >= 0) gallery?.goTo(index, options);
   }
 
   function noticeMarkup(preorder) {
@@ -264,6 +272,7 @@ export function createProductPage(deps) {
     state.quantity = 1;
     history.replaceState(history.state, "", `/products/${encodeURIComponent(state.productId)}?v=${encodeURIComponent(state.variantId)}`);
     renderBuy();
+    showVariantImage();
     // 購買欄整段重畫：把焦點還給剛選的規格，鍵盤使用者可繼續用方向鍵切換
     page.querySelector('input[name="pp-variant"]:checked')?.focus({ preventScroll: true });
   });

@@ -46,6 +46,7 @@ export type Product = {
   points_eligible?: boolean;
   allowed_delivery_methods?: string[];
   show_stock?: boolean;
+  image_id?: string;
   compare_at_price?: number | null;
   price: number;
   stock: number;
