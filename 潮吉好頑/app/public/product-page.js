@@ -7,6 +7,7 @@ import { variantMaxQuantity } from "./cart-quantity.js";
 import { formatProductDetails } from "./product-details-format.js";
 import { bindProductGallery, productGalleryMarkup } from "./product-gallery.js";
 import { variantImageIndex } from "./variant-image.js";
+import { cachedProductDetail, loadProductDetail } from "./product-detail.js";
 import { createProductRouter, productIdFromLocation } from "./product-router.js";
 
 // 與 index.html 的 <title>、meta description 相同
@@ -32,7 +33,6 @@ export function createProductPage(deps) {
   const home = productIdFromLocation()
     ? HOME_META
     : { title: document.title, description: metaDescription?.content || HOME_META.description };
-  const detailCache = new Map();
   let state = null;
   let renderToken = 0;
   let gallery = null;
@@ -47,18 +47,6 @@ export function createProductPage(deps) {
     gallery = null;
     observers.forEach((observer) => observer.disconnect());
     observers = [];
-  }
-
-  async function loadDetail(productId) {
-    if (detailCache.has(productId)) return detailCache.get(productId);
-    try {
-      const response = await fetch(`/api/products/${productId}`);
-      const detail = response.ok ? await response.json() : { failed: true };
-      if (response.ok) detailCache.set(productId, detail);
-      return detail;
-    } catch {
-      return { failed: true };
-    }
   }
 
   function galleryImages() {
@@ -195,7 +183,7 @@ export function createProductPage(deps) {
     const variants = UUID_PATTERN.test(productId) ? variantsOf(productId) : [];
     if (!variants.length) return renderMissing();
     const variant = variants.find((item) => item.id === variantId) || variants.find((item) => Number(item.stock) > 0) || variants[0];
-    state = { productId, variants, variantId: variant.id, quantity: 1, detail: detailCache.get(productId) || null };
+    state = { productId, variants, variantId: variant.id, quantity: 1, detail: cachedProductDetail(productId) };
     const name = variant.product_name || variant.name;
     page.innerHTML = `<nav class="pp-breadcrumb" aria-label="目前位置"><a href="/" data-pp-home="">首頁</a><span aria-hidden="true">/</span><a href="/#quick-pick" data-pp-home="quick-pick">${escapeHtml(variant.category || "商品")}</a><span aria-hidden="true">/</span><span aria-current="page">${escapeHtml(name)}</span></nav><div class="pp-main"><div class="pp-media" data-pp-gallery></div><div class="pp-buy" data-pp-buy></div></div><section class="pp-section" data-reveal aria-labelledby="pp-details-title"><h2 id="pp-details-title">商品介紹</h2><div class="pp-details" data-pp-details></div></section><section class="pp-section" data-reveal data-pp-rec-section aria-labelledby="pp-rec-title"><h2 id="pp-rec-title">您可能也喜歡</h2><div class="product-grid" data-pp-recommend></div></section><div class="pp-sticky-cta" data-pp-sticky inert></div>`;
     renderGallery();
@@ -206,7 +194,7 @@ export function createProductPage(deps) {
     setMeta(`${name}｜潮吉好頑`, variant.description || home.description);
     page.querySelector("#pp-title")?.focus({ preventScroll: true });
     if (state.detail) return;
-    const detail = await loadDetail(productId);
+    const detail = await loadProductDetail(productId);
     if (token !== renderToken) return;
     state.detail = detail;
     renderGallery();

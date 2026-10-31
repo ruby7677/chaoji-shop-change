@@ -3,6 +3,8 @@
 import { availabilityMarkup, escapeHtml, hasProductDiscount, preorderStockMarkup, productMark, productPriceMarkup } from "./product-format.js";
 import { variantMaxQuantity } from "./cart-quantity.js";
 import { productPageHref } from "./product-card.js";
+import { cachedProductDetail, loadProductDetail, variantDetailImage } from "./product-detail.js";
+import { thumbnailUrlFor } from "./product-image-src.js";
 
 export function createVariantSheet(deps) {
   const dialog = document.querySelector("#variant-sheet");
@@ -11,7 +13,10 @@ export function createVariantSheet(deps) {
 
   const selected = () => state?.variants.find((variant) => variant.id === state.variantId);
 
+  // 規格有指定商品圖片（後台「規格圖片」）時顯示該張的縮圖，否則用商品主圖
   function imageMarkup(variant) {
+    const assigned = variantDetailImage(cachedProductDetail(state.productId), variant);
+    if (assigned) return `<img class="vs-thumb" src="${escapeHtml(thumbnailUrlFor(assigned.url))}" alt="" />`;
     if (!variant.image_url) return `<div class="vs-thumb vs-thumb-empty" aria-hidden="true">${productMark(variant)}</div>`;
     return `<img class="vs-thumb" src="${escapeHtml(variant.thumb_url || variant.image_url)}" alt="" />`;
   }
@@ -42,7 +47,18 @@ export function createVariantSheet(deps) {
     state = { productId: card.product_id, variants, variantId: lead.id, quantity: 1 };
     render();
     deps.showDialog(dialog);
+    loadAssignedImages(state);
     return true;
+  }
+
+  // 有規格指定圖片時才載入商品明細（含多圖網址）；載入完成時面板仍是同一個商品才換上該規格的圖
+  async function loadAssignedImages(opened) {
+    if (!opened.variants.some((item) => item.image_id) || cachedProductDetail(opened.productId)) return;
+    await loadProductDetail(opened.productId);
+    if (state !== opened) return;
+    const thumb = panel.querySelector(".vs-head .vs-thumb");
+    const variant = selected();
+    if (thumb && variantDetailImage(cachedProductDetail(opened.productId), variant)) thumb.outerHTML = imageMarkup(variant);
   }
 
   function close() {
