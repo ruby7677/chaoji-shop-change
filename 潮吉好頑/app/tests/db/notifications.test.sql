@@ -18,6 +18,8 @@ select tests.assert((select not public.complete_notification_delivery('telegram'
                     'completing through the wrong channel does nothing');
 select tests.assert((select public.complete_notification_delivery('line', (c->>'id')::uuid, (c->>'claim_token')::uuid, true, 200) from t_claim),
                     'the current claim token completes the delivery');
+select tests.assert((select error_message is null from public.notification_deliveries where event_key = 'created:k1'),
+                    'a first-attempt success has no error message');
 create temp table t_before on commit drop as select ctid as row_version from public.notification_deliveries where event_key = 'created:k1';
 create temp table t_again on commit drop as
   select public.claim_notification_delivery('line', 'created:k1', 'U-recipient-1', 'order_created', '{"v":3}'::jsonb, 120) as c;
@@ -46,6 +48,8 @@ select tests.assert((select count(*) = 1 and bool_and(d->>'status' = 'processing
                     'the due retry is claimed with a fresh attempt and the fields the Worker needs');
 select tests.assert((select public.complete_notification_delivery('telegram', (d->>'id')::uuid, (d->>'claim_token')::uuid, true) from t_due),
                     'the retried delivery completes');
+select tests.assert((select error_message = '已重送成功；前次：rate limited' from public.notification_deliveries where event_key = 'payment_reported:k2'),
+                    'a retried success keeps the earlier failure reason');
 rollback;
 
 -- lease 過期：claim_due 回收處理中的通知並換發新 token；舊 token 不能再完成。
@@ -62,6 +66,8 @@ select tests.assert((select not public.complete_notification_delivery('line', (c
                     'the fenced-off attempt cannot complete');
 select tests.assert((select public.complete_notification_delivery('line', (d->>'id')::uuid, (d->>'claim_token')::uuid, true) from t_due),
                     'the reclaiming attempt completes');
+select tests.assert((select error_message like '已重送成功；前次：前次發送後未回報結果%' from public.notification_deliveries where event_key = 'created:k3'),
+                    'a success after an expired lease records that the first attempt never reported back');
 rollback;
 
 -- channel 隔離與參數檢查：同一 event／收件人在 LINE 與 Telegram 各自一列；未知 channel 一律拒絕。
