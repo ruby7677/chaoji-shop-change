@@ -65,7 +65,7 @@ test("reporting the balance calls the RPC with the member JWT and notifies only 
   assert.ok(calls.claims.every((claim) => claim.p_event_key === `final_payment_reported:${ORDER_ID}:2026-10-29T12:00:00Z`), "each report gets its own event key");
   const text = calls.telegram[0]?.text || JSON.stringify(calls.claims[0].p_payload);
   assert.match(text, /會員已匯尾款並回報末五碼/);
-  assert.match(text, /尾款／運費：NT\$1,560/);
+  assert.match(text, /尾款（含運費）：NT\$1,560/);
   assert.match(text, /尾款末五碼：12345/);
   assert.match(text, /會員名稱：測試會員/);
 });

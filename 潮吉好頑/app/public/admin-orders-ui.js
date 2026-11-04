@@ -6,6 +6,8 @@ import { escapeHtml } from "./product-format.js";
 import { ORDER_STAGES, stageCount, stageOpenCount } from "./admin-order-stages.js";
 // 這些訂單需要店長動作，預設展開
 const ACTION_STATUSES = new Set(["pending_review"]);
+// 這些分頁筆數多、逐筆處理：切換進來時一律從全部收合開始（需處理的仍保留醒目框）
+const COLLAPSED_STAGES = new Set(["ready_to_ship"]);
 
 let deps = null;
 let list = null;
@@ -40,6 +42,7 @@ function selectStatus(value) {
   if (!select) throw new Error("訂單狀態篩選不存在");
   if (![...select.options].some((option) => option.value === value)) return;
   select.value = value;
+  if (COLLAPSED_STAGES.has(value)) { expanded.clear(); collapsed.clear(); }
   // 交給 app.js 既有的 change 委派重新查詢
   select.dispatchEvent(new Event("change", { bubbles: true }));
   syncTabState();
@@ -73,6 +76,7 @@ function setCollapsed(card, value) {
 
 function enhanceCards() {
   const cards = [...list.querySelectorAll(".admin-order-card")];
+  const collapseAll = COLLAPSED_STAGES.has(statusSelect()?.value);
   cards.forEach((card) => {
     if (card.dataset.adminEnhanced) return;
     card.dataset.adminEnhanced = "true";
@@ -93,7 +97,7 @@ function enhanceCards() {
     toggle.innerHTML = adminIcon("chevron");
     header.append(toggle);
     // 只有一筆（例如從搜尋或待辦跳來）時直接展開
-    const shouldCollapse = collapsed.has(key) || (!expanded.has(key) && !action && cards.length > 1);
+    const shouldCollapse = collapsed.has(key) || (!expanded.has(key) && (collapseAll || (!action && cards.length > 1)));
     setCollapsed(card, shouldCollapse);
   });
   syncTabState();

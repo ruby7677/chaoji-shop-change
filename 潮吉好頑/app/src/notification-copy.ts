@@ -50,7 +50,9 @@ export const NOTIFICATION_COPY = {
       deliveryNote: "配送說明",
       total: "總金額",
       deposit: "訂金",
-      balance: "尾款／運費",
+      balance: "尾款（含運費）",
+      // 到店取貨沒有運費
+      pickupBalance: "尾款",
       totalBalance: "總計尾款",
       deadline: "付款期限",
       remaining: "待付尾款",

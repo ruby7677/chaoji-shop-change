@@ -198,7 +198,8 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
   }
 
   // 預購到貨待付：訂單總額（店到店含運費）扣掉已付訂金；LINE 卡片以這列取代「付款方式」
-  const arrivalBalanceLine = `${copy.labels.balance}：${money(Math.max(data.amountDue - (data.paidAmount || data.depositDue), 0))}`;
+  const arrivalBalance = money(Math.max(data.amountDue - (data.paidAmount || data.depositDue), 0));
+  const arrivalBalanceLine = `${copy.labels.balance}：${arrivalBalance}`;
   const isArrival = data.eventType === "fulfillment_updated"
     || (data.eventType === "status_changed" && ["partially_ready", "ready_for_pickup"].includes(data.orderStatus));
   if (isArrival) {
@@ -221,7 +222,7 @@ export function buildOrderNotificationMessage(data: OrderMessageData): string | 
       if (!isPreorder) return null;
       return message(copy.status.arrivedHome, [productLine]);
     }
-    if (isPreorder) return message(copy.status.arrivedStorePreorder, [productLine, `${copy.labels.delivery}：${copy.delivery.storePreorderArrived}`, arrivalBalanceLine]);
+    if (isPreorder) return message(copy.status.arrivedStorePreorder, [productLine, `${copy.labels.delivery}：${copy.delivery.storePreorderArrived}`, `${copy.labels.pickupBalance}：${arrivalBalance}`]);
     return null;
   }
 
@@ -349,8 +350,8 @@ export function buildLineOrderFlexMessage(data: OrderMessageData, altText: strin
   ];
   if (!shownLabels.has(labels.items)) contents.push(flexRow(labels.items, data.items.slice(0, 500)));
   if (!shownLabels.has(labels.delivery)) contents.push(flexRow(labels.delivery, data.deliveryLine));
-  // 已列出尾款／運費（預購到貨）時不再補付款方式
-  if (!shownLabels.has(labels.payment) && !shownLabels.has(labels.balance)) contents.push(flexRow(labels.payment, data.paymentLine));
+  // 已列出尾款（預購到貨）時不再補付款方式
+  if (!shownLabels.has(labels.payment) && !shownLabels.has(labels.balance) && !shownLabels.has(labels.pickupBalance)) contents.push(flexRow(labels.payment, data.paymentLine));
 
   // 以下是 LINE 卡片額外補充給客戶的資料（Telegram 文字沒有），只增不減
   // 確認付款只收訂金（預購）時，列出還要付的尾款；全額付清或賣貨便外部收款不顯示

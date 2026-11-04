@@ -176,16 +176,17 @@ test("preorder cvs arrival card ends with the 查看訂單 hint below the pickup
   assert.ok(storeIndex > 0 && storeIndex < body.length - 1, "the hint sits after the pickup store row");
 });
 
-test("preorder arrival cards replace 付款方式 with 尾款／運費 = balance + shipping", () => {
+test("preorder arrival cards replace 付款方式 with 尾款（含運費）, or 尾款 for store pickup", () => {
   const rowsOf = (data) => {
     const text = messages.buildOrderNotificationMessage(data);
     return JSON.stringify(messages.buildLineOrderFlexMessage(data, text, "https://example.test/orders"));
   };
   const cvs = rowsOf({ ...cvsBase, eventType: "status_changed", orderStatus: "ready_for_pickup", hasPreorder: true, amountDue: 3060, depositDue: 1500, paidAmount: 1500 });
-  assert.match(cvs, /"text":"尾款／運費".*?"text":"NT\$1,560"/);
+  assert.match(cvs, /"text":"尾款（含運費）".*?"text":"NT\$1,560"/);
   assert.doesNotMatch(cvs, /付款方式/);
   const store = rowsOf({ ...cvsBase, deliveryLine: "到店取貨", eventType: "status_changed", orderStatus: "ready_for_pickup", hasPreorder: true, shippingFee: 0, amountDue: 3000, depositDue: 1500, paidAmount: 1500 });
-  assert.match(store, /"text":"尾款／運費".*?"text":"NT\$1,500"/);
+  assert.match(store, /"text":"尾款".*?"text":"NT\$1,500"/);
+  assert.doesNotMatch(store, /含運費/);
   assert.match(store, /商品已到貨，請確認尾款/);
   assert.doesNotMatch(store, /私訊小幫手/);
   assert.doesNotMatch(store, /付款方式/);
