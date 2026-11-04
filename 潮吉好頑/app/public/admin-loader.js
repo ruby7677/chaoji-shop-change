@@ -43,7 +43,9 @@ async function importAdminModules() {
     import("./admin-catalog-panel.js"),
     import("./admin-product-image.js"),
     import("./admin-stock-adjust.js"),
-    import("./admin-form-errors.js")
+    import("./admin-form-errors.js"),
+    import("./admin-cvs-stores.js"),
+    import("./admin-preorder-demand.js")
   ]);
   [adminApp, adminShellModule, adminProductGallery, adminProductsTable, adminOrdersPanel, adminMembersPanel, adminSystemPanel, adminCatalogPanel, adminProductImage, adminStockAdjust, adminFormErrors] = modules;
 }
@@ -100,9 +102,18 @@ function bindAdminChangeDelegation() {
     if (event.target.matches("#admin-audit-resource, #admin-audit-action")) adminApp.reloadAdminList("audit", true);
     if (event.target.matches("#admin-notification-channel, #admin-notification-status")) adminApp.reloadAdminList("notifications", true);
     if (event.target.matches("#point-max-mode")) adminMembersPanel.syncPointMaxHint();
-    if (event.target.matches("#admin-kind")) adminCatalogPanel.syncDepositField(event.target, document.querySelector("#admin-deposit-rate"));
-    if (event.target.matches("#admin-new-kind")) adminCatalogPanel.syncDepositField(event.target, document.querySelector("#admin-new-deposit-rate"));
-    if (event.target.matches("[data-edit-variant-form] select[name='kind']")) adminCatalogPanel.syncDepositField(event.target, event.target.form.elements.deposit_rate);
+    if (event.target.matches("#admin-kind")) {
+      adminCatalogPanel.syncDepositField(event.target, document.querySelector("#admin-deposit-rate"));
+      adminCatalogPanel.syncShowStockField(event.target, document.querySelector("#admin-show-stock"));
+    }
+    if (event.target.matches("#admin-new-kind")) {
+      adminCatalogPanel.syncDepositField(event.target, document.querySelector("#admin-new-deposit-rate"));
+      adminCatalogPanel.syncShowStockField(event.target, document.querySelector("#admin-new-show-stock"));
+    }
+    if (event.target.matches("[data-edit-variant-form] select[name='kind']")) {
+      adminCatalogPanel.syncDepositField(event.target, event.target.form.elements.deposit_rate);
+      adminCatalogPanel.syncShowStockField(event.target, event.target.form.elements.show_stock);
+    }
   });
 }
 

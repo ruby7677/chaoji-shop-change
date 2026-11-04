@@ -1,21 +1,26 @@
 import { runFiveMinuteNotifications } from "./notification-schedule";
 import { createProductShowcase, isShowcaseImageUpload } from "./product-showcase";
 import { isShareMetaRequest, withShareMeta } from "./share-meta";
+import { isOrdersPageRequest, withOrdersBootData } from "./orders-page";
 import { backfillProductImageDimensions } from "./product-image-dimensions";
 import { createWebSession } from "./web-session";
 import { adjustInventory, archiveProduct, createAdminCategory, createAdminProduct, createVariant, updateAdminCategory, updateProduct, updateVariant } from "./admin-catalog";
+import { adminPreorderDemand } from "./admin-preorder-demand";
 import { adminAuditLogs, adminDashboard, adminNotificationDeliveries, requeueAdminNotificationDelivery } from "./admin-dashboard";
 import { transitionAdminOrder, updateAdminOrderFulfillment } from "./admin-orders";
 import { adjustMemberPoints, createBankAccount, issueBirthdayCoupons, saveCoupon, updateBankAccount, updateBirthdaySettings, updatePointSettings } from "./admin-settings";
 import { forgetLiffSession, hasLineIdentity, refreshedAuthUser, rememberLiffSession, requireAdmin, restoreLiffSession, syncMemberIdentity, verifyLiffIdentity } from "./auth";
-import { publicCatalog, runtimeConfig } from "./catalog";
+import { publicCatalogJson, runtimeConfig } from "./catalog";
 import { serveProductImage, uploadProductImage } from "./product-image-primary";
 import { databaseError, databaseErrors } from "./database-errors";
 import { canonicalRedirect } from "./canonical-host";
+import { listCvsStores, publishCvsStores, rollbackCvsStores, stageCvsCity } from "./cvs-stores-admin";
+import { fetchCvsStoresFromEmap } from "./cvs-stores-fetch";
+import { isCvsStoresRequest, serveCvsStores } from "./cvs-stores-serve";
 import { type Env } from "./env";
-import { MAX_JSON_REQUEST_BYTES, SECURITY_HEADERS, enforceRateLimit, json, serviceHeaders, withSecurityHeaders } from "./http";
+import { MAX_JSON_REQUEST_BYTES, SECURITY_HEADERS, enforceRateLimit, json, jsonText, serviceHeaders, withSecurityHeaders } from "./http";
 import { previewCheckoutCoupon } from "./coupon-preview";
-import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFriendship, memberPoints, replaceMemberCart, submitOrderPayment } from "./member-api";
+import { createOrder, listBankAccounts, listMemberCart, listOrders, memberLineFriendship, memberPoints, ordersForRestoredSession, replaceMemberCart, submitOrderFinalPayment, submitOrderPayment } from "./member-api";
 import { notifyOrderEvent, notifyOrderEventToMember, runScheduledNotifications, testTelegramNotification } from "./notifications";
 import { isKeepaliveHour, pingSupabase } from "./supabase-keepalive";
 import { BACKUP_CRON, runDailyBackup } from "./database-backup";
@@ -45,7 +50,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   if (request.method === "GET" && url.pathname === "/api/health") return json({ ok: true, store: env.STORE_NAME, database: Boolean(env.SUPABASE_URL) });
   if (request.method === "POST" && url.pathname === "/api/auth/liff/verify") return verifyLiffIdentity(request, env);
   if (request.method === "POST" && url.pathname === "/api/auth/session/remember") return rememberLiffSession(request, env);
-  if (request.method === "POST" && url.pathname === "/api/auth/session/restore") return restoreLiffSession(request, env);
+  if (request.method === "POST" && url.pathname === "/api/auth/session/restore") return restoreLiffSession(request, env, ordersForRestoredSession);
   if (request.method === "POST" && url.pathname === "/api/auth/session/forget") return forgetLiffSession();
   const webSessionResponse = await webSession.route(request, env, url);
   if (webSessionResponse) return webSessionResponse;
@@ -55,7 +60,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
     return json(await runtimeConfig(env), { headers: { "Cache-Control": "public, max-age=300, s-maxage=300" } });
   }
   if (request.method === "GET" && url.pathname === "/api/catalog") {
-    try { return json({ products: await publicCatalog(env, url.origin) }); }
+    try { return jsonText(await publicCatalogJson(env, url.origin)); }
     catch { return json({ error: "商品暫時無法載入" }, { status: 503 }); }
   }
   const productImageMatch = url.pathname.match(/^\/api\/product-images\/([0-9a-f-]{36})$/i);
@@ -86,7 +91,14 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
     if (response.ok) ctx.waitUntil(notifyOrderEvent(env, paymentMatch[1], "payment_reported"));
     return response;
   }
+  const finalPaymentMatch = url.pathname.match(/^\/api\/orders\/([0-9a-f-]{36})\/final-payment$/i);
+  if (request.method === "POST" && finalPaymentMatch) {
+    const response = await submitOrderFinalPayment(request, env, finalPaymentMatch[1]);
+    if (response.ok) ctx.waitUntil(notifyOrderEvent(env, finalPaymentMatch[1], "final_payment_reported"));
+    return response;
+  }
   if (request.method === "GET" && url.pathname === "/api/admin/dashboard") return adminDashboard(request, env);
+  if (request.method === "GET" && url.pathname === "/api/admin/preorder-demand") return adminPreorderDemand(request, env);
   if (request.method === "GET" && url.pathname === "/api/admin/audit-logs") return adminAuditLogs(request, env);
   if (request.method === "GET" && url.pathname === "/api/admin/notification-deliveries") return adminNotificationDeliveries(request, env);
   const notificationRequeueMatch = url.pathname.match(/^\/api\/admin\/notification-deliveries\/(line|telegram)\/([0-9a-f-]{36})\/requeue$/i);
@@ -106,6 +118,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
     // 沒成功時告訴管理員重按一次（每次儲存都是新的通知事件）
     const notificationQueued = await notifyOrderEventToMember(env, orderFulfillmentMatch[1], "fulfillment_updated").catch(() => false);
     const body = await response.json() as Record<string, unknown>;
+    if (body.final_payment_newly_confirmed === true) ctx.waitUntil(notifyOrderEvent(env, orderFulfillmentMatch[1], "final_payment_confirmed"));
     return json({ ...body, notification_queued: notificationQueued });
   }
   if (request.method === "PUT" && url.pathname === "/api/admin/point-settings") return updatePointSettings(request, env);
@@ -135,10 +148,17 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext, 
   if (request.method === "POST" && inventoryMatch) {
     return adjustInventory(request, env, inventoryMatch[1]);
   }
+  if (request.method === "GET" && url.pathname === "/api/admin/cvs-stores") return listCvsStores(request, env);
+  if (request.method === "PUT" && url.pathname === "/api/admin/cvs-stores/stage") return stageCvsCity(request, env);
+  if (request.method === "POST" && url.pathname === "/api/admin/cvs-stores/publish") return publishCvsStores(request, env);
+  if (request.method === "POST" && url.pathname === "/api/admin/cvs-stores/rollback") return rollbackCvsStores(request, env);
+  if (request.method === "POST" && url.pathname === "/api/admin/cvs-stores/fetch") return fetchCvsStoresFromEmap(request, env);
   const showcaseResponse = await productShowcase.route(request, env, url, ctx);
   if (showcaseResponse) return showcaseResponse;
   if (url.pathname.startsWith("/api/")) return json({ error: "找不到 API" }, { status: 404 });
+  if (isCvsStoresRequest(request, url)) return serveCvsStores(request, env, url);
   if (isShareMetaRequest(request, url)) return withSecurityHeaders(await withShareMeta(request, env, url, ctx));
+  if (isOrdersPageRequest(request, url)) return withSecurityHeaders(await withOrdersBootData(request, env));
   return withSecurityHeaders(await env.ASSETS.fetch(request));
 }
 

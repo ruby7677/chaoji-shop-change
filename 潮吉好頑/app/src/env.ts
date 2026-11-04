@@ -44,6 +44,9 @@ export type Product = {
   variant_name?: string;
   purchase_limit?: number | null;
   points_eligible?: boolean;
+  allowed_delivery_methods?: string[];
+  show_stock?: boolean;
+  image_id?: string;
   compare_at_price?: number | null;
   price: number;
   stock: number;

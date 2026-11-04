@@ -1,0 +1,3 @@
+/* 後台「預購叫貨」分頁（admin-preorder-demand.js）；沿用 admin-shell.css 的 CSS 變數與 admin-stack-table。 */
+#admin-dialog.admin-app .preorder-demand-total { margin: 12px 0 0; font-size: 15px; text-align: right; }
+#admin-dialog.admin-app .preorder-demand-total strong { font-size: 18px; }

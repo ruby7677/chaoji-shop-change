@@ -26,7 +26,7 @@
 }
 .pp-option input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
 .pp-option small { color: var(--home-muted); font-size: .75rem; font-weight: 700; }
-.pp-option:hover { border-color: var(--home-ink); }
+@media (hover: hover) { .pp-option:hover { border-color: var(--home-ink); } }
 .pp-option:has(input:checked) { border-color: var(--home-ink); background: var(--home-ink); color: #fff; }
 .pp-option:has(input:checked) small { color: rgba(255, 255, 255, .72); }
 .pp-option:has(input:focus-visible) { outline: 3px solid var(--home-yellow); outline-offset: 2px; }

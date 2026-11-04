@@ -71,7 +71,7 @@ function bindTrack(container, signal, onIndex) {
 export function bindProductGallery(root, { images, name, showDialog, closeDialog }) {
   const abort = new AbortController();
   const { signal } = abort;
-  bindTrack(root, signal);
+  const bound = bindTrack(root, signal);
   const lightbox = document.querySelector("#product-lightbox");
   let lightboxAbort = null;
 
@@ -98,6 +98,14 @@ export function bindProductGallery(root, { images, name, showDialog, closeDialog
   }, { signal });
 
   return {
+    // 切換規格時跳到該規格指定的圖片；instant 用於剛渲染完成（不播放捲動動畫）
+    goTo(index, { instant = false } = {}) {
+      const slide = bound?.track.children[index];
+      if (!slide) return;
+      if (!instant) return scrollToSlide(bound.track, index);
+      bound.track.scrollLeft = slide.offsetLeft - bound.track.firstElementChild.offsetLeft;
+      bound.update();
+    },
     destroy() {
       abort.abort();
       lightboxAbort?.abort();

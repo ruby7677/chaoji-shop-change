@@ -43,6 +43,9 @@ function claimResult(attempt: DeliveryAttempt): DeliveryResult {
 }
 
 const DEFAULT_LEASE_SECONDS = 120;
+// Telegram 偶爾要好幾秒才回應；等太短會把已送達的訊息誤判為失敗而重送。Telegram 沒有冪等鍵，只能拉長等待。
+// 上限 20 秒：通知多在 ctx.waitUntil 內執行（回應後約 30 秒內須完成），要留時間寫回結果；也遠小於 lease。
+const TELEGRAM_TIMEOUT_MS = 20_000;
 
 /** True only for HTTP failures that should be retried automatically. */
 export function isRetryableNotificationStatus(status: number) {
@@ -116,18 +119,24 @@ async function sendLine(
   env: NotificationDeliveryEnv,
   recipientId: string,
   payload: Record<string, unknown>,
-  attemptCount: number
+  attemptCount: number,
+  retryKey: string
 ): Promise<DeliveryAttempt> {
   if (!env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) {
     return { sent: false, statusCode: null, retryable: false, retryAfterSeconds: 0, errorMessage: "LINE token missing" };
   }
   try {
+    // 重試時沿用同一個通知紀錄 id 作為 X-Line-Retry-Key：前次其實已被 LINE 接受（逾時或 Worker 中斷未回報）時，
+    // LINE 回 409 並附 x-line-accepted-request-id，不會再發一次給客人。
     const response = await fetchWithTimeout("https://api.line.me/v2/bot/message/push", {
       method: "POST",
-      headers: { Authorization: `Bearer ${env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}`, "Content-Type": "application/json", "X-Line-Retry-Key": retryKey },
       body: JSON.stringify({ to: recipientId, messages: payload.messages })
     });
     if (response.ok) return { sent: true, statusCode: response.status, retryable: false, retryAfterSeconds: 0, errorMessage: null };
+    if (response.status === 409 && response.headers.get("x-line-accepted-request-id")) {
+      return { sent: true, statusCode: response.status, retryable: false, retryAfterSeconds: 0, errorMessage: null };
+    }
     const retryable = isRetryableNotificationStatus(response.status);
     const retryAfter = parseRetryAfter(response.headers.get("Retry-After"));
     const detail = (await response.text()).slice(0, 400);
@@ -163,7 +172,7 @@ async function sendTelegram(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: recipientId, text: String(payload.text || "").slice(0, 4096) })
-    });
+    }, TELEGRAM_TIMEOUT_MS);
     const responsePayload = await response.json().catch(() => null) as {
       ok?: boolean;
       description?: string;
@@ -198,7 +207,7 @@ async function deliverClaim(
   recipientId: string
 ) {
   const attempt = channel === "line"
-    ? await sendLine(env, recipientId, claim.payload, claim.attempt_count)
+    ? await sendLine(env, recipientId, claim.payload, claim.attempt_count, claim.id)
     : await sendTelegram(env, recipientId, claim.payload, claim.attempt_count);
   // The claim token fences completions from an earlier worker whose lease
   // expired while its provider request was still in flight. A provider may

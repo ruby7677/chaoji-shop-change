@@ -4,6 +4,7 @@ import { accessTokenExpiresSoon } from "./auth-expiry.js";
 import { refreshWebSession, refreshWebSessionOutcome, startWebSession } from "./web-session.js";
 import { auth } from "./app-core.js";
 import { noteBootResponse } from "./boot-timing.js";
+import { takeEmbeddedConfig } from "./embedded-config.js";
 import { forgetCartSyncUser } from "./cart.js";
 import { clearMemberStateCache } from "./member-benefits.js";
 import { captureAuthReturn } from "./auth-return-state.js";
@@ -79,6 +80,11 @@ export function captureAuthSession() {
 
 
 export async function loadRuntimeConfig() {
+  const embedded = takeEmbeddedConfig();
+  if (embedded) {
+    auth.config = embedded;
+    return true;
+  }
   try {
     const response = await fetch("/api/config");
     noteBootResponse("設定", response);

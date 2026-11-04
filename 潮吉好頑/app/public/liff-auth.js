@@ -1,4 +1,4 @@
-const LIFF_SDK_URL = "https://static.line-scdn.net/liff/edge/2/sdk.js";
+export const LIFF_SDK_URL = "https://static.line-scdn.net/liff/edge/2/sdk.js";
 const LIFF_SDK_TIMEOUT_MS = 5000;
 
 let sdkPromise = null;

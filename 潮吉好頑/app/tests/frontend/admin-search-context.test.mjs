@@ -7,7 +7,7 @@ test("searchContextFor：orders 對應訂單搜尋欄位與文案", () => {
   assert.deepEqual(searchContextFor("orders"), {
     input: "#admin-order-search",
     label: "搜尋訂單",
-    placeholder: "搜尋訂單編號、姓名、手機、末五碼"
+    placeholder: "搜尋訂單編號、姓名、手機、末五碼、商品名稱"
   });
 });
 
@@ -32,7 +32,7 @@ test("searchContextFor：沒有自己搜尋欄位的分頁 fallback 回訂單搜
     assert.deepEqual(searchContextFor(tab), {
       input: null,
       label: "搜尋訂單",
-      placeholder: "搜尋訂單編號、姓名、手機、末五碼"
+      placeholder: "搜尋訂單編號、姓名、手機、末五碼、商品名稱"
     });
   }
 });

@@ -51,20 +51,22 @@
 
 /* ---------- 訂單：狀態分頁 ---------- */
 #admin-dialog.admin-app .admin-status-bar { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 12px; }
-/* 兩層分組：第一列 全部／待處理／處理中／結案，第二列為目前分組的狀態（admin-order-status-groups.js） */
+/* 單排分類：全部｜待付訂…失效訂單（admin-order-stages.js），放不下時橫向捲動 */
 #admin-dialog.admin-app .admin-status-tabs { display: grid; flex: 1; gap: 8px; min-width: 0; }
-#admin-dialog.admin-app .admin-status-groups,
-#admin-dialog.admin-app .admin-status-subtabs { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
-#admin-dialog.admin-app .admin-status-subtabs { padding-left: 2px; }
-#admin-dialog.admin-app .admin-status-subtab { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; border: 1px solid var(--admin-border); border-radius: 999px; background: #fff; color: var(--admin-text-muted); font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; }
-#admin-dialog.admin-app .admin-status-subtab:hover { border-color: #141414; color: #141414; }
-#admin-dialog.admin-app .admin-status-subtab[aria-pressed="true"] { border-color: #141414; color: #141414; box-shadow: inset 0 0 0 1px #141414; }
-#admin-dialog.admin-app .admin-status-subtab b { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--admin-brand-tongue); color: #141414; font-size: 12px; text-align: center; }
+#admin-dialog.admin-app .admin-status-groups { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
 #admin-dialog.admin-app .admin-status-tab { display: inline-flex; flex: none; align-items: center; gap: 6px; min-height: 38px; padding: 0 14px; border: 1px solid transparent; border-radius: 999px; background: transparent; color: #2b2926; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; }
-#admin-dialog.admin-app .admin-status-tab:hover { border-color: var(--admin-border); background: #fff; }
+/* 只給有滑鼠的裝置：手機點擊後 :hover 會黏在手指位置，分頁重繪置中後會讓旁邊未選的分頁出現白框 */
+@media (hover: hover) {
+  #admin-dialog.admin-app .admin-status-tab:hover { border-color: var(--admin-border); background: #fff; }
+}
 #admin-dialog.admin-app .admin-status-tab[aria-pressed="true"] { background: #141414; color: var(--admin-brand-sun); }
 #admin-dialog.admin-app .admin-status-tab b { min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--admin-brand-tongue); color: #141414; font-size: 12px; text-align: center; }
 #admin-dialog.admin-app .admin-status-tab[aria-pressed="true"] b { background: var(--admin-brand-sun); }
+#admin-dialog.admin-app .admin-status-tab .admin-status-count { color: var(--admin-text-muted); font-size: 12px; font-weight: 700; }
+#admin-dialog.admin-app .admin-status-tab[aria-pressed="true"] .admin-status-count { color: inherit; opacity: .75; }
+/* 「全部」裡的失效訂單（已取消／退款）淡化，進行中的訂單較醒目 */
+#admin-dialog.admin-app .admin-order-card.is-closed { background: var(--admin-surface-subtle); }
+#admin-dialog.admin-app .admin-order-card.is-closed header h3 { color: var(--admin-text-muted); }
 #admin-dialog.admin-app .admin-status-tools { display: inline-flex; flex: none; align-items: center; gap: 4px; min-height: 38px; }
 #admin-dialog.admin-app .admin-status-tool { min-height: 34px; padding: 0 10px; border: 1px solid var(--admin-border); border-radius: 8px; background: #fff; color: var(--admin-text-muted); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 #admin-dialog.admin-app .admin-status-tool:hover { border-color: #141414; color: #141414; }
@@ -93,8 +95,18 @@
 /* ---------- 一鍵確認款項（最重要、不可逆的店長操作，獨立成主按鈕） ---------- */
 #admin-dialog.admin-app .admin-order-quick { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
 #admin-dialog.admin-app .admin-order-quick-button { min-height: 48px; padding: 0 16px; border: 1px solid #141414; border-radius: 12px; background: var(--admin-brand-sun); color: #141414; font-size: 15px; font-weight: 800; cursor: pointer; }
-#admin-dialog.admin-app .admin-order-quick-button:hover { background: var(--admin-brand-tongue); }
-#admin-dialog.admin-app .admin-order-quick small { color: var(--admin-text-muted); font-size: 12px; }
+@media (hover: hover) {
+  #admin-dialog.admin-app .admin-order-quick-button:hover { background: var(--admin-brand-tongue); }
+}
+
+/* 匯款末五碼（訂金一鍵確認、匯款列、會員回報尾款）：店長拿去比對銀行明細，數字醒目，帳戶與回報時間留小字 */
+#admin-dialog.admin-app .admin-order-last-five-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; color: var(--admin-text-muted); font-size: 13px; line-height: 1.4; }
+#admin-dialog.admin-app .admin-order-last-five-line small { color: var(--admin-text-muted); font-size: 12px; }
+#admin-dialog.admin-app .admin-last-five { padding: 2px 10px; border: 1px solid #e3cb7d; border-radius: 8px; background: var(--admin-warning-surface); color: #141414; font-size: 18px; font-weight: 800; letter-spacing: .08em; line-height: 1.3; font-variant-numeric: tabular-nums; }
+#admin-dialog.admin-app .admin-order-bank { flex-wrap: wrap; align-items: baseline; }
+/* 會員回報的尾款末五碼另起一列，不和訂金末五碼擠在同一列左右兩端 */
+#admin-dialog.admin-app .admin-order-bank .admin-order-final-report { flex-basis: 100%; }
+#admin-dialog.admin-app .admin-last-five-missing { color: var(--admin-text-muted); font-size: 13px; font-weight: 600; }
 
 /* ---------- 金額明細與其他操作收合（details/summary，減少捲動） ---------- */
 #admin-dialog.admin-app .admin-order-money > summary,
@@ -134,7 +146,7 @@
 #admin-dialog.admin-app .audit-raw small { display: block; margin-top: 4px; }
 
 /* 概況強調卡在數字為 0 時回到一般外觀（admin-app.js renderStatValues 加上 is-zero） */
-#admin-dialog.admin-app .stats .stat-card.is-zero:first-child,
+#admin-dialog.admin-app .stats .stat-card.is-zero:first-child { border-color: var(--admin-border); background: #fff; }
 #admin-dialog.admin-app .stats .stat-card.is-zero:first-child small { color: var(--admin-text-muted); }
 #admin-dialog.admin-app .audit-log-card > div { flex: 1; min-width: 0; }
 

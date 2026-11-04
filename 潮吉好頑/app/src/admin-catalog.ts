@@ -2,7 +2,8 @@
 import { invalidateCatalogCache } from "./catalog";
 import { purgeProductImageCache } from "./product-image-storage";
 import { requireAdmin } from "./auth";
-import { databaseError } from "./database-errors";
+import { databaseError, databaseErrors } from "./database-errors";
+import { parseDeliveryMethods } from "./delivery-methods";
 import { type Env } from "./env";
 import { fetchWithTimeout, json, serviceHeaders } from "./http";
 
@@ -55,6 +56,7 @@ type ProductInput = {
   category_id?: string; category_name?: string; product_name?: string; description?: string; variant_name?: string; sku?: string;
   kind?: "in_stock" | "preorder"; price?: number; stock?: number; preorder_arrival?: string;
   deposit_rate?: number; seller_link?: string; purchase_limit?: number | null; points_eligible?: boolean; compare_at_price?: number | null; is_published?: boolean;
+  allowed_delivery_methods?: string[]; show_stock?: boolean;
 };
 
 export async function createAdminProduct(request: Request, env: Env): Promise<Response> {
@@ -80,6 +82,8 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
   if (compareAtPrice != null && (!Number.isInteger(compareAtPrice) || compareAtPrice < 0 || compareAtPrice < price)) return json({ error: "原價須為 0 或正整數，且不可低於售價" }, { status: 400 });
   if (body.purchase_limit != null && (!Number.isInteger(body.purchase_limit) || body.purchase_limit < 1)) return json({ error: "限購數量必須為正整數或不限購" }, { status: 400 });
   if (!['in_stock', 'preorder'].includes(body.kind || '')) return json({ error: "商品類型不正確" }, { status: 400 });
+  const deliveryMethods = parseDeliveryMethods(body.allowed_delivery_methods);
+  if (deliveryMethods === "invalid") return json({ error: databaseErrors.INVALID_DELIVERY_METHODS }, { status: 400 });
   const depositRate = body.kind === "preorder" ? 0.5 : Number(body.deposit_rate ?? 0);
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_create_product`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
@@ -98,7 +102,9 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
       p_is_published: body.is_published === true,
       p_purchase_limit: body.purchase_limit ?? null,
       p_points_eligible: body.points_eligible !== false,
-      p_compare_at_price: compareAtPrice
+      p_compare_at_price: compareAtPrice,
+      p_delivery_methods: deliveryMethods,
+      p_show_stock: showStockInput(body.show_stock)
     })
   });
   if (!response.ok) return databaseError(response);
@@ -110,8 +116,22 @@ export async function createAdminProduct(request: Request, env: Env): Promise<Re
 type VariantInput = {
   product_id?: string; name?: string; sku?: string; kind?: "in_stock" | "preorder"; price?: number;
   safety_stock?: number; preorder_arrival?: string; deposit_rate?: number; seller_link?: string; compare_at_price?: number | null;
-  is_published?: boolean; display_order?: number; move_to_top?: boolean; stock?: number | null;
+  is_published?: boolean; display_order?: number; move_to_top?: boolean; stock?: number | null; show_stock?: boolean; image_id?: string | null;
 };
+
+// 前台是否顯示庫存數量：沒帶或格式不對時傳 null，資料庫新增時依類型預設（預購顯示、現貨不顯示）、編輯時保留原值
+function showStockInput(value: unknown) {
+  return typeof value === "boolean" ? value : null;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// 規格圖片：沒帶＝不變；null＝清除（改用商品主圖）；其他須為 UUID，是否屬於同一商品由資料庫檢查
+function variantImageInput(value: unknown): { update: boolean; imageId: string | null } | null {
+  if (value === undefined) return { update: false, imageId: null };
+  if (value === null) return { update: true, imageId: null };
+  return typeof value === "string" && UUID_PATTERN.test(value) ? { update: true, imageId: value } : null;
+}
 
 function normalizedVariant(body: VariantInput, includeProduct = false) {
   if (!body.name?.trim() || !Number.isInteger(body.price) || (body.price as number) < 0) return { error: "請填寫規格名稱與正確價格" };
@@ -150,7 +170,8 @@ export async function createVariant(request: Request, env: Env): Promise<Respons
       p_deposit_rate: payload.deposit_rate, p_seller_link: payload.seller_link,
       // 未指定排序時交給資料庫自動接在同商品最後一個規格之後
       p_is_published: payload.is_published, p_display_order: Number.isInteger(body.display_order) ? payload.display_order : null,
-      p_stock: stock
+      p_stock: stock,
+      p_show_stock: showStockInput(body.show_stock)
     })
   });
   if (!response.ok) return databaseError(response);
@@ -166,13 +187,17 @@ export async function updateVariant(request: Request, env: Env, variantId: strin
   const validated = normalizedVariant(body);
   if ("error" in validated) return json({ error: validated.error }, { status: 400 });
   const payload = { ...validated.value };
+  const image = variantImageInput(body.image_id);
+  if (!image) return json({ error: "規格圖片資料不正確" }, { status: 400 });
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_variant`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
       p_actor_id: admin.user.id, p_variant_id: variantId, p_name: payload.name, p_sku: payload.sku,
       p_kind: payload.kind, p_price: payload.price, p_compare_at_price: payload.compare_at_price ?? null,
       p_update_compare_at_price: body.compare_at_price !== undefined, p_safety_stock: payload.safety_stock,
       p_preorder_arrival: payload.preorder_arrival, p_deposit_rate: payload.deposit_rate,
-      p_seller_link: payload.seller_link, p_is_published: payload.is_published, p_display_order: payload.display_order
+      p_seller_link: payload.seller_link, p_is_published: payload.is_published, p_display_order: payload.display_order,
+      p_show_stock: showStockInput(body.show_stock),
+      p_image_id: image.imageId, p_update_image: image.update
     })
   });
   if (!response.ok) return databaseError(response);
@@ -190,16 +215,19 @@ export async function updateVariant(request: Request, env: Env, variantId: strin
 export async function updateProduct(request: Request, env: Env, productId: string): Promise<Response> {
   const admin = await requireAdmin(request, env);
   if (admin instanceof Response) return admin;
-  let body: { name?: string; description?: string; category_id?: string; purchase_limit?: number | null; points_eligible?: boolean; is_published?: boolean; display_order?: number };
+  let body: { name?: string; description?: string; category_id?: string; purchase_limit?: number | null; points_eligible?: boolean; is_published?: boolean; display_order?: number; allowed_delivery_methods?: string[] };
   try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
   if (!body.name?.trim()) return json({ error: "請填寫商品名稱" }, { status: 400 });
   if (body.purchase_limit != null && (!Number.isInteger(body.purchase_limit) || body.purchase_limit < 1)) return json({ error: "限購數量必須為正整數或不限購" }, { status: 400 });
+  const deliveryMethods = parseDeliveryMethods(body.allowed_delivery_methods);
+  if (deliveryMethods === "invalid") return json({ error: databaseErrors.INVALID_DELIVERY_METHODS }, { status: 400 });
   const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/admin_update_product`, {
     method: "POST", headers: serviceHeaders(env), body: JSON.stringify({
       p_actor_id: admin.user.id, p_product_id: productId, p_name: body.name.trim(), p_description: body.description || "",
       p_category_id: body.category_id || null, p_purchase_limit: body.purchase_limit ?? null,
       p_points_eligible: typeof body.points_eligible === "boolean" ? body.points_eligible : null,
-      p_is_published: body.is_published === true, p_display_order: Number.isInteger(body.display_order) ? body.display_order : 0
+      p_is_published: body.is_published === true, p_display_order: Number.isInteger(body.display_order) ? body.display_order : 0,
+      p_delivery_methods: deliveryMethods
     })
   });
   if (!response.ok) return databaseError(response);

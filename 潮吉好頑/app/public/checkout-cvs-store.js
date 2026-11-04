@@ -2,11 +2,12 @@
 // 選門市後自動帶入名稱與 6 碼店號；找不到門市時可改為手動填寫。記住上次選的門市。
 import { escapeHtml } from "./product-format.js";
 import { CVS_STORE_LOOKUP_URL } from "./cvs-delivery.js";
+import { createExpiringCache } from "./expiring-cache.js";
 
 const LAST_STORE_KEY = "cj-cvs-pickup-store";
 const MANUAL = "manual";
-let cityIndex = null;
-const cityStores = new Map();
+// 後台隨時可能發佈新的門市清單（伺服器端快取 5 分鐘）：頁面內的快取也只保留同樣久，到期後整批重新載入
+const storeCache = createExpiringCache(5 * 60 * 1000);
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -17,13 +18,11 @@ async function fetchJson(path) {
 }
 
 function loadCityIndex() {
-  cityIndex ??= fetchJson("/cvs-stores/index.json").catch((error) => { cityIndex = null; throw error; });
-  return cityIndex;
+  return storeCache.get("index", () => fetchJson("/cvs-stores/index.json"));
 }
 
 function loadCityStores(slug) {
-  if (!cityStores.has(slug)) cityStores.set(slug, fetchJson(`/cvs-stores/${slug}.json`).catch((error) => { cityStores.delete(slug); throw error; }));
-  return cityStores.get(slug);
+  return storeCache.get(slug, () => fetchJson(`/cvs-stores/${slug}.json`));
 }
 
 function setOptions(select, options, placeholder) {

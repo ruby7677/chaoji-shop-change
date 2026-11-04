@@ -1,4 +1,11 @@
 /* 現貨宅配「待小幫手確認運費」：建單後黃色區塊的提醒、改帶到我的訂單的按鈕，以及結帳第三步的付款期限警示 */
 .home-fee-pending-card .home-fee-pending-text{margin:12px 0 0;color:#191a1a;font-size:1.0625rem;font-weight:850;line-height:1.55}
 #payment-form [data-payment-orders]{width:100%;margin-top:14px}
+/* 預購店到店到貨：我的訂單的尾款（含運費）紅字加大，下方附匯款帳號卡片 */
+.order-card .balance-due-row strong{color:#d4232b;font-size:1.25rem;font-weight:950;font-variant-numeric:tabular-nums}
+.order-card .order-balance-account{margin-top:12px}
+/* 會員已在網站回報尾款末五碼、待管理員確認 */
+.final-payment-reported{margin:12px 0 0;padding:10px 12px;border-radius:10px;background:#eef8f0;color:#1d5a2c;font-size:.9375rem;font-weight:750;line-height:1.5}
+.final-payment-reported strong{font-variant-numeric:tabular-nums;letter-spacing:.04em}
+.order-card .final-payment-reported + button,.order-card .order-balance-account + button{margin-top:12px}
 .checkout-deadline-warning{padding:1px 5px;border-radius:6px;background:#fdecea;color:#a12d22;font-weight:850;-webkit-box-decoration-break:clone;box-decoration-break:clone}

@@ -118,7 +118,8 @@ body.is-product-view .product-page {
   text-wrap: balance;
 }
 .pp-buy h1:focus { outline: none; }
-.pp-summary { margin: 0 0 10px; color: var(--home-muted); font-size: .95rem; line-height: 1.7; }
+/* 商品簡介照後台輸入的換行顯示；長分隔線（-----）可在任意處折行，不撐出欄寬 */
+.pp-summary { margin: 0 0 10px; color: var(--home-muted); font-size: .95rem; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; }
 .pp-price { margin: 16px 0 4px; font-size: clamp(1.5rem, 2.4vw, 1.9rem); }
 .pp-stock { margin: 0; color: var(--home-muted); font-size: .85rem; }
 .pp-variant { display: flex; gap: 12px; margin: 18px 0 0; font-size: .9rem; }
@@ -189,7 +190,7 @@ body.is-product-view .product-page {
   text-decoration-thickness: 1px;
   text-underline-offset: 4px;
 }
-.product-card h3:hover { text-decoration-color: currentColor; }
+@media (hover: hover) { .product-card h3:hover { text-decoration-color: currentColor; } }
 
 .pp-missing { max-width: 520px; margin: 48px auto; text-align: center; }
 .pp-missing h1 { font-size: 1.8rem; }
@@ -234,11 +235,13 @@ body.is-product-view .product-page {
   font-size: 26px;
   line-height: 1;
 }
-#product-lightbox .pp-lightbox-close:hover,
 #product-lightbox .pp-lightbox-close:focus-visible {
   border-color: var(--home-yellow);
   color: var(--home-yellow);
   outline: none;
+}
+@media (hover: hover) {
+  #product-lightbox .pp-lightbox-close:hover { border-color: var(--home-yellow); color: var(--home-yellow); }
 }
 .pp-gallery--lightbox .pp-gallery-track { border-radius: 0; }
 .pp-gallery--lightbox .pp-gallery-slide { aspect-ratio: auto; height: calc(100dvh - 140px); border-radius: 0; background: transparent; }

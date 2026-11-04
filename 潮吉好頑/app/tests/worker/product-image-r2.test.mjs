@@ -3,7 +3,7 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { baseEnv, ctx, jsonResponse, loadSourceModule, loadWorker, stubFetch } from "./harness.mjs";
-import { thumbnailKeyFor, adminPrimaryImageSrc, adminGalleryImageSrc } from "../../public/product-image-src.js";
+import { thumbnailKeyFor, thumbnailUrlFor, adminPrimaryImageSrc, adminGalleryImageSrc } from "../../public/product-image-src.js";
 
 const worker = await loadWorker();
 const urls = await loadSourceModule("product-image-urls.ts");
@@ -41,6 +41,20 @@ test("the admin pages derive the same thumbnail path as the Worker", () => {
   assert.equal(adminGalleryImageSrc(PRODUCT_ID, { id: "g1", storage_path: `${PRODUCT_ID}/g1.webp`, updated_at: "u" }, "https://img.test"), `https://img.test/${PRODUCT_ID}/g1.thumb.webp?v=u`);
 });
 
+test("the storefront derives the same thumbnail address from the main image address as the Worker", () => {
+  const cases = [
+    [{ IMAGE_BASE_URL: "https://img.test" }, `${PRODUCT_ID}/a b.jpg`, "2026-10-09T00:00:00Z"],
+    [{ IMAGE_BASE_URL: "https://img.test" }, `${PRODUCT_ID}/x.y.png`, "v1"],
+    [{ IMAGE_BASE_URL: "https://img.test" }, `${PRODUCT_ID}/noext`, null],
+    [{ IMAGE_BASE_URL: "https://img.test" }, `${PRODUCT_ID}/問號?.jpg`, "v"],
+    [{}, `${PRODUCT_ID}/a.jpg`, "2026-10-09T00:00:00Z"]
+  ];
+  for (const [env, path, version] of cases) {
+    const expected = urls.primaryImageUrls(env, PRODUCT_ID, path, version);
+    assert.equal(thumbnailUrlFor(expected.image_url), expected.thumb_url, path);
+  }
+});
+
 test("the catalog gives every photo a thumbnail address and leaves products without photos empty", async () => {
   restoreFetch = stubFetch(async (url) => {
     if (url.pathname === "/rest/v1/storefront_variants") {
@@ -55,7 +69,8 @@ test("the catalog gives every photo a thumbnail address and leaves products with
   const response = await worker.fetch(new Request("https://catalog-r2.test/api/catalog"), { ...baseEnv, IMAGE_BASE_URL: "https://img.test" }, ctx());
   const { products } = await response.json();
   assert.equal(products[0].image_url, `https://img.test/${PRODUCT_ID}/a.webp?v=v1`);
-  assert.equal(products[0].thumb_url, `https://img.test/${PRODUCT_ID}/a.thumb.webp?v=v1`);
+  assert.equal(products[0].thumb_url, undefined, "the storefront derives the thumbnail address");
+  assert.equal(thumbnailUrlFor(products[0].image_url), `https://img.test/${PRODUCT_ID}/a.thumb.webp?v=v1`);
   assert.equal(products[1].image_url, undefined);
   assert.equal(products[1].thumb_url, undefined);
 });

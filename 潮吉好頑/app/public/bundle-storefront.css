@@ -1,5 +1,5 @@
 @charset "UTF-8";
-/* 自動產生（scripts/build-css.mjs），請改原始檔：product-showcase.css、hero-desktop.css、hero-ratio.css、store-info.css、product-page.css、storefront-legibility.css、hero-flag-shine.css、header-orders.css、card-subgrid.css、filter-chips.css、catalog-paging.css、member-profile.css、dialog-close.css、checkout-cvs.css、checkout-coupon.css、home-fee.css、product-variants.css */
+/* 自動產生（scripts/build-css.mjs），請改原始檔：product-showcase.css、hero-desktop.css、hero-ratio.css、store-info.css、product-page.css、storefront-legibility.css、hero-flag-shine.css、header-orders.css、card-subgrid.css、filter-chips.css、catalog-paging.css、member-profile.css、dialog-close.css、checkout-cvs.css、checkout-coupon.css、home-fee.css、order-closed.css、product-variants.css、floating-actions.css */
 /* ==== product-showcase.css ==== */
 /* 商品展示升級樣式：Hero 預購輪播、商品頁多圖、詳細介紹、推薦商品。
    規劃見 app/PRODUCT_SHOWCASE_PLAN.md；載入順序在 styles.css 之後。 */
@@ -362,7 +362,7 @@
     background-color .2s cubic-bezier(.22, 1, .36, 1) 0s,
     color .2s cubic-bezier(.22, 1, .36, 1) 0s;
 }
-.hero-slide-more:hover { background-color: var(--home-ink); color: var(--home-yellow); }
+@media (hover: hover) { .hero-slide-more:hover { background-color: var(--home-ink); color: var(--home-yellow); } }
 .hero-slide-more:focus-visible { outline: 3px solid var(--home-ink); outline-offset: 3px; }
 .hero-slide-more-arrow {
   width: 18px;
@@ -375,7 +375,7 @@
   stroke-linejoin: round;
   transition: transform .2s cubic-bezier(.22, 1, .36, 1);
 }
-.hero-slide-more:hover .hero-slide-more-arrow { transform: translateX(3px); }
+@media (hover: hover) { .hero-slide-more:hover .hero-slide-more-arrow { transform: translateX(3px); } }
 .hero-slide-more .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* 控制列：黃底上的深色細線條 */
@@ -401,8 +401,10 @@
   cursor: pointer;
 }
 .hero-carousel-toggle { margin-left: auto; font-size: .62rem; letter-spacing: -.1em; }
-.hero-carousel-arrow:hover,
-.hero-carousel-toggle:hover { border-color: var(--home-ink); background: rgba(255, 255, 255, .45); }
+@media (hover: hover) {
+  .hero-carousel-arrow:hover,
+  .hero-carousel-toggle:hover { border-color: var(--home-ink); background: rgba(255, 255, 255, .45); }
+}
 .hero-carousel-dots { display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
 .hero-carousel-dot {
   display: grid;
@@ -598,11 +600,22 @@
 @media (min-width: 761px) and (max-width: 1020px) and (min-height: 541px) {
   .hero-slide-media[data-hero-ratio] { aspect-ratio: var(--hero-ratio); max-height: 70svh; }
 }
+
+/* 所有投影片疊在同一格，輪播高度原本取「最高那張」：寬圖（如九宮格）的說明框下方會留一大段空白。
+   未顯示的投影片高度設 0（內容本來就是透明、不可見），輪播高度只跟著目前這張走；切換時下方內容隨之調整。
+   第一張要等開機畫面結束才被設為 is-active：在那之前讓第一張撐住高度，避免啟動時整塊從 0 撐開而讓下方內容跳動。 */
+.hero-slide:not(.is-active):not(:first-child) { height: 0; }
+.hero-carousel:has(.hero-slide.is-active) .hero-slide:not(.is-active) { height: 0; }
+
+/* 手機照片框寬度是 100vw - 20px，比首頁內距內的欄寬大：輪播外層 .hero-selection 是 grid，自動欄會被撐到照片框寬，
+   整個輪播（說明框也是）往右超出螢幕。欄寬鎖在容器內（minmax(0, 1fr)），照片框再靠負邊距對齊螢幕左右各 10px。 */
+.hero-selection:has(.hero-carousel) { grid-template-columns: minmax(0, 1fr); }
 /* ==== store-info.css ==== */
 /* 店取資訊與 LINE 客服（業主要求 2026-09-24）：
    - 「LINE 客服 ↗」在所有尺寸都是 LINE 標準綠（#06C755）填滿的圓角按鈕。
-   - 螢幕夠寬（≥1200px）時，店取地址（營業時間在地址下方）與 LINE 客服移到頁首導航列，並隱藏首頁中段的店取列；
-     較窄時頁首這份隱藏、維持原位。兩份同時只顯示一份（display:none 不會被報讀器重複朗讀）。 */
+   - 螢幕夠寬（≥1200px）時，店取地址（營業時間在地址下方）移到頁首導航列，並隱藏首頁中段的店取列；
+     較窄時頁首這份隱藏、維持原位。兩份同時只顯示一份（display:none 不會被報讀器重複朗讀）。
+   - 頁首不放 LINE 客服按鈕（業主要求 2026-10-30），桌面版改用右下角浮動按鈕。 */
 .line-service-button,
 .trust-rail a.trust-rail-link.line-service-button {
   display: inline-flex;
@@ -625,8 +638,10 @@
 }
 .line-service-button span,
 .trust-rail a.trust-rail-link.line-service-button span { font-size: 1rem; text-decoration: none; }
-.line-service-button:hover,
-.trust-rail a.trust-rail-link.line-service-button:hover { background: #05a647; }
+@media (hover: hover) {
+  .line-service-button:hover,
+  .trust-rail a.trust-rail-link.line-service-button:hover { background: #05a647; }
+}
 .line-service-button:focus-visible { outline: 3px solid #141414; outline-offset: 2px; }
 /* 店取列：地址在左、按鈕在右並垂直置中（手機亦同一列）；拿掉原文字連結的分隔線，觸控目標 44px */
 .trust-rail a.trust-rail-link.line-service-button { align-self: center; justify-self: end; }
@@ -642,7 +657,6 @@
   .header-store {
     display: flex;
     align-items: center;
-    gap: 14px;
     margin-left: auto;
     padding-left: 18px;
     border-left: 1px solid var(--home-line, #e5dfcf);
@@ -789,7 +803,8 @@ body.is-product-view .product-page {
   text-wrap: balance;
 }
 .pp-buy h1:focus { outline: none; }
-.pp-summary { margin: 0 0 10px; color: var(--home-muted); font-size: .95rem; line-height: 1.7; }
+/* 商品簡介照後台輸入的換行顯示；長分隔線（-----）可在任意處折行，不撐出欄寬 */
+.pp-summary { margin: 0 0 10px; color: var(--home-muted); font-size: .95rem; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; }
 .pp-price { margin: 16px 0 4px; font-size: clamp(1.5rem, 2.4vw, 1.9rem); }
 .pp-stock { margin: 0; color: var(--home-muted); font-size: .85rem; }
 .pp-variant { display: flex; gap: 12px; margin: 18px 0 0; font-size: .9rem; }
@@ -860,7 +875,7 @@ body.is-product-view .product-page {
   text-decoration-thickness: 1px;
   text-underline-offset: 4px;
 }
-.product-card h3:hover { text-decoration-color: currentColor; }
+@media (hover: hover) { .product-card h3:hover { text-decoration-color: currentColor; } }
 
 .pp-missing { max-width: 520px; margin: 48px auto; text-align: center; }
 .pp-missing h1 { font-size: 1.8rem; }
@@ -905,11 +920,13 @@ body.is-product-view .product-page {
   font-size: 26px;
   line-height: 1;
 }
-#product-lightbox .pp-lightbox-close:hover,
 #product-lightbox .pp-lightbox-close:focus-visible {
   border-color: var(--home-yellow);
   color: var(--home-yellow);
   outline: none;
+}
+@media (hover: hover) {
+  #product-lightbox .pp-lightbox-close:hover { border-color: var(--home-yellow); color: var(--home-yellow); }
 }
 .pp-gallery--lightbox .pp-gallery-track { border-radius: 0; }
 .pp-gallery--lightbox .pp-gallery-slide { aspect-ratio: auto; height: calc(100dvh - 140px); border-radius: 0; background: transparent; }
@@ -1077,7 +1094,7 @@ body.is-product-view .product-page {
 
 /* 商品卡陰影改中性墨色：原本的暖棕色陰影在白底上像一圈泛黃的光暈 */
 .product-card { box-shadow: 0 10px 30px rgba(21, 21, 21, .06); }
-.product-card:hover { box-shadow: 0 18px 36px rgba(21, 21, 21, .11); }
+@media (hover: hover) { .product-card:hover { box-shadow: 0 18px 36px rgba(21, 21, 21, .11); } }
 
 /* 購物須知開頭說明：限制行長在約 40 字 */
 .policy-intro > p { max-width: 40em; }
@@ -1168,25 +1185,19 @@ body.is-product-view .product-page {
     stroke-linecap: round;
     stroke-linejoin: round;
   }
-  .site-header nav .nav-orders-button:hover { background: var(--home-ink); color: var(--home-yellow); }
+  @media (hover: hover) { .site-header nav .nav-orders-button:hover { background: var(--home-ink); color: var(--home-yellow); } }
   .site-header nav .nav-orders-button:focus-visible { outline: 3px solid var(--home-ink); outline-offset: 3px; }
-  /* LINE 客服（業主要求 2026-10-10）：手機版從首頁中段店取列移到主選單列，放在「我的訂單」左邊；
-     兩顆按鈕間距 8px，文字連結之間維持 24px，所有寬度都不換行（店取列的那顆隱藏，避免重複）。 */
+  /* LINE 客服改為右下角浮動按鈕（業主要求 2026-10-16），主選單列只留文字連結與「我的訂單」；
+     文字連結之間維持 24px，「我的訂單」靠右，所有寬度都不換行。店取列的 LINE 按鈕手機版仍隱藏，避免重複。 */
   .site-header nav { gap: 0; }
-  .site-header nav > a:not(.nav-line-button) { flex: none; margin-right: 24px; white-space: nowrap; }
-  .site-header nav .nav-line-button { flex: none; min-height: 44px; margin-left: auto; padding: 0 14px; }
-  .site-header nav .nav-line-button + .nav-orders-button:not(.hidden) { margin-left: 8px; }
+  .site-header nav > a { flex: none; margin-right: 24px; white-space: nowrap; }
+  .site-header nav .nav-orders-button { margin-left: auto; }
   .trust-rail a.trust-rail-link.line-service-button { display: none; }
 }
 /* 400px 以下（含 360／375px 手機）：登入後四個項目要擠在一列，字型寬度因裝置而異，預留餘裕 */
 @media (max-width: 400px) {
-  .site-header nav > a:not(.nav-line-button) { margin-right: 16px; }
-  .site-header nav .nav-line-button { padding: 0 12px; }
+  .site-header nav > a { margin-right: 16px; }
   .site-header nav .nav-orders-button:not(.hidden) { padding-inline: 10px 12px; }
-}
-.site-header nav .nav-line-button { display: none; }
-@media (max-width: 760px) {
-  .site-header nav .nav-line-button { display: inline-flex; }
 }
 
 /* 極窄螢幕（<360px，例如 320px）：縮小 Logo、隱藏副標，讓會員與購物車仍能和品牌同一列 */
@@ -1194,8 +1205,7 @@ body.is-product-view .product-page {
   .site-header { column-gap: 8px; padding-inline: 12px; }
   .site-header .brand img { width: 40px; height: 40px; }
   .site-header .brand small { display: none; }
-  .site-header nav > a:not(.nav-line-button) { margin-right: 12px; }
-  .site-header nav .nav-line-button { padding: 0 10px; }
+  .site-header nav > a { margin-right: 12px; }
   .site-header nav .nav-orders-button:not(.hidden) { padding-inline: 10px; }
   .site-header nav .nav-orders-button svg { display: none; }
 }
@@ -1233,9 +1243,10 @@ body.is-product-view .product-page {
 .filter-count{display:none}
 @media (min-width:761px){
   .shelf-title{flex:0 0 auto;white-space:nowrap}
-  .filter-row{gap:10px;justify-content:flex-end}
+  /* 由左排起：分類多到換行時，第二列接在左側，不會只剩一顆按鈕掛在右邊 */
+  .filter-row{gap:10px;justify-content:flex-start}
   .filter-row .filter{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 18px;border:1.5px solid #bfb39b;background:#fff;color:var(--home-ink);font-size:.95rem;font-weight:800;box-shadow:0 2px 6px rgba(58,48,30,.08);transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}
-  .filter-row .filter:hover{border-color:var(--home-yellow);transform:translateY(-2px);box-shadow:0 8px 16px rgba(58,48,30,.14)}
+  @media (hover:hover){.filter-row .filter:hover{border-color:var(--home-yellow);transform:translateY(-2px);box-shadow:0 8px 16px rgba(58,48,30,.14)}}
   .filter-row .filter:focus-visible{outline:3px solid var(--home-yellow);outline-offset:2px}
   .filter-row .filter.active{background:var(--home-ink);border-color:var(--home-ink);color:#fff}
   .filter-count{display:inline-block;min-width:24px;padding:2px 7px;border-radius:999px;background:var(--home-cream);color:var(--home-muted);font-size:.75rem;font-weight:900;line-height:1.4;text-align:center}
@@ -1251,7 +1262,7 @@ body.is-product-view .product-page {
 .catalog-more:empty{display:none}
 .catalog-more-count,.catalog-more-done{margin:0;color:var(--home-muted);font-size:.85rem;font-variant-numeric:tabular-nums}
 .catalog-more-button{display:inline-flex;align-items:center;gap:10px;min-height:48px;padding:0 28px;border:0;border-radius:999px;background:var(--home-ink);color:#fff;font-size:1rem;font-weight:900;cursor:pointer;box-shadow:0 10px 24px rgba(21,21,21,.18);transition:transform .18s ease,box-shadow .18s ease}
-.catalog-more-button:hover{transform:translateY(-2px);box-shadow:0 14px 28px rgba(21,21,21,.24)}
+@media (hover:hover){.catalog-more-button:hover{transform:translateY(-2px);box-shadow:0 14px 28px rgba(21,21,21,.24)}}
 .catalog-more-button:focus-visible{outline:3px solid var(--home-yellow);outline-offset:3px}
 .catalog-more-next{padding:2px 9px;border-radius:999px;background:var(--home-yellow);color:var(--home-ink);font-size:.78rem}
 .product-card.is-revealed{animation:catalog-reveal .45s cubic-bezier(.2,.8,.2,1) both}
@@ -1280,7 +1291,7 @@ body.is-product-view .product-page {
   margin:calc(6px - var(--dlg-pt)) calc(6px - var(--dlg-px)) calc(var(--dlg-pt) - 50px) auto;
   border-radius:999px;background:rgba(255,255,255,.92);box-shadow:none;color:var(--home-ink);font-size:26px;line-height:1
 }
-:is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog) .dialog-close:hover{background:var(--home-paper)}
+@media (hover:hover){:is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog) .dialog-close:hover{background:var(--home-paper)}}
 :is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog) .dialog-close ~ h2{padding-right:40px}
 /* 視窗打開時焦點放在視窗本身（tabindex=-1，由 app-core.js 的 showDialog 設定），不再自動停在關閉鈕而出現提示框；鍵盤按 Tab 仍會先到關閉鈕 */
 :is(#checkout-dialog,#payment-dialog,#orders-dialog,#profile-dialog,#line-friend-dialog):focus{outline:none}
@@ -1324,7 +1335,33 @@ body.is-product-view .product-page {
 /* 現貨宅配「待小幫手確認運費」：建單後黃色區塊的提醒、改帶到我的訂單的按鈕，以及結帳第三步的付款期限警示 */
 .home-fee-pending-card .home-fee-pending-text{margin:12px 0 0;color:#191a1a;font-size:1.0625rem;font-weight:850;line-height:1.55}
 #payment-form [data-payment-orders]{width:100%;margin-top:14px}
+/* 預購店到店到貨：我的訂單的尾款（含運費）紅字加大，下方附匯款帳號卡片 */
+.order-card .balance-due-row strong{color:#d4232b;font-size:1.25rem;font-weight:950;font-variant-numeric:tabular-nums}
+.order-card .order-balance-account{margin-top:12px}
+/* 會員已在網站回報尾款末五碼、待管理員確認 */
+.final-payment-reported{margin:12px 0 0;padding:10px 12px;border-radius:10px;background:#eef8f0;color:#1d5a2c;font-size:.9375rem;font-weight:750;line-height:1.5}
+.final-payment-reported strong{font-variant-numeric:tabular-nums;letter-spacing:.04em}
+.order-card .final-payment-reported + button,.order-card .order-balance-account + button{margin-top:12px}
 .checkout-deadline-warning{padding:1px 5px;border-radius:6px;background:#fdecea;color:#a12d22;font-weight:850;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+/* ==== order-closed.css ==== */
+/* 我的訂單：已取消的訂單集中在清單最下方並預設收合，卡片只留結果與明細（order-views.js ordersListMarkup） */
+.orders-none-open { margin: 0 0 14px; color: var(--home-muted, var(--muted)); font-size: .92rem; }
+/* 蓋掉全站 details／summary 的底線、內距與「＋／－」符號（styles.css 的 details[open] summary::after 會套到內層，選擇器需帶 details 才壓得過） */
+.orders-closed-group, .order-closed-details { padding: 0; border-bottom: 0; }
+details.order-closed-details > summary::after { content: none; }
+.orders-closed-group { margin-top: 18px; }
+.orders-closed-group > summary { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 16px; border: 1px solid var(--home-line, var(--line)); border-radius: 12px; background: #fff; color: var(--home-ink, var(--ink)); font-weight: 800; cursor: pointer; list-style: none; }
+.orders-closed-group > summary::-webkit-details-marker { display: none; }
+details.orders-closed-group > summary::after { content: ""; float: none; flex: none; width: 9px; height: 9px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); transition: transform .2s ease; }
+details.orders-closed-group[open] > summary::after { transform: rotate(-135deg); }
+.orders-closed-group[open] > summary { margin-bottom: 12px; }
+.order-card.is-closed { background: #faf8f3; }
+.orders-closed-group .order-card + .order-card { margin-top: 12px; }
+.order-card.is-closed h3 { color: var(--home-muted, var(--muted)); }
+.order-closed-notice { margin: 10px 0 0; color: var(--home-ink, var(--ink)); font-size: .92rem; line-height: 1.6; }
+.order-closed-details { margin-top: 8px; }
+.order-closed-details > summary { display: inline-flex; align-items: center; min-height: 44px; color: var(--home-muted, var(--muted)); font-size: .88rem; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { details.orders-closed-group > summary::after { transition: none; } }
 /* ==== product-variants.css ==== */
 /* 多規格商品：首頁合併卡的「選擇規格」按鈕與「起」價，商品頁的規格單選按鈕（product-groups.js、product-page.js）。 */
 
@@ -1354,7 +1391,7 @@ body.is-product-view .product-page {
 }
 .pp-option input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
 .pp-option small { color: var(--home-muted); font-size: .75rem; font-weight: 700; }
-.pp-option:hover { border-color: var(--home-ink); }
+@media (hover: hover) { .pp-option:hover { border-color: var(--home-ink); } }
 .pp-option:has(input:checked) { border-color: var(--home-ink); background: var(--home-ink); color: #fff; }
 .pp-option:has(input:checked) small { color: rgba(255, 255, 255, .72); }
 .pp-option:has(input:focus-visible) { outline: 3px solid var(--home-yellow); outline-offset: 2px; }
@@ -1392,3 +1429,19 @@ dialog.variant-sheet:focus { outline: none; }
   .pp-option { transition: none; }
   dialog.variant-sheet[open] { animation: none; }
 }
+/* ==== floating-actions.css ==== */
+/* 首頁右下角浮動按鈕（floating-actions.js）：LINE 客服＋回到頂端。商品頁有自己的底部購買列，不顯示。 */
+.floating-actions { position: fixed; right: calc(8px + env(safe-area-inset-right)); bottom: calc(70px + env(safe-area-inset-bottom)); z-index: 13; display: flex; flex-direction: column; gap: 10px; }
+body:has(.selection-tray.has-items) .floating-actions { bottom: calc(146px + env(safe-area-inset-bottom)); }
+body.is-product-view .floating-actions { display: none; }
+/* 按鈕 40px、離右邊 8px，尺寸比照參考圖；::after 把觸控範圍擴到 48px，避免太難點 */
+.floating-actions a, .floating-actions button { position: relative; display: grid; place-items: center; box-sizing: border-box; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 4px; cursor: pointer; box-shadow: 0 3px 10px rgba(21, 21, 21, 0.25); }
+.floating-actions a::after, .floating-actions button::after { content: ""; position: absolute; inset: -4px; }
+.floating-actions [hidden] { display: none; }
+.floating-line { background: #06c755; color: #fff; text-decoration: none; }
+.floating-top { background: rgba(21, 21, 21, 0.92); color: #fff; }
+.floating-actions svg { width: 28px; height: 28px; }
+.floating-top svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.floating-line svg text { fill: #06c755; font-size: 10px; font-weight: 800; font-family: system-ui, sans-serif; }
+.floating-actions a:focus-visible, .floating-actions button:focus-visible { outline: 3px solid #e7c438; outline-offset: 2px; }
+@media (hover: hover) { .floating-actions a:hover, .floating-actions button:hover { filter: brightness(1.08); } }

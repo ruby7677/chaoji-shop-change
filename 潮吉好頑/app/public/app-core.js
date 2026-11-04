@@ -33,7 +33,11 @@ export function orderInventoryTypeLabel(order) {
   if (hasPreorder && hasInStock) return "現貨／預購";
   return hasPreorder ? "預購" : "現貨";
 }
+// 預購交貨便／宅配到貨後尾款已確認：狀態仍是到貨狀態，畫面顯示這一步（尾款確認通知同一句）
+const finalPaymentConfirmedToShip = (order, status) => ["partially_ready", "ready_for_pickup"].includes(status)
+  && ["cvs_delivery", "home_delivery"].includes(order?.delivery_method) && orderIncludesPreorder(order) && Boolean(order?.final_payment_confirmed_at);
 export function orderStatusLabel(order, status = order?.status) {
+  if (finalPaymentConfirmedToShip(order, status)) return "尾款已確認，待出貨";
   if (status === "ready_for_pickup") {
     if (order?.delivery_method === "seller_delivery") return orderIncludesPreorder(order) ? "預購賣貨便已到貨" : "現貨賣貨便已出貨";
     if (order?.delivery_method === "cvs_delivery") return "已到貨，待尾款／運費";
@@ -48,6 +52,7 @@ export function orderStatusLabel(order, status = order?.status) {
   return orderStatusLabels[status] || status || "未知狀態";
 }
 export function adminOrderStatusLabel(order, status = order?.status) {
+  if (finalPaymentConfirmedToShip(order, status)) return "尾款已確認，待出貨";
   if (status === "confirmed" && order?.delivery_method === "store_pickup" && !orderIncludesPreorder(order)) return "待取貨";
   if (status === "confirmed" && order?.delivery_method === "home_delivery") return orderIncludesPreorder(order) ? "預購宅配待到貨" : "現貨宅配備貨中";
   if (status === "confirmed" && order?.delivery_method === "seller_delivery") return orderIncludesPreorder(order) ? "預購賣貨便待到貨" : "現貨賣貨便備貨中";

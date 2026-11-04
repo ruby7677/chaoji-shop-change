@@ -7,12 +7,13 @@ import { initAdminOrdersUI } from "./admin-orders-ui.js";
 import { initAdminSheets } from "./admin-sheets.js";
 import { searchContextFor } from "./admin-search-context.js";
 import { buildAdminTabbar } from "./admin-tabbar.js";
+import { resetOrderMonth } from "./admin-month.js";
 
 const NAV_GROUPS = [
   { label: "營運", tabs: [["overview", "chart"], ["orders", "receipt"]] },
   { label: "商品", tabs: [["products", "layers"], ["inventory", "box"]] },
   { label: "會員行銷", tabs: [["members", "users"], ["discounts", "gift"]] },
-  { label: "系統", tabs: [["accounts", "bank"], ["audit", "shield"], ["notifications", "bell"]] }
+  { label: "系統", tabs: [["accounts", "bank"], ["audit", "shield"], ["notifications", "bell"], ["cvs-stores", "store"]] }
 ];
 // 徽章只顯示「需要人工處理」的數量，來源為 admin_dashboard_stats
 const BADGES = {
@@ -86,7 +87,7 @@ function buildTopbar() {
     <form class="admin-global-search" role="search" data-admin-global-search>
       <label class="sr-only" for="admin-global-search-input" data-admin-search-label>搜尋訂單</label>
       ${adminIcon("search")}
-      <input id="admin-global-search-input" type="search" placeholder="搜尋訂單編號、姓名、手機、末五碼" autocomplete="off" enterkeyhint="search" />
+      <input id="admin-global-search-input" type="search" placeholder="搜尋訂單編號、姓名、手機、末五碼、商品名稱" autocomplete="off" enterkeyhint="search" />
       <kbd aria-hidden="true">/</kbd>
     </form>
     <div class="admin-topbar-actions">
@@ -199,6 +200,8 @@ function searchOrders(keyword) {
   if (!orderSearch || !statusFilter) throw new Error("訂單搜尋欄位不存在");
   orderSearch.value = keyword;
   statusFilter.value = "all";
+  // 清除搜尋後回到「全部」的預設月份（全部月份），不沿用之前選的月份
+  resetOrderMonth("all");
   deps.switchAdminTab("orders");
   deps.reloadAdminList("orders", true);
 }
