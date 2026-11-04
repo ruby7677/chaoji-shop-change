@@ -9,7 +9,7 @@ const LINE_ID = "U" + "a".repeat(32);
 let restoreFetch = () => {};
 afterEach(() => restoreFetch());
 
-function fakeSupabase({ isAdmin = true, todoCount = 2 } = {}) {
+function fakeSupabase({ isAdmin = true, todoCount = 2, salesOk = true } = {}) {
   const seen = { restPaths: [], queries: [], bodies: {} };
   restoreFetch = stubFetch((url, init, body) => {
     if (url.pathname === "/auth/v1/user") {
@@ -27,6 +27,10 @@ function fakeSupabase({ isAdmin = true, todoCount = 2 } = {}) {
       return jsonResponse(Array.from({ length: todoCount }, (_, index) => ({ id: `todo-${index}`, order_number: `CJ-${index}`, status: "pending_review" })));
     }
     if (url.pathname === "/rest/v1/orders") return jsonResponse([{ id: "recent-1", order_number: "CJ-R1", status: "confirmed" }]);
+    if (url.pathname === "/rest/v1/rpc/admin_sales_summary") {
+      return salesOk ? jsonResponse({ month: body.p_month, revenue: 5000, received: 3000, outstanding: 2060, orderCount: 3, months: ["2026-11"] }) : new Response("busy", { status: 503 });
+    }
+    if (url.pathname === "/rest/v1/rpc/admin_search_order_ids") return jsonResponse({ ids: [], pagination: { page: 0, pageSize: 100, hasMore: false } });
     if (url.pathname === "/rest/v1/rpc/low_stock_variants") {
       return jsonResponse([
         { id: "v-out", name: "A", sku: "A-1", product_name: "缺貨商品", stock_on_hand: 0, safety_stock: 1 },
@@ -55,8 +59,40 @@ test("overview returns stats, todo orders, recent orders and low stock in one re
     { id: "v-out", name: "A", product_name: "缺貨商品", stock_on_hand: 0, safety_stock: 1 },
     { id: "v-low", name: "B", product_name: "低庫存商品", stock_on_hand: 2, safety_stock: 2 }
   ]);
-  assert.deepEqual(seen.restPaths.sort(), ["GET /rest/v1/orders", "GET /rest/v1/orders", "GET /rest/v1/orders", "POST /rest/v1/rpc/admin_dashboard_stats", "POST /rest/v1/rpc/low_stock_variants"]);
+  assert.deepEqual(seen.restPaths.sort(), ["GET /rest/v1/orders", "GET /rest/v1/orders", "GET /rest/v1/orders", "POST /rest/v1/rpc/admin_dashboard_stats", "POST /rest/v1/rpc/admin_sales_summary", "POST /rest/v1/rpc/low_stock_variants"]);
   assert.deepEqual(seen.bodies["/rest/v1/rpc/low_stock_variants"], { p_limit: 20 }, "low stock comes from the shared database definition, capped at 20");
+});
+
+test("overview includes this Taipei month's sales", async () => {
+  const seen = fakeSupabase();
+  const body = await (await dashboard("?section=overview")).json();
+  const month = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Taipei" }).format(new Date()).slice(0, 7);
+  assert.deepEqual(seen.bodies["/rest/v1/rpc/admin_sales_summary"], { p_actor_id: ADMIN_ID, p_month: month });
+  assert.equal(body.overview.salesSummary.revenue, 5000);
+});
+
+test("overview still loads when the sales summary fails", async () => {
+  fakeSupabase({ salesOk: false });
+  const response = await dashboard("?section=overview");
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).overview.salesSummary, null);
+});
+
+test("the sales section passes the chosen month, defaulting to all", async () => {
+  const seen = fakeSupabase();
+  const body = await (await dashboard("?section=sales&month=2026-10")).json();
+  assert.deepEqual(seen.bodies["/rest/v1/rpc/admin_sales_summary"], { p_actor_id: ADMIN_ID, p_month: "2026-10" });
+  assert.equal(body.salesSummary.month, "2026-10");
+  await dashboard("?section=sales");
+  assert.equal(seen.bodies["/rest/v1/rpc/admin_sales_summary"].p_month, "all");
+});
+
+test("the order list passes the month filter to the database", async () => {
+  const seen = fakeSupabase();
+  assert.equal((await dashboard("?section=orders&status=completed&month=2026-11")).status, 200);
+  assert.equal(seen.bodies["/rest/v1/rpc/admin_search_order_ids"].p_month, "2026-11");
+  await dashboard("?section=orders");
+  assert.equal(seen.bodies["/rest/v1/rpc/admin_search_order_ids"].p_month, "all");
 });
 
 test("todo orders are filtered by the database with the manual-work rules", async () => {

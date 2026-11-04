@@ -5,9 +5,9 @@ import { databaseError } from "./database-errors";
 import { type Env } from "./env";
 import { fetchWithTimeout, json, serviceHeaders } from "./http";
 
-type AdminDashboardSection = "overview" | "orders" | "members" | "products" | "inventory" | "discounts" | "settings";
+type AdminDashboardSection = "overview" | "sales" | "orders" | "members" | "products" | "inventory" | "discounts" | "settings";
 
-const ADMIN_DASHBOARD_SECTIONS: AdminDashboardSection[] = ["overview", "orders", "members", "products", "inventory", "discounts", "settings"];
+const ADMIN_DASHBOARD_SECTIONS: AdminDashboardSection[] = ["overview", "sales", "orders", "members", "products", "inventory", "discounts", "settings"];
 
 const ADMIN_PRODUCTS_SELECT = "id,name,description,image_path,image_updated_at,purchase_limit,points_eligible,allowed_delivery_methods,is_published,display_order,category_id,details,hero_rank,hero_tagline,product_images(id,storage_path,sort_order,updated_at,width,height),categories(id,name,is_active),product_variants(id,name,sku,kind,price,compare_at_price,stock_on_hand,safety_stock,preorder_arrival,deposit_rate,seller_link,is_published,display_order,show_stock,image_id,updated_at)";
 
@@ -59,6 +59,11 @@ function orderRowsByIds(rows: unknown[], ids: string[]) {
   return ids.map((id) => rowMap.get(id)).filter((row): row is Record<string, unknown> => Boolean(row));
 }
 
+// 月份篩選：YYYY-MM 或 all（格式由資料庫 private.admin_month_range 驗證，錯誤回 INVALID_ADMIN_MONTH）
+function adminMonthParam(params: URLSearchParams) {
+  return params.get("month")?.trim().slice(0, 7) || "all";
+}
+
 async function adminDashboardSection(request: Request, env: Env, section: AdminDashboardSection, actorId: string): Promise<Response> {
   const base = env.SUPABASE_URL as string;
   const headers = serviceHeaders(env);
@@ -69,6 +74,15 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
       const result = await loadAdminOverview(base, headers, actorId, (url) => fetchAdminRows(url, headers));
       if (!result.ok) return databaseError(result.response);
       return json({ stats: result.stats, overview: result.overview });
+    }
+    if (section === "sales") {
+      const response = await fetchWithTimeout(`${base}/rest/v1/rpc/admin_sales_summary`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ p_actor_id: actorId, p_month: adminMonthParam(new URL(request.url).searchParams) })
+      });
+      if (!response.ok) return databaseError(response);
+      return json({ salesSummary: await response.json() });
     }
     if (section === "orders") {
       const page = adminPage(request, 100);
@@ -81,7 +95,8 @@ async function adminDashboardSection(request: Request, env: Env, section: AdminD
           p_query: params.get("query")?.trim().slice(0, 100) || "",
           p_status: params.get("status") || "all",
           p_page: page.page,
-          p_page_size: page.pageSize
+          p_page_size: page.pageSize,
+          p_month: adminMonthParam(params)
         })
       });
       if (!searchResponse.ok) return databaseError(searchResponse);

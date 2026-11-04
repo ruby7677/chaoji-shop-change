@@ -6,6 +6,7 @@ import { escapeHtml, money } from "./product-format.js";
 import { openStockAdjust } from "./admin-stock-adjust.js";
 import { awaitingStockHomeFee } from "./home-fee-state.js";
 import { stockStateText } from "./admin-stock-state.js";
+import { initAdminSalesSummary, syncSalesSummary } from "./admin-sales-summary.js";
 
 // 後台 API 每位管理員每分鐘限 60 次（API_ADMIN_RATE_LIMITER），概況以較長快取避免佔用額度；
 // 按右上角重新整理可強制更新
@@ -87,6 +88,7 @@ function renderLatest() {
   const overview = deps.getOverview();
   if (!overview || overview === renderedOverview) return;
   render(overview, deps.getStats());
+  syncSalesSummary(overview);
   renderedOverview = overview;
 }
 
@@ -128,6 +130,7 @@ export function initAdminOverview(dependencies) {
   root.dataset.adminDash = "";
   root.innerHTML = emptyMarkup("載入概況中…");
   panel.append(root);
+  initAdminSalesSummary(deps, panel, root);
   new MutationObserver(() => { if (isVisible()) load(); }).observe(panel, { attributes: true, attributeFilter: ["class"] });
   new MutationObserver(() => { if (isVisible()) load(); }).observe(panel.closest("dialog"), { attributes: true, attributeFilter: ["open"] });
   // 訂單、庫存與商品操作後 app.js 會重新載入 overview（refreshAdminSections），

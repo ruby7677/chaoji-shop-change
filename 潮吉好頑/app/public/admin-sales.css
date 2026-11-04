@@ -1,0 +1,26 @@
+/* 營運概況：月份業績卡（admin-sales-summary.js）與訂單頁月份下拉（admin-orders-ui.js） */
+#admin-dialog.admin-app .admin-sales { margin-bottom: 16px; }
+#admin-dialog.admin-app .admin-sales[aria-busy="true"] .admin-sales-stats { opacity: 0.55; }
+#admin-dialog.admin-app .admin-sales-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#admin-dialog.admin-app .admin-sales-stat { display: grid; gap: 4px; align-content: start; min-width: 0; padding: 16px; border-right: 1px solid var(--admin-border); }
+#admin-dialog.admin-app .admin-sales-stat:last-child { border-right: 0; }
+#admin-dialog.admin-app .admin-sales-stat small { color: var(--admin-text-muted); font-size: 13px; font-weight: 700; }
+#admin-dialog.admin-app .admin-sales-stat b { overflow-wrap: anywhere; color: var(--admin-text); font-size: 26px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+#admin-dialog.admin-app .admin-sales-stat span { color: var(--admin-text-muted); font-size: 12px; }
+#admin-dialog.admin-app .admin-sales-stat:first-child b { color: #141414; }
+#admin-dialog.admin-app .admin-sales-note { margin: 0; padding: 10px 16px; border-top: 1px solid var(--admin-border); background: var(--admin-surface-subtle); color: var(--admin-text-muted); font-size: 12px; }
+
+#admin-dialog.admin-app .admin-sales-month select,
+#admin-dialog.admin-app .admin-order-month select { min-height: 36px; padding: 0 30px 0 10px; border: 1px solid var(--admin-border); border-radius: 8px; background-color: #fff; color: var(--admin-text); font-size: 13px; font-weight: 700; cursor: pointer; }
+#admin-dialog.admin-app .admin-order-month { display: inline-flex; flex: none; align-items: center; min-height: 38px; }
+#admin-dialog.admin-app .admin-order-month select:disabled { color: var(--admin-text-muted); cursor: not-allowed; }
+
+@media (max-width: 760px) {
+  /* 手機輸入字體至少 16px，避免 iOS 聚焦時放大畫面 */
+  #admin-dialog.admin-app .admin-sales-month select,
+  #admin-dialog.admin-app .admin-order-month select { font-size: 16px; }
+  #admin-dialog.admin-app .admin-sales-stats { grid-template-columns: 1fr; }
+  #admin-dialog.admin-app .admin-sales-stat { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; padding: 12px 16px; border-right: 0; border-bottom: 1px solid var(--admin-border); }
+  #admin-dialog.admin-app .admin-sales-stat:last-child { border-bottom: 0; }
+  #admin-dialog.admin-app .admin-sales-stat b { grid-column: 2; grid-row: 1 / span 2; font-size: 22px; text-align: right; }
+}

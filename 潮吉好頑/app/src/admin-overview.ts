@@ -2,6 +2,7 @@
 // 待辦與低庫存由資料庫精準篩選（低庫存用與統計、通知相同的 low_stock_variants），不再依「最近 100 筆訂單／前 100 個商品」推算，
 // 開啟後台只需這一個請求（原本需要 overview、orders、products 三個）。
 import { fetchWithTimeout } from "./http";
+import { taipeiDate } from "./notifications";
 
 // 概況只需要列表與狀態文字用得到的欄位；order_items(kind) 供前端判斷預購狀態文字。
 const OVERVIEW_ORDER_SELECT = "id,order_number,status,delivery_method,bank_account_id,payment_last_five,deposit_due,amount_due,paid_amount,shipping_fee,shipping_fee_notified_at,final_payment_confirmed_at,final_payment_reported_last_five,created_at,profiles!orders_member_id_fkey(full_name),order_items(kind)";
@@ -33,13 +34,15 @@ export async function loadAdminOverview(
     Object.entries(params).forEach(([key, value]) => target.searchParams.set(key, value));
     return target;
   };
-  const [statsResponse, ruleRows, homeFeeRows, recentOrders, lowStockResponse] = await Promise.all([
+  const [statsResponse, ruleRows, homeFeeRows, recentOrders, lowStockResponse, salesResponse] = await Promise.all([
     // admin_dashboard_stats 也會再次確認 actor 是管理員
     fetchWithTimeout(`${base}/rest/v1/rpc/admin_dashboard_stats`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId }) }),
     fetchRows(url("orders", { select: OVERVIEW_ORDER_SELECT, or: TODO_FILTER, order: "created_at.desc", limit: String(TODO_LIMIT + 1) })),
     fetchRows(url("orders", { select: HOME_FEE_TODO_SELECT, delivery_method: "eq.home_delivery", status: "eq.pending_payment", shipping_fee_notified_at: "is.null", "order_items.kind": "eq.in_stock", order: "created_at.desc", limit: String(TODO_LIMIT + 1) })),
     fetchRows(url("orders", { select: OVERVIEW_ORDER_SELECT, order: "created_at.desc", limit: String(RECENT_LIMIT) })),
-    fetchWithTimeout(`${base}/rest/v1/rpc/low_stock_variants`, { method: "POST", headers, body: JSON.stringify({ p_limit: LOW_STOCK_LIMIT }) })
+    fetchWithTimeout(`${base}/rest/v1/rpc/low_stock_variants`, { method: "POST", headers, body: JSON.stringify({ p_limit: LOW_STOCK_LIMIT }) }),
+    // 概況預設顯示當月（台灣時間）業績；換月份由 section=sales 另外查詢
+    fetchWithTimeout(`${base}/rest/v1/rpc/admin_sales_summary`, { method: "POST", headers, body: JSON.stringify({ p_actor_id: actorId, p_month: taipeiDate(new Date()).slice(0, 7) }) })
   ]);
   if (!statsResponse.ok) return { ok: false, response: statsResponse };
   if (!lowStockResponse.ok) return { ok: false, response: lowStockResponse };
@@ -58,7 +61,9 @@ export async function loadAdminOverview(
       todoOrders: todoRows.slice(0, TODO_LIMIT),
       todoTruncated: todoRows.length > TODO_LIMIT,
       recentOrders,
-      lowStock
+      lowStock,
+      // 業績讀不到不擋整個概況，前端在業績卡顯示錯誤
+      salesSummary: salesResponse.ok ? await salesResponse.json() : null
     }
   };
 }

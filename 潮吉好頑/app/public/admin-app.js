@@ -7,6 +7,7 @@ import { refreshAdminManagementOptionControls, renderAdminCategories, renderAdmi
 import { renderAdminOrderStatusFilter, renderAdminOrders } from "./admin-orders-panel.js";
 import { ensureDiscountAdminUI, renderAdminDiscounts, renderAdminMembers } from "./admin-members-panel.js";
 import { renderAdminAccounts, renderAdminAudit, renderAdminNotifications } from "./admin-system-panel.js";
+import { orderMonthQuery, resetOrderMonth } from "./admin-month.js";
 
 export let adminData = null;
 let adminDataActorId = null;
@@ -142,8 +143,10 @@ function adminSectionPageQuery(section) {
   if (!(section in adminSectionPages)) return "";
   const params = new URLSearchParams({ page: String(adminSectionPages[section]), page_size: "100" });
   if (section === "orders") {
-    params.set("query", document.querySelector("#admin-order-search")?.value.trim() || "");
+    const query = document.querySelector("#admin-order-search")?.value.trim() || "";
+    params.set("query", query);
     params.set("status", document.querySelector("#admin-order-status-filter")?.value || "all");
+    params.set("month", orderMonthQuery(query));
   }
   if (section === "members") params.set("query", document.querySelector("#admin-member-search")?.value.trim() || "");
   if (section === "products") {
@@ -382,6 +385,7 @@ export function applyAdminQuickFilter(filter) {
   } else {
     const statusFilter = document.querySelector("#admin-order-status-filter");
     if (statusFilter) statusFilter.value = ["pending_review", "ready_to_ship"].includes(filter) ? filter : "all";
+    resetOrderMonth(statusFilter?.value || "all");
     switchAdminTab("orders");
     reloadAdminList("orders", true);
   }

@@ -4,6 +4,7 @@
 import { adminIcon } from "./admin-icons.js";
 import { escapeHtml } from "./product-format.js";
 import { ORDER_STAGES, stageCount, stageOpenCount } from "./admin-order-stages.js";
+import { ALL_MONTHS, monthOptionsMarkup, orderMonthSelect, resetOrderMonth } from "./admin-month.js";
 // 這些訂單需要店長動作：加醒目框（各分頁仍預設收合）
 const ACTION_STATUSES = new Set(["pending_review"]);
 
@@ -29,6 +30,19 @@ function renderTabs() {
   const row = tabBar.firstElementChild;
   const active = row?.querySelector('[aria-pressed="true"]');
   if (row && active) row.scrollLeft = Math.max(0, active.offsetLeft - row.offsetLeft - (row.clientWidth - active.offsetWidth) / 2);
+  renderMonthOptions();
+}
+
+// 月份選項來自概況回應的 salesSummary.months（有訂單的月份）；搜尋時不限月份，下拉暫時停用
+function renderMonthOptions() {
+  const select = orderMonthSelect();
+  if (!select) return;
+  const selected = select.value || ALL_MONTHS;
+  select.innerHTML = monthOptionsMarkup(deps.getOverview?.()?.salesSummary?.months, selected);
+  select.value = selected;
+  const searching = Boolean(document.querySelector("#admin-order-search")?.value.trim());
+  select.disabled = searching;
+  select.title = searching ? "搜尋訂單時不限月份" : "";
 }
 
 function syncTabState() {
@@ -40,6 +54,7 @@ function selectStatus(value) {
   if (!select) throw new Error("訂單狀態篩選不存在");
   if (![...select.options].some((option) => option.value === value)) return;
   select.value = value;
+  resetOrderMonth(value);
   // 每次切換分頁都從全部收合開始
   expanded.clear(); collapsed.clear();
   // 交給 app.js 既有的 change 委派重新查詢
@@ -120,14 +135,18 @@ export function initAdminOrdersUI(dependencies) {
   const bar = document.createElement("div");
   bar.className = "admin-status-bar";
   bar.append(tabBar);
-  bar.insertAdjacentHTML("beforeend", '<span class="admin-status-tools"><button type="button" class="admin-status-tool" data-admin-orders-expand="all">全部展開</button><button type="button" class="admin-status-tool" data-admin-orders-expand="none">全部收合</button></span>');
+  bar.insertAdjacentHTML("beforeend", '<label class="admin-order-month"><span class="sr-only">訂單月份</span><select id="admin-order-month-filter" aria-label="訂單月份"></select></label><span class="admin-status-tools"><button type="button" class="admin-status-tool" data-admin-orders-expand="all">全部展開</button><button type="button" class="admin-status-tool" data-admin-orders-expand="none">全部收合</button></span>');
   toolbar.insertAdjacentElement("beforebegin", bar);
   renderTabs();
   new MutationObserver(enhanceCards).observe(list, { childList: true });
   // 統計更新（載入結束）時刷新分頁數字
   const loading = document.querySelector("#admin-loading");
   if (loading) new MutationObserver(() => { if (loading.classList.contains("hidden")) renderTabs(); }).observe(loading, { attributes: true, attributeFilter: ["class"] });
-  document.addEventListener("change", (event) => { if (event.target === statusSelect()) syncTabState(); });
+  document.addEventListener("change", (event) => {
+    if (event.target === statusSelect()) syncTabState();
+    if (event.target === orderMonthSelect()) deps.reloadAdminList("orders", true);
+  });
+  document.addEventListener("input", (event) => { if (event.target.matches("#admin-order-search")) renderMonthOptions(); });
   panel.addEventListener("click", (event) => {
     const tab = event.target.closest("[data-admin-status-tab]");
     if (tab) return selectStatus(tab.dataset.adminStatusTab);

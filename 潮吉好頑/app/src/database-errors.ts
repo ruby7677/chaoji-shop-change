@@ -122,6 +122,7 @@ export const databaseErrors: Record<string, string> = {
   INVALID_IMAGE_ORDER: "照片排序與目前照片不一致，請重新整理後再試",
   INVALID_PRODUCT_SHOWCASE: "展示設定格式錯誤：介紹上限 8000 字、導購文上限 80 字、輪播排序 1–12",
   INVALID_ADMIN_ORDER_FILTER: "訂單篩選條件不正確",
+  INVALID_ADMIN_MONTH: "月份格式不正確",
   INVALID_NOTIFICATION_STATUS: "通知狀態篩選條件不正確",
   NOTIFICATION_NOT_FOUND: "找不到通知紀錄",
   NOTIFICATION_REQUEUE_NOT_ALLOWED: "只有失敗通知可以重新排入"

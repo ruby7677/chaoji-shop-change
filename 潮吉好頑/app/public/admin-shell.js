@@ -7,6 +7,7 @@ import { initAdminOrdersUI } from "./admin-orders-ui.js";
 import { initAdminSheets } from "./admin-sheets.js";
 import { searchContextFor } from "./admin-search-context.js";
 import { buildAdminTabbar } from "./admin-tabbar.js";
+import { resetOrderMonth } from "./admin-month.js";
 
 const NAV_GROUPS = [
   { label: "營運", tabs: [["overview", "chart"], ["orders", "receipt"]] },
@@ -199,6 +200,8 @@ function searchOrders(keyword) {
   if (!orderSearch || !statusFilter) throw new Error("訂單搜尋欄位不存在");
   orderSearch.value = keyword;
   statusFilter.value = "all";
+  // 清除搜尋後回到「全部」的預設月份（全部月份），不沿用之前選的月份
+  resetOrderMonth("all");
   deps.switchAdminTab("orders");
   deps.reloadAdminList("orders", true);
 }
