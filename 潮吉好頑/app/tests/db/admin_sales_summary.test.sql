@@ -16,7 +16,7 @@ select tests.logout();
 select tests.as_service();
 select tests.transition((select id from t_orders where name = 'paid'), 'confirmed');
 select tests.transition((select id from t_orders where name = 'pre'), 'confirmed');
-select tests.transition((select id from t_orders where name = 'cancelled'), 'cancelled');
+select tests.transition((select id from t_orders where name = 'cancelled'), 'cancelled', '客人取消');
 select tests.logout();
 -- 預購單加 NT$60 運費（應付含運），業績不能把運費算進去
 update public.orders set shipping_fee = 60, amount_due = amount_due + 60 where id = (select id from t_orders where name = 'pre');
