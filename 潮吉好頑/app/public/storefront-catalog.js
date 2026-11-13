@@ -8,6 +8,7 @@ import { selectHeroSlides } from "./hero-slides.js";
 import { showToast } from "./app-core.js";
 import { takePrefetchedCatalog } from "./catalog-prefetch.js";
 import { thumbnailUrlFor } from "./product-image-src.js";
+import { collapseFilterRow } from "./filter-collapse.js";
 
 export let products = [];
 // 型錄是否成功載入：失敗時不顯示假商品，購物車也不可用空型錄過濾後覆寫（cart.js 依此略過還原與同步）
@@ -90,6 +91,7 @@ function renderCategoryFilters() {
     const count = groupProductCards(value === "all" ? products : value === PREORDER_FILTER ? products.filter(isPreorderItem) : products.filter((product) => product.category === value)).length;
     return `<button class="filter${value === activeCategory ? " active" : ""}" type="button" data-category="${escapeHtml(value)}" aria-pressed="${value === activeCategory}">${escapeHtml(label)}<span class="filter-count" aria-label="${count} 件商品">${count}</span></button>`;
   }).join("");
+  collapseFilterRow(row);
 }
 
 // 「載入更多」區塊放在商品格下方（index.html 不用改）

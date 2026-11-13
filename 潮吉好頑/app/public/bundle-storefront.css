@@ -1239,8 +1239,17 @@ body.is-product-view .product-page {
   .product-card .card-actions { margin-top: 0; align-self: end; }
 }
 /* ==== filter-chips.css ==== */
-/* 前台系列篩選：桌面版加大、白底膠囊、滑過黃框浮起、附商品數量；手機版維持原樣（隱藏數量）。 */
-.filter-count{display:none}
+/* 前台系列篩選：桌面版加大、白底膠囊、滑過黃框浮起、附商品數量。
+   手機版改為換行，預設只顯示兩列＋「更多 N 個系列」（filter-collapse.js），也顯示數量。 */
+.filter-row .filter[hidden]{display:none}
+@media (max-width:760px){
+  .filter-row{flex-wrap:wrap;overflow:visible;padding-bottom:0;gap:8px}
+  .filter-row .filter{display:inline-flex;align-items:center;gap:5px}
+  .filter-count{display:inline-block;min-width:20px;padding:1px 6px;border-radius:999px;background:var(--home-cream);color:var(--home-muted);font-size:.68rem;font-weight:900;line-height:1.4;text-align:center}
+  .filter.active .filter-count{background:var(--home-yellow);color:var(--home-ink)}
+  .filter-row .filter-more{border-style:dashed;border-color:var(--home-muted);color:var(--home-ink);background:transparent}
+}
+@media (min-width:761px){.filter-row .filter-more{display:none}}
 @media (min-width:761px){
   .shelf-title{flex:0 0 auto;white-space:nowrap}
   /* 由左排起：分類多到換行時，第二列接在左側，不會只剩一顆按鈕掛在右邊 */
