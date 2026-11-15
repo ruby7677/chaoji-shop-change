@@ -43,7 +43,11 @@ document.addEventListener("click", (event) => {
   const scopedCheckout = event.target.closest("[data-checkout-scope]");
   if (scopedCheckout) handleCartCheckout(scopedCheckout.dataset.checkoutScope);
   else if (event.target.closest("[data-checkout]")) handleCartCheckout();
-  if (event.target.closest("[data-admin-open]") && !openAdminInNewTab()) openAdminLazy();
+  if (event.target.closest("[data-admin-open]")) {
+    // 入口在會員資料視窗的標題旁：先關掉會員資料，後台才不會疊在另一個視窗上
+    closeDialog(document.querySelector("#profile-dialog"));
+    if (!openAdminInNewTab()) openAdminLazy();
+  }
   if (event.target.closest("[data-admin-close]")) closeDialog(document.querySelector("#admin-dialog"));
   if (event.target.closest("[data-checkout-close]")) closeDialog(document.querySelector("#checkout-dialog"));
   if (event.target.closest("[data-checkout-review-next]")) openCheckoutReview();

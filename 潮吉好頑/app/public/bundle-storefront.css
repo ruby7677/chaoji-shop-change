@@ -1287,6 +1287,13 @@ body.is-product-view .product-page {
 .member-points-summary summary:after{float:none;flex:0 0 auto;line-height:1}
 .profile-fields input[type="date"]{min-width:0;max-width:100%;height:calc(1.45em + 22px);-webkit-appearance:none;appearance:none;text-align:left}
 .profile-fields input[type="date"]::-webkit-date-and-time-value{text-align:left}
+/* 會員資料標題列：管理員才看得到的「管理後台」入口放在標題右側（原本在首頁頁尾）。右側留 40px 給關閉鈕。 */
+.profile-title-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;margin:0 0 7px;padding-right:40px}
+#profile-form .profile-title-row h2{margin:0}
+.profile-admin-link{flex:0 0 auto;min-height:44px;padding:0 16px;border:1.5px solid var(--home-ink);border-radius:999px;background:transparent;color:var(--home-ink);font-size:.85rem;font-weight:800;white-space:nowrap;cursor:pointer}
+.profile-admin-link.hidden{display:none}
+@media (hover:hover){.profile-admin-link:hover{background:var(--home-ink);color:#fff}}
+.profile-admin-link:focus-visible{outline:3px solid var(--home-yellow);outline-offset:2px}
 /* ==== dialog-close.css ==== */
 /* 前台浮動視窗（結帳、付款回報、我的訂單、會員資料、LINE 好友）的關閉鈕：
    貼齊視窗右上角內側（距邊 6px）、無外框與陰影，點擊範圍 44px；捲動時以 sticky 留在右上角。
