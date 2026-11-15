@@ -3,7 +3,7 @@
 /* ---------- 概況：KPI ---------- */
 #admin-dialog.admin-app .stats { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 16px 0 12px; }
 #admin-dialog.admin-app .stats .stat-card { min-height: 96px; padding: 14px 16px; border: 1px solid var(--admin-border); border-radius: 14px; background: #fff; transition: border-color 150ms ease, transform 150ms ease; }
-#admin-dialog.admin-app .stats .stat-card:hover { border-color: #141414; transform: translateY(-2px); background: #fff; }
+@media (hover: hover) { #admin-dialog.admin-app .stats .stat-card:hover { border-color: #141414; transform: translateY(-2px); background: #fff; } }
 #admin-dialog.admin-app .stats .stat-card b { font-size: 30px; }
 #admin-dialog.admin-app .stats .stat-card:first-child { border-color: #141414; background: var(--admin-brand-sun); }
 #admin-dialog.admin-app .stats .stat-card:first-child small { color: #3a3630; }
@@ -25,10 +25,10 @@
 #admin-dialog.admin-app .is-urgent .admin-dash-icon { background: var(--admin-danger-surface, #fdecec); color: #9a302a; }
 #admin-dialog.admin-app .admin-dash-action { min-height: 36px; padding: 0 14px; border: 1px solid #141414; border-radius: 10px; background: var(--admin-brand-sun); color: #141414; font-size: 13px; font-weight: 800; white-space: nowrap; cursor: pointer; }
 #admin-dialog.admin-app .admin-dash-action.is-quiet { border-color: var(--admin-border); background: #fff; }
-#admin-dialog.admin-app .admin-dash-action:hover { border-color: #141414; }
+@media (hover: hover) { #admin-dialog.admin-app .admin-dash-action:hover { border-color: #141414; } }
 #admin-dialog.admin-app .admin-dash-list.is-compact > li { display: block; padding: 0; }
 #admin-dialog.admin-app .admin-dash-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 8px 16px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
-#admin-dialog.admin-app .admin-dash-row:hover { background: #fffcea; }
+@media (hover: hover) { #admin-dialog.admin-app .admin-dash-row:hover { background: #fffcea; } }
 #admin-dialog.admin-app .admin-dash-row code { font-size: 13px; font-weight: 700; }
 #admin-dialog.admin-app .admin-dash-row b { font-variant-numeric: tabular-nums; }
 #admin-dialog.admin-app .admin-dash-status { white-space: nowrap; }
@@ -69,7 +69,7 @@
 #admin-dialog.admin-app .admin-order-card.is-closed header h3 { color: var(--admin-text-muted); }
 #admin-dialog.admin-app .admin-status-tools { display: inline-flex; flex: none; align-items: center; gap: 4px; min-height: 38px; }
 #admin-dialog.admin-app .admin-status-tool { min-height: 34px; padding: 0 10px; border: 1px solid var(--admin-border); border-radius: 8px; background: #fff; color: var(--admin-text-muted); font-size: 12px; font-weight: 700; white-space: nowrap; cursor: pointer; }
-#admin-dialog.admin-app .admin-status-tool:hover { border-color: #141414; color: #141414; }
+@media (hover: hover) { #admin-dialog.admin-app .admin-status-tool:hover { border-color: #141414; color: #141414; } }
 #admin-dialog.admin-app .admin-orders-enhanced .admin-status-select-label { display: none; }
 /* 狀態改由分頁列、搜尋改由頂欄處理後，工具列已無可見內容：整列隱藏（欄位仍在 DOM 中保存篩選值），避免留下空白外距 */
 #admin-dialog.admin-app .admin-orders-enhanced .admin-order-toolbar { display: none; }
@@ -77,7 +77,7 @@
 /* ---------- 訂單：精簡列／展開 ---------- */
 #admin-dialog.admin-app .admin-order-card > header { position: relative; padding-right: 48px; cursor: pointer; }
 #admin-dialog.admin-app .admin-order-toggle { position: absolute; top: 50%; right: 0; display: grid; place-items: center; width: 40px; height: 40px; margin: 0; padding: 0; border: 1px solid var(--admin-border); border-radius: 10px; background: #fff; color: #141414; transform: translateY(-50%); cursor: pointer; }
-#admin-dialog.admin-app .admin-order-toggle:hover { border-color: #141414; }
+@media (hover: hover) { #admin-dialog.admin-app .admin-order-toggle:hover { border-color: #141414; } }
 #admin-dialog.admin-app .admin-order-toggle .admin-icon { transition: transform 180ms ease; transform: rotate(180deg); }
 #admin-dialog.admin-app .admin-order-card.is-collapsed .admin-order-toggle .admin-icon { transform: none; }
 #admin-dialog.admin-app .admin-order-summary { display: none; }

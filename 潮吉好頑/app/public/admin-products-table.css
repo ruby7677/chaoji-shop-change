@@ -12,7 +12,7 @@
 #admin-dialog.admin-app .admin-products-toolbar select { flex: 0 1 160px; width: auto; }
 #admin-dialog.admin-app .admin-products-toolbar :is(input, select):focus { border-color: #141414; outline: none; box-shadow: 0 0 0 3px #fff6b8; }
 #admin-dialog.admin-app .admin-products-new { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 42px; padding: 0 14px; border: 1px solid #141414; border-radius: 10px; background: #141414; color: var(--admin-brand-sun); font-size: 14px; font-weight: 800; cursor: pointer; }
-#admin-dialog.admin-app .admin-products-new:hover { background: #2b2926; }
+@media (hover: hover) { #admin-dialog.admin-app .admin-products-new:hover { background: #2b2926; } }
 #admin-dialog.admin-app .admin-products-count { margin: 0 0 10px; color: var(--admin-text-muted); font-size: 12px; font-weight: 600; }
 
 /* ---------- 共用小元件 ---------- */
@@ -36,7 +36,7 @@
 #admin-dialog.admin-app .admin-stack-table th { padding: 10px 12px; border-bottom: 1px solid var(--admin-border); background: var(--admin-surface-subtle); color: var(--admin-text-muted); font-size: 12px; font-weight: 700; text-align: left; white-space: nowrap; }
 #admin-dialog.admin-app .admin-stack-table td { padding: 10px 12px; border-bottom: 1px solid var(--admin-border); vertical-align: middle; }
 #admin-dialog.admin-app .admin-stack-table tbody tr:last-child td { border-bottom: 0; }
-#admin-dialog.admin-app .admin-stack-table tbody tr:hover { background: #fffcea; }
+@media (hover: hover) { #admin-dialog.admin-app .admin-stack-table tbody tr:hover { background: #fffcea; } }
 #admin-dialog.admin-app .admin-stack-table :is(th, td).num { text-align: right; }
 #admin-dialog.admin-app .admin-prod-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
 #admin-dialog.admin-app .admin-row-thumb { display: grid; place-items: center; width: 44px; height: 44px; flex: none; overflow: hidden; border: 1px solid var(--admin-border); border-radius: 10px; background: var(--admin-surface-subtle); }
@@ -58,7 +58,7 @@
 #admin-dialog.admin-app .admin-switch:disabled { opacity: 0.5; cursor: progress; }
 #admin-dialog.admin-app .admin-row-actions { display: inline-flex; gap: 6px; }
 #admin-dialog.admin-app .admin-row-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 0 12px; border: 1px solid var(--admin-border); border-radius: 10px; background: #fff; color: #141414; font-size: 14px; font-weight: 700; white-space: nowrap; cursor: pointer; transition: border-color 150ms ease; }
-#admin-dialog.admin-app .admin-row-button:hover { border-color: #141414; }
+@media (hover: hover) { #admin-dialog.admin-app .admin-row-button:hover { border-color: #141414; } }
 #admin-dialog.admin-app .admin-row-button.is-sale { border-color: #f3c1c1; color: #b42318; }
 #admin-dialog.admin-app .admin-row-button .admin-icon { width: 16px; height: 16px; }
 
@@ -79,7 +79,7 @@
   #admin-dialog.admin-app .admin-stack-table td { display: block; width: 100%; }
   #admin-dialog.admin-app .admin-stack-table tbody { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; }
   #admin-dialog.admin-app .admin-stack-table tr { padding: 12px 14px; border: 1px solid var(--admin-border); border-radius: 14px; background: #fff; }
-  #admin-dialog.admin-app .admin-stack-table tbody tr:hover { background: #fff; border-color: #cfc5ad; }
+  @media (hover: hover) { #admin-dialog.admin-app .admin-stack-table tbody tr:hover { background: #fff; border-color: #cfc5ad; } }
   #admin-dialog.admin-app .admin-stack-table td { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; padding: 4px 0; border: 0; text-align: right; }
   #admin-dialog.admin-app .admin-stack-table td::before { content: attr(data-l); flex: none; color: var(--admin-text-muted); font-size: 12px; font-weight: 700; text-align: left; }
   #admin-dialog.admin-app .admin-stack-table td.lead-cell { display: block; margin-bottom: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--admin-border); text-align: left; }

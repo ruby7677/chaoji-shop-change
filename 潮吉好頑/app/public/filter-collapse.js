@@ -20,6 +20,12 @@ export function chipsInFirstRows(tops, maxRows = MAX_ROWS) {
   return count;
 }
 
+// 只有寬度改變才需要重算換行。iPhone（Safari／LINE LIFF）捲動時工具列收合只改高度也會觸發 resize，
+// 若每次都重排，手指正要點的按鈕會在觸控中途被重建或重新顯示，WebKit 就不送出 click（要點第二次）。
+export function widthChanged(previousWidth, width) {
+  return Number.isFinite(width) && width !== previousWidth;
+}
+
 export function moreLabel(hiddenCount) {
   return `＋更多 ${hiddenCount} 個系列`;
 }
@@ -37,6 +43,7 @@ function toggleButton(row) {
     button.dataset.filterMore = "";
     row.append(button);
   }
+  button.hidden = false;
   return button;
 }
 
@@ -49,7 +56,9 @@ export function collapseFilterRow(row) {
   wire(row);
   const chips = [...row.querySelectorAll(".filter[data-category]")];
   chips.forEach((chip) => { chip.hidden = false; });
-  row.querySelector("[data-filter-more]")?.remove();
+  // 「更多」按鈕只隱藏、不移除重建：重算時維持同一個元素，進行中的點擊不會落空
+  const existingMore = row.querySelector("[data-filter-more]");
+  if (existingMore) existingMore.hidden = true;
   if (!isMobile()) return;
 
   const fitting = chipsInFirstRows(chips.map((chip) => chip.offsetTop));
@@ -85,10 +94,12 @@ function wire(row) {
   });
   // 旋轉或改變視窗寬度時重新計算哪些按鈕要收起來
   let timer = 0;
+  let lastWidth = window.innerWidth;
   const recalc = () => {
+    if (!widthChanged(lastWidth, window.innerWidth)) return;
+    lastWidth = window.innerWidth;
     clearTimeout(timer);
     timer = setTimeout(() => collapseFilterRow(row), 120);
   };
   window.addEventListener("resize", recalc);
-  window.matchMedia?.(MOBILE_QUERY).addEventListener?.("change", recalc);
 }

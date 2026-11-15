@@ -10,7 +10,7 @@
 #admin-dialog .admin-nav{padding:24px 14px 16px;background:var(--admin-sidebar);color:#f7f8f9}
 #admin-dialog .admin-nav strong{display:block;margin:0 8px 27px;font-size:15px;letter-spacing:.02em}
 #admin-dialog .admin-nav button{display:flex;align-items:center;width:100%;min-height:40px;margin:3px 0;padding:9px 11px;border:1px solid transparent;border-radius:7px;background:transparent;color:#cbd0d3;text-align:left;font-size:13px;font-weight:600;transition:background-color .18s ease,color .18s ease,border-color .18s ease}
-#admin-dialog .admin-nav button:hover{background:rgba(255,255,255,.07);color:#fff}
+@media (hover: hover) { #admin-dialog .admin-nav button:hover {background:rgba(255,255,255,.07);color:#fff} }
 #admin-dialog .admin-nav button.active{background:var(--admin-accent-surface);border-color:transparent;color:var(--admin-text);font-weight:750}
 #admin-dialog .admin-nav button[data-admin-tab="products"]{margin-top:22px}
 #admin-dialog .admin-content{max-height:calc(100vh - 24px);overflow:auto;padding:32px 36px 48px;background:var(--admin-canvas)}
@@ -19,16 +19,17 @@
 #admin-dialog .admin-panel>.dialog-copy,#admin-dialog .admin-overview-hint{max-width:72ch;margin:0 0 20px;color:var(--admin-text-muted);font-size:14px;line-height:1.6}
 #admin-dialog .stats{grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:22px 0 28px}
 #admin-dialog .stats .stat-card{display:block;width:100%;min-height:90px;padding:15px;border:1px solid var(--admin-border);border-radius:9px;background:var(--admin-surface);color:var(--admin-text);text-align:left;box-shadow:none;transition:background-color .18s ease,border-color .18s ease}
-#admin-dialog .stats .stat-card:hover,#admin-dialog .stats .stat-card:focus-visible{border-color:#aeb7bd;background:var(--admin-surface-subtle);transform:none}
+#admin-dialog .stats .stat-card:focus-visible {border-color:#aeb7bd;background:var(--admin-surface-subtle);transform:none}
+@media (hover: hover) { #admin-dialog .stats .stat-card:hover {border-color:#aeb7bd;background:var(--admin-surface-subtle);transform:none} }
 #admin-dialog .stats .stat-card:focus-visible{outline:2px solid var(--admin-focus);outline-offset:2px}
 #admin-dialog .stats .stat-card small{display:block;color:var(--admin-text-muted);font-size:12px;line-height:1.4}
 #admin-dialog .stats .stat-card b{display:block;margin-top:7px;color:var(--admin-text);font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}
 #admin-dialog .form-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;padding-top:15px;border-top:1px solid var(--admin-border)}
 #admin-dialog .primary-button,#admin-dialog .secondary-button{min-height:40px;border-radius:7px;padding:9px 14px;font-size:13px;font-weight:700;line-height:1.2;transition:background-color .18s ease,border-color .18s ease,color .18s ease}
 #admin-dialog .primary-button{border-color:var(--admin-sidebar);background:var(--admin-sidebar);color:#fff}
-#admin-dialog .primary-button:hover{background:#3a3f43}
+@media (hover: hover) { #admin-dialog .primary-button:hover {background:#3a3f43} }
 #admin-dialog .secondary-button{border-color:var(--admin-border);background:var(--admin-surface);color:var(--admin-text)}
-#admin-dialog .secondary-button:hover{border-color:#aeb7bd;background:var(--admin-surface-subtle)}
+@media (hover: hover) { #admin-dialog .secondary-button:hover {border-color:#aeb7bd;background:var(--admin-surface-subtle)} }
 #admin-dialog .admin-order-toolbar{grid-template-columns:minmax(0,1fr) 240px;gap:16px;margin:20px 0 14px}
 #admin-dialog .admin-order-toolbar label{color:var(--admin-text);font-size:13px;font-weight:700}
 #admin-dialog .admin-order-toolbar input,#admin-dialog .admin-order-toolbar select{height:40px;margin-top:6px;border:1px solid var(--admin-border);border-radius:7px;background:var(--admin-surface);color:var(--admin-text);font-size:14px}
@@ -39,7 +40,7 @@
 #admin-dialog .admin-card strong{font-size:14px}
 #admin-dialog .admin-card small{color:var(--admin-text-muted);font-size:12px;line-height:1.5}
 #admin-dialog .admin-card button{min-height:32px;border-color:var(--admin-border);border-radius:7px;background:var(--admin-surface);color:var(--admin-text);font-size:12px}
-#admin-dialog .admin-card button:hover{background:var(--admin-surface-subtle)}
+@media (hover: hover) { #admin-dialog .admin-card button:hover {background:var(--admin-surface-subtle)} }
 #admin-dialog .admin-create{padding:16px;margin:16px 0;background:var(--admin-surface)}
 #admin-dialog .admin-create summary{color:var(--admin-text);font-size:14px;font-weight:700}
 #admin-dialog .admin-form{padding:20px;background:var(--admin-surface-subtle)}
