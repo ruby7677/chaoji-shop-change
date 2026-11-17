@@ -3,7 +3,7 @@ import { escapeHtml } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { formatDateTime, showToast } from "./app-core.js";
 import { invalidateBankAccounts } from "./checkout-form.js";
-import { adminData, adminFetch, loadAdminSection, refreshAdminSections, relationOne, switchAdminTab } from "./admin-app.js";
+import { adminData, adminFetch, adminSectionRenderers, loadAdminSection, refreshAdminSections, relationOne, switchAdminTab } from "./admin-app.js";
 import { auditChanges, auditTargetName } from "./admin-audit-diff.js";
 import { describeDeliveryError } from "./admin-notification-errors.js";
 import { openAdminSheetFor } from "./admin-sheets.js";
@@ -135,3 +135,8 @@ export async function submitAdminAccount(event) {
   switchAdminTab("accounts");
   showToast("收款帳戶已儲存", "success");
 }
+
+// 向 admin-app.js 註冊本面板負責的分區（操作紀錄、通知、系統設定）
+adminSectionRenderers.set("audit", renderAdminAudit);
+adminSectionRenderers.set("notifications", renderAdminNotifications);
+adminSectionRenderers.set("settings", renderAdminAccounts);

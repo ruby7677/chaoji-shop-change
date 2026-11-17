@@ -3,7 +3,7 @@ import { escapeHtml, money } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { formatDateTime, orderStatusLabel, showToast, taipeiDateTimeInputToIso, taipeiDateTimeInputValue } from "./app-core.js";
 import { products } from "./storefront-catalog.js";
-import { adminData, adminFetch, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
+import { adminData, adminFetch, adminSectionRenderers, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
 import { openAdminSheetFor } from "./admin-sheets.js";
 
 export function ensureDiscountAdminUI() {
@@ -173,3 +173,10 @@ export async function submitMemberPointAdjustment(event) {
   switchAdminTab("members");
   showToast("會員點數已調整", "success");
 }
+
+// 向 admin-app.js 註冊本面板負責的分區（會員、折扣）
+adminSectionRenderers.set("members", renderAdminMembers);
+adminSectionRenderers.set("discounts", () => {
+  ensureDiscountAdminUI();
+  renderAdminDiscounts();
+});

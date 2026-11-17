@@ -1,8 +1,8 @@
 // 結帳表單：摘要、取貨／付款方式欄位、收件資料驗證、點數與優惠券、收款帳戶。
 import { escapeHtml, isPreorderItem, money } from "./product-format.js";
 import { auth, deliveryMethodLabels, deliveryMethodNotes, formatDate } from "./app-core.js";
-import { checkoutCartItems, selectedDeliveryMethod, selectedPaymentMethod } from "./cart.js";
-import { activeCheckoutScope, showCheckoutError } from "./checkout-flow.js";
+import { selectedDeliveryMethod, selectedPaymentMethod } from "./cart.js";
+import { activeCheckoutScope, checkoutCartItems, showCheckoutError } from "./checkout-flow.js";
 import { cvsFeeHint, cvsShippingFee } from "./cvs-delivery.js";
 import { cvsStoreDetails, cvsStoreProblem, ensureCvsStoreFields, toggleCvsStoreFields } from "./checkout-cvs-store.js";
 import { currentAppliedCoupon, syncCouponControls } from "./checkout-coupon.js";

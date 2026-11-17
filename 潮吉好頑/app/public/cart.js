@@ -5,7 +5,6 @@ import { cartGroupMarkup, cartItemMarkup } from "./cart-markup.js";
 import { planBuyNowQuantity, variantMaxQuantity } from "./cart-quantity.js";
 import { auth, showToast, syncPageScrollLock } from "./app-core.js";
 import { catalogLoaded, products } from "./storefront-catalog.js";
-import { activeCheckoutItems, activeCheckoutScope, openCheckout } from "./checkout-flow.js";
 import { cvsFeeHint, cvsFeeRule } from "./cvs-delivery.js";
 import { createCartSyncRetry } from "./cart-sync-retry.js";
 import { markCartGuestStart, planLoginCart, readCartOwner, readStoredCartItems, shrinkBaseToCart, shrinkCartGuestBase, writeCartOwner } from "./cart-merge.js";
@@ -353,7 +352,6 @@ export function cartItemsForScope(scope) {
   if (scope === "preorder") return cart.filter((item) => isPreorderItem(item));
   return cart;
 }
-export function checkoutCartItems() { return activeCheckoutItems || cartItemsForScope(activeCheckoutScope); }
 export function selectedCartDeliveryMethod(scope = null) {
   if (!scope || !cartGroups().in_stock.length || !cartGroups().preorder.length) return cartDeliveryMethod;
   return cartGroupDeliveryMethods[scope] || cartDeliveryMethod;
@@ -427,6 +425,9 @@ function updateCartCheckoutAction() {
   }
   if (mixed) ["in_stock", "preorder"].forEach((scope) => syncCartDeliveryFeedback(scope));
 }
+// 開啟結帳由 app.js 注入（setCheckoutOpener）：購物車不 import 結帳流程，避免 cart ↔ checkout-flow 互相依賴
+let openCheckout = null;
+export function setCheckoutOpener(open) { openCheckout = open; }
 export function handleCartCheckout(scope = null) {
   const groups = cartGroups();
   if (!scope && groups.in_stock.length && groups.preorder.length) return showToast("購物車含現貨與預購，請分別點選各組的結帳按鈕", "warning");

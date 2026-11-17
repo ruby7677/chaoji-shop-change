@@ -1,6 +1,6 @@
 // 結帳流程：選定結帳範圍（現貨／預購）、開啟結帳視窗與送出訂單；結帳範圍與商品只由本模組改寫。
 import { auth, closeDialog, showDialog, showToast } from "./app-core.js";
-import { cart, cartGroups, cartItemsForScope, checkoutCartItems, renderCart, saveCart, selectedCartDeliveryMethod, settleMemberCart, syncMemberCartNow, toggleCart } from "./cart.js";
+import { cart, cartGroups, cartItemsForScope, renderCart, saveCart, selectedCartDeliveryMethod, settleMemberCart, syncMemberCartNow, toggleCart } from "./cart.js";
 import { clearCheckoutFieldErrors, ensurePaymentMethodUI, loadBankAccounts, renderCheckoutBenefits, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields, validateCheckoutDetails } from "./checkout-form.js";
 import { loadPoints, requireLineFriendshipForCheckout } from "./member-benefits.js";
 import { openOrders, showPaymentDialog } from "./member-orders.js";
@@ -20,6 +20,9 @@ export function selectCheckoutScope(scope) {
   activeCheckoutScope = scope || activeCheckoutScope;
   activeCheckoutItems = cartItemsForScope(activeCheckoutScope);
 }
+
+/** 這次結帳的商品：已開啟結帳時用當時的快照，否則依目前範圍從購物車取。 */
+export function checkoutCartItems() { return activeCheckoutItems || cartItemsForScope(activeCheckoutScope); }
 
 export async function openCheckout(scope = null) {
   // 先等背景登入與會員購物車合併完成，再依合併後的購物車建立結帳快照（loadMemberCart 會換掉 cart 內的物件）

@@ -4,7 +4,7 @@ import { escapeHtml, money } from "./product-format.js";
 import { adminConfirm } from "./admin-confirm.js";
 import { adminOrderStatusLabel, deliveryMethodLabels, formatDateTime, orderIncludesPreorder, orderInventoryTypeLabel, showToast } from "./app-core.js";
 import { loadProducts, renderProducts } from "./storefront-catalog.js";
-import { adminData, adminFetch, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
+import { adminData, adminFetch, adminSectionRenderers, refreshAdminSections, relationOne, renderAdminPagination, switchAdminTab } from "./admin-app.js";
 import { confirmationAmount, isQuickConfirmable, moneySummary, paymentConfirmation } from "./admin-order-payment.js";
 import { initOrderBatch, orderSelectMarkup, syncOrderBatch } from "./admin-order-batch.js";
 import { mountStockHomeFeeForm, mountStockHomeFeePaidNote } from "./admin-home-fee.js";
@@ -309,3 +309,9 @@ export async function submitAdminOrderFulfillment(event) {
     if (button instanceof HTMLButtonElement) button.disabled = false;
   }
 }
+
+// 向 admin-app.js 註冊本面板負責的分區（訂單）
+adminSectionRenderers.set("orders", () => {
+  renderAdminOrderStatusFilter();
+  renderAdminOrders();
+});

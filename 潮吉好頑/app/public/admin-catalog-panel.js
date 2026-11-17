@@ -3,7 +3,7 @@ import { escapeHtml } from "./product-format.js";
 import { renderAdminProductsTable } from "./admin-products-table.js";
 import { formatDateTime, showToast } from "./app-core.js";
 import { products } from "./storefront-catalog.js";
-import { adminData, adminFetch, invalidateAdminManagementOptions, refreshAdminSections, relationOne, switchAdminTab } from "./admin-app.js";
+import { adminData, adminFetch, adminSectionRenderers, invalidateAdminManagementOptions, refreshAdminSections, relationOne, setManagementOptionsRefresher, switchAdminTab } from "./admin-app.js";
 import { renderAdminDiscountOptionBoxes } from "./admin-members-panel.js";
 import { prepareProductImage, uploadAdminProductImage, validateProductImage } from "./admin-product-image.js";
 import { movementMatches } from "./admin-stock-math.js";
@@ -388,3 +388,16 @@ export function syncDepositField(kindSelector, rateInput) {
 export function syncShowStockField(kindSelector, checkbox) {
   if (checkbox) checkbox.checked = kindSelector.value === "preorder";
 }
+
+// 向 admin-app.js 註冊本面板負責的分區（商品、庫存）與選項下拉選單的重畫
+adminSectionRenderers.set("products", () => {
+  renderAdminCategories();
+  renderAdminProducts();
+  renderAdminSelects({ preserveSelection: true });
+});
+adminSectionRenderers.set("inventory", () => {
+  renderAdminSelects({ preserveSelection: true });
+  renderAdminMovements();
+  renderAdminLowStock();
+});
+setManagementOptionsRefresher(refreshAdminManagementOptionControls);

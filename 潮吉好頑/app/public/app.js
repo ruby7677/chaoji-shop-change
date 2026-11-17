@@ -6,7 +6,7 @@ import { initAuthExpiry } from "./auth-expiry.js";
 import { initAdminTab, openAdminFromRoute, openAdminInNewTab } from "./admin-tab.js";
 import { openAdminLazy } from "./admin-loader.js";
 import { auth, closeDialog, showDialog, showToast, syncPageScrollLock } from "./app-core.js";
-import { addToCartWithFeedback, addVariantQuantityToCart, buyNowFromCard, buyNowVariant, cart, freezeBootCartBaseline, handleCartCheckout, loadLocalCart, releaseBootCartBaseline, renderCart, saveCart, setCartDeliveryMethod, setCartGroupDeliveryMethod, toggleCart } from "./cart.js";
+import { addToCartWithFeedback, addVariantQuantityToCart, buyNowFromCard, buyNowVariant, cart, freezeBootCartBaseline, handleCartCheckout, loadLocalCart, releaseBootCartBaseline, renderCart, saveCart, setCartDeliveryMethod, setCheckoutOpener, setCartGroupDeliveryMethod, toggleCart } from "./cart.js";
 import { bankAccounts, clearCheckoutFieldErrorFor, openCheckoutReview, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields, syncPaymentFields } from "./checkout-form.js";
 import { ensureLineFriendship, handleLineFriendRequest } from "./member-benefits.js";
 import { currentOrders, openOrders, showPaymentDialog, submitPayment } from "./member-orders.js";
@@ -120,6 +120,7 @@ const productPage = createProductPage({
   closeDialog
 });
 setProductPageOpener((productId, variantId) => productPage.open(productId, variantId));
+setCheckoutOpener(openCheckout);
 createVariantSheet({
   getProducts: () => products,
   addToCart: addVariantQuantityToCart,
