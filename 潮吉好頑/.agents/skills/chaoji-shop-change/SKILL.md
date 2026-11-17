@@ -5,7 +5,7 @@ description: Trace or change 潮吉好頑 cart, order, notification and permissi
 
 # 潮吉好頑跨層變更
 
-委派方式依根目錄 `AGENTS.md`：Codex 見「主代理與 Luna Worker 分工」，Claude Code 見「Claude Code 對應規則」。
+委派方式依根目錄 `AGENTS.md`：Codex 見根目錄的 `AGENTS.codex.md`「主代理與 Luna Worker 分工」，Claude Code 見「Claude Code 對應規則」。
 
 專案根目錄是本技能目錄的 `../../..`，執行程式在其 `app/`。沿用根目錄 `AGENTS.md`；本技能不另建產品規則副本。
 
