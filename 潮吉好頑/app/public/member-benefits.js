@@ -1,5 +1,5 @@
 // 會員點數與優惠券資料、LINE 好友狀態檢查（結帳前需加入官方帳號）。
-import { liffState, canRequestLineFriendship, requestLineFriendship } from "./liff-auth.js";
+import { liffState, canRequestLineFriendship, openLineUrl, requestLineFriendship } from "./liff-auth.js";
 import { escapeHtml, money } from "./product-format.js";
 import { auth, closeDialog, formatDate, showDialog } from "./app-core.js";
 import { resetMemberCartSyncState, startCheckout } from "./cart.js";
@@ -122,7 +122,10 @@ export async function handleLineFriendRequest(button) {
   try {
     await requestLineFriendship();
   } catch (error) {
-    showLineFriendDialog(error.message || "LINE 好友狀態暫時無法確認");
+    // LIFF 加好友視窗失敗（舊版 LINE、外部瀏覽器開的 LIFF 等）：改開加好友網址，加入後按「重新檢查」
+    console.warn("liff.requestFriendship failed; falling back to the add-friend link", error);
+    if (!openLineUrl(button.href)) window.open(button.href, "_blank", "noopener");
+    showLineFriendDialog("已改用加好友頁開啟；加入後請按「我已加入，重新檢查」。若沒有開啟，請在 LINE 搜尋 ID @078isxfl。");
     button.removeAttribute("aria-disabled");
     return true;
   }

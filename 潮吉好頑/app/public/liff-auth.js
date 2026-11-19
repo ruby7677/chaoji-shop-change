@@ -91,6 +91,13 @@ export function canRequestLineFriendship() {
   );
 }
 
+/** 在 LINE 內開啟網址（加好友頁備援）；不在 LIFF 時回傳 false，交給瀏覽器開連結。 */
+export function openLineUrl(url) {
+  if (!liffState.initialized || typeof globalThis.liff?.openWindow !== "function") return false;
+  globalThis.liff.openWindow({ url, external: false });
+  return true;
+}
+
 export async function requestLineFriendship() {
   if (!canRequestLineFriendship()) return false;
   const liff = globalThis.liff;

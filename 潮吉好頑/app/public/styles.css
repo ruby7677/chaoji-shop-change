@@ -310,6 +310,7 @@ footer{flex-wrap:wrap}
 #line-friend-form h2{font-size:1.8rem;letter-spacing:-.04em;margin:0 0 7px;font-weight:850}
 #line-friend-form>.dialog-close{position:absolute;right:15px;top:10px}
 .line-friend-link{display:block;text-align:center;margin:18px 0 10px}
+.line-friend-id{text-align:center;margin:0 0 10px;font-size:.8125rem;color:var(--muted)}
 .line-friend-actions{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:14px}
 .line-friend-actions .primary-button{padding:10px 14px}
 .form-error{margin:12px 0 0;padding:9px 11px;border-radius:6px;background:#fff0ed;color:#8a3025;font-size:13px;line-height:1.5}
