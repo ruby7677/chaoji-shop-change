@@ -76,6 +76,7 @@ export async function initializeLiffClient(liffId) {
     liffState.loggedIn = false;
     liffState.idToken = null;
     liffState.accessToken = null;
+    liffState.sessionMatches = false;
     throw error;
   });
   return liffInitPromise;

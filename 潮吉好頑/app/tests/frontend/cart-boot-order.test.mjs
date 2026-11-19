@@ -66,6 +66,13 @@ test("checkout snapshots the cart only after the background login and member car
   assert.ok(blocked > body.indexOf("return beginLineLogin()") && blocked < body.indexOf("showDialog(document.querySelector(\"#checkout-dialog\"))"), "checkout stops when the member cart never merged");
 });
 
+test("the checkout opener is injected before the auth boot can resume a checkout", async () => {
+  const app = await readFile(new URL("../../public/app.js", import.meta.url), "utf8");
+  const injected = app.indexOf("\nsetCheckoutOpener(openCheckout);");
+  assert.ok(injected > 0, "app.js injects openCheckout into cart.js at the top level");
+  assert.ok(injected < app.indexOf("\nstartAuthBoot();"), "login return calls startCheckout(), so the opener must be set first");
+});
+
 test("member cart sync waits for the first merge, and LINE logins keep the LIFF callback marker", async () => {
   const cartSource = await readFile(new URL("../../public/cart.js", import.meta.url), "utf8");
   assert.match(cartSource, /cartSyncUserId === auth\.user\.id\);/);
