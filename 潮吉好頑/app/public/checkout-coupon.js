@@ -2,7 +2,7 @@
 // 已套用狀態只由本模組改寫；建單時資料庫仍會重新驗證並核銷。
 import { auth } from "./app-core.js";
 import { money } from "./product-format.js";
-import { checkoutCartItems } from "./checkout-flow.js";
+import { checkoutCartItems } from "./checkout-state.js";
 
 let appliedCoupon = null;
 let applying = null;

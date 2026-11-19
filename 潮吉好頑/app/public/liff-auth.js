@@ -11,7 +11,9 @@ export const liffState = {
   isInClient: false,
   loggedIn: false,
   idToken: null,
-  accessToken: null
+  accessToken: null,
+  // LIFF 登入與網站會員是同一個 LINE 帳號（由 liff-session.js 判斷後寫入）；為真時才用 LIFF access token 查好友狀態
+  sessionMatches: false
 };
 
 function loadLiffSdk() {

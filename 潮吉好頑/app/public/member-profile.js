@@ -2,7 +2,7 @@
 import { watchSessionExpiry } from "./auth-expiry.js";
 import { endWebSession } from "./web-session.js";
 import { liffState } from "./liff-auth.js";
-import { auth, closeDialog, showDialog, showToast } from "./app-core.js";
+import { auth, closeDialog, profileIsComplete, showDialog, showToast } from "./app-core.js";
 import { cartSyncUserId, loadMemberCart, resetMemberCartSyncState, saveCart } from "./cart.js";
 import { clearMemberStateCache, lineFriendshipCache, loadPoints, memberPointsCache, renderMemberPoints } from "./member-benefits.js";
 import { resumePendingReturnCheckout, saveAuthReturnState } from "./auth-return-state.js";
@@ -92,10 +92,6 @@ async function loadProfile() {
   if (!response.ok) throw new Error("會員資料讀取失敗");
   const rows = await response.json();
   auth.profile = rows[0] ?? { full_name: null, phone: null, birthday: null, address: null };
-}
-
-export function profileIsComplete() {
-  return Boolean(auth.profile?.full_name?.trim() && auth.profile?.phone?.trim());
 }
 
 function updateMemberButton() {

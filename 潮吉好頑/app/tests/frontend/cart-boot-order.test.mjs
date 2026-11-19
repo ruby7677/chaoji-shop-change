@@ -60,7 +60,7 @@ test("checkout snapshots the cart only after the background login and member car
   const text = await readFile(new URL("../../public/checkout-flow.js", import.meta.url), "utf8");
   const body = text.slice(text.indexOf("export async function openCheckout"));
   assert.ok(body.indexOf("await whenAuthReady()") < body.indexOf("cartGroups()"), "wait before reading the cart");
-  assert.ok(body.indexOf("await whenAuthReady()") < body.indexOf("activeCheckoutItems = "), "wait before the snapshot");
+  assert.ok(body.indexOf("await whenAuthReady()") < body.indexOf("setCheckoutSnapshot("), "wait before the snapshot");
   assert.ok(body.indexOf("await settleMemberCart()") > 0 && body.indexOf("await settleMemberCart()") < body.indexOf("cartGroups()"), "a pending member cart merge finishes before the snapshot");
   const blocked = body.indexOf("if (!memberCartSettled) return showToast(");
   assert.ok(blocked > body.indexOf("return beginLineLogin()") && blocked < body.indexOf("showDialog(document.querySelector(\"#checkout-dialog\"))"), "checkout stops when the member cart never merged");

@@ -1,5 +1,5 @@
-// 結帳流程：選定結帳範圍（現貨／預購）、開啟結帳視窗與送出訂單；結帳範圍與商品只由本模組改寫。
-import { auth, closeDialog, showDialog, showToast } from "./app-core.js";
+// 結帳流程：開啟結帳視窗與送出訂單（結帳範圍與商品快照在 checkout-state.js）。位於流程層最上方，同層模組不可 import 本檔。
+import { auth, closeDialog, profileIsComplete, showDialog, showToast } from "./app-core.js";
 import { cart, cartGroups, cartItemsForScope, renderCart, saveCart, selectedCartDeliveryMethod, settleMemberCart, syncMemberCartNow, toggleCart } from "./cart.js";
 import { clearCheckoutFieldErrors, ensurePaymentMethodUI, loadBankAccounts, renderCheckoutBenefits, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields, validateCheckoutDetails } from "./checkout-form.js";
 import { loadPoints, requireLineFriendshipForCheckout } from "./member-benefits.js";
@@ -10,19 +10,8 @@ import { ensureCheckoutCouponApplied, resetCheckoutCoupon } from "./checkout-cou
 import { whenAuthReady } from "./auth-ready.js";
 import { ensureFreshSession } from "./auth-expiry.js";
 import { deliveryMethodError } from "./cart-delivery-rules.js";
-import { beginLineLogin, loadMember, profileIsComplete, saveProfile, showProfileDialog } from "./member-profile.js";
-
-export let activeCheckoutScope = null;
-export let activeCheckoutItems = null;
-
-/** 選定要結帳的範圍（現貨／預購）並取出對應的購物車商品；未指定時沿用目前範圍。 */
-export function selectCheckoutScope(scope) {
-  activeCheckoutScope = scope || activeCheckoutScope;
-  activeCheckoutItems = cartItemsForScope(activeCheckoutScope);
-}
-
-/** 這次結帳的商品：已開啟結帳時用當時的快照，否則依目前範圍從購物車取。 */
-export function checkoutCartItems() { return activeCheckoutItems || cartItemsForScope(activeCheckoutScope); }
+import { beginLineLogin, loadMember, saveProfile, showProfileDialog } from "./member-profile.js";
+import { activeCheckoutScope, checkoutCartItems, clearCheckoutSnapshot, setCheckoutSnapshot } from "./checkout-state.js";
 
 export async function openCheckout(scope = null) {
   // 先等背景登入與會員購物車合併完成，再依合併後的購物車建立結帳快照（loadMemberCart 會換掉 cart 內的物件）
@@ -34,8 +23,7 @@ export async function openCheckout(scope = null) {
   const resolvedScope = scope || activeCheckoutScope || (groups.preorder.length ? "preorder" : "in_stock");
   const scopedItems = cartItemsForScope(resolvedScope);
   if (!scopedItems.length) return showToast("請先加入商品");
-  activeCheckoutScope = resolvedScope;
-  activeCheckoutItems = scopedItems.slice();
+  setCheckoutSnapshot(resolvedScope, scopedItems.slice());
   // 開機時會員資料暫時載入失敗（登入仍保留）：結帳前再載入一次，不直接導去 LINE 登入
   if (auth.accessToken && !auth.user) {
     await loadMember();
@@ -66,12 +54,6 @@ export async function openCheckout(scope = null) {
   document.querySelector("#checkout-error").classList.add("hidden");
   showDialog(document.querySelector("#checkout-dialog"));
   await loadBankAccounts();
-}
-
-export function showCheckoutError(message) {
-  const errorNode = document.querySelector("#checkout-error");
-  errorNode.textContent = message;
-  errorNode.classList.remove("hidden");
 }
 
 export async function submitOrder() {
@@ -113,7 +95,7 @@ export async function submitOrder() {
   await syncMemberCartNow();
   clearCheckoutRequestKey();
   if (store) rememberCvsStore(store);
-  renderCart(); activeCheckoutItems = null; activeCheckoutScope = null; closeDialog(document.querySelector("#checkout-dialog"));
+  renderCart(); clearCheckoutSnapshot(); closeDialog(document.querySelector("#checkout-dialog"));
   await loadPoints({ force: true }).catch(() => {});
   // 訂單已建立但明細暫時讀不到：改開我的訂單，不讓客人以為失敗而重新下單
   if (!result.order) {

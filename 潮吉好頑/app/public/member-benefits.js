@@ -2,9 +2,8 @@
 import { liffState, canRequestLineFriendship, requestLineFriendship } from "./liff-auth.js";
 import { escapeHtml, money } from "./product-format.js";
 import { auth, closeDialog, formatDate, showDialog } from "./app-core.js";
-import { resetMemberCartSyncState } from "./cart.js";
-import { activeCheckoutScope, openCheckout } from "./checkout-flow.js";
-import { liffSessionMatches } from "./liff-session.js";
+import { resetMemberCartSyncState, startCheckout } from "./cart.js";
+import { activeCheckoutScope } from "./checkout-state.js";
 import { handleSessionExpired } from "./auth-expiry.js";
 import { FRIENDSHIP_LINE_RELOGIN, FRIENDSHIP_SESSION_EXPIRED, lineFriendshipFailureKind } from "./line-friendship-failure.js";
 
@@ -130,7 +129,7 @@ export async function handleLineFriendRequest(button) {
   try {
     if (!await ensureLineFriendship({ force: true, notFriendMessage: "尚未偵測到好友狀態，請完成加入後再重新檢查。" })) return true;
     closeDialog(document.querySelector("#line-friend-dialog"));
-    await openCheckout(activeCheckoutScope);
+    await startCheckout(activeCheckoutScope);
     return true;
   } finally {
     button.removeAttribute("aria-disabled");
@@ -182,7 +181,7 @@ export async function checkLineFriendship({ force = false } = {}) {
   }
   if (lineFriendshipInFlight?.userId === userId && lineFriendshipInFlight?.accessToken === accessToken) return lineFriendshipInFlight.promise;
   const promise = (async () => {
-    const lineAccessToken = liffSessionMatches && liffState.accessToken ? liffState.accessToken : auth.lineProviderToken;
+    const lineAccessToken = liffState.sessionMatches && liffState.accessToken ? liffState.accessToken : auth.lineProviderToken;
     const response = await fetch("/api/member/line-friendship", { headers: { Authorization: `Bearer ${accessToken}`, ...(lineAccessToken ? { "X-LINE-Login-Access-Token": lineAccessToken } : {}) } });
     const result = await response.json().catch(() => ({}));
     const failure = lineFriendshipFailureKind(response.status, result);

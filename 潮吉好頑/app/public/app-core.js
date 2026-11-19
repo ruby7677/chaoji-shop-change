@@ -3,6 +3,11 @@ import { escapeHtml, isPreorderItem } from "./product-format.js";
 
 export const auth = { config: null, accessToken: null, refreshToken: null, lineProviderToken: null, user: null, profile: null, points: null, lineFriendFlag: null };
 
+/** 會員資料已填姓名與電話（結帳必填）。 */
+export function profileIsComplete() {
+  return Boolean(auth.profile?.full_name?.trim() && auth.profile?.phone?.trim());
+}
+
 export const deliveryMethodLabels = { store_pickup: "到店取貨", seller_delivery: "賣貨便", cvs_delivery: "7-11店到店(交貨便)", home_delivery: "宅配" };
 export const deliveryMethodNotes = {
   store_pickup: "台南市中西區民生路二段 93 號，免運。",

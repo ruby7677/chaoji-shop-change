@@ -19,8 +19,8 @@ node scripts/module-graph.mjs cart       # 單一模組：引用誰、被誰引�
 | 層 | 模組 | 可以引用 |
 | --- | --- | --- |
 | 入口 | `app.js`、`orders-page.js`、`admin-loader.js` | 全部；負責事件接線與注入 |
-| 流程 | `checkout-*.js`、`member-*.js`、`liff-session.js`、`auth-return-state.js` | 狀態層、基礎層 |
-| 狀態 | `cart.js`、`storefront-catalog.js`、`admin-app.js` | 狀態層、基礎層（不可引用流程與入口） |
+| 流程 | `checkout-*.js`、`member-*.js`、`liff-session.js`、`auth-return-state.js` | 狀態層、基礎層、其他流程模組（不可成環；`checkout-flow.js` 在最上方，只有入口可 import） |
+| 狀態 | `cart.js`、`checkout-state.js`、`storefront-catalog.js`、`admin-app.js` | 狀態層、基礎層（不可引用流程與入口） |
 | 基礎 | `app-core.js`、`product-format.js`、`cart-merge.js`、`cart-quantity.js`、`cart-delivery-rules.js` 等純函式模組 | 只能引用基礎層 |
 
 - 前台不可靜態 import 後台，只能經 `admin-loader.js` 動態載入。
@@ -31,11 +31,13 @@ node scripts/module-graph.mjs cart       # 單一模組：引用誰、被誰引�
 下層要觸發上層的動作時，不要 import 上層，改用下面兩種既有做法：
 
 1. **注入（一個呼叫點）**：下層匯出 setter，入口設定。
-   例：`cart.js` 的 `setCheckoutOpener(open)`，由 `app.js` 呼叫 `setCheckoutOpener(openCheckout)`。
+   例：`cart.js` 的 `setCheckoutOpener(open)`，由 `app.js` 呼叫 `setCheckoutOpener(openCheckout)`；
+   流程模組要開結帳（登入回跳、加好友後）呼叫 `cart.js` 的 `startCheckout(scope)`，不 import `checkout-flow.js`。
 2. **註冊（多個擁有者）**：核心匯出 `Map`，各模組載入時自行註冊。
    例：`admin-app.js` 的 `adminSectionRenderers`（分區 → 渲染函式）與 `adminTabHooks`（自行載入的分頁）。
 
-跨模組修改狀態：由擁有狀態的模組匯出函式（例：`selectCheckoutScope()`、`forgetCartSyncUser()`），不可從外部指定別人的 `let`。
+跨模組修改狀態：由擁有狀態的模組匯出函式（例：`checkout-state.js` 的 `selectCheckoutScope()`／`setCheckoutSnapshot()`、`forgetCartSyncUser()`），不可從外部指定別人的 `let`。
+多個流程都要讀的小狀態放下層：結帳範圍在 `checkout-state.js`，`profileIsComplete()` 在 `app-core.js`，LIFF 帳號是否一致在 `liffState.sessionMatches`。
 
 ## 新東西放哪
 
@@ -50,7 +52,7 @@ node scripts/module-graph.mjs cart       # 單一模組：引用誰、被誰引�
 
 ## 禁止事項
 
-- 不新增循環 import。測試裡的 `KNOWN_CYCLE` 只能縮小，不可加入新模組。
+- 不新增循環 import（目前為 0，測試會擋）。
 - 單檔不超過 500 行；`cart.js`、`admin-products-table.js` 已接近上限，新功能放新檔。
 - `:hover` 一律包在 `@media (hover: hover)`；動態 HTML 不寫 `style="…"`（CSP）。
 - 不為了「之後可能用到」先加抽象、參數或設定；沒有第二個使用者就不抽共用。
@@ -70,9 +72,7 @@ npm test
 `node --check` 不檢查 import 名稱，寫錯會讓瀏覽器整棵 module 樹載入失敗；`module-graph.test.mjs` 會先擋下。
 畫面與登入後的流程（結帳、會員、後台）測試涵蓋不到，要在 `worker-dev` 預覽或實機確認，沒驗到要明講。
 
-## 尚未解開的耦合（動它之前先讀）
+## 改登入／結帳流程後
 
-`KNOWN_CYCLE` 的 8 個模組（登入、會員、結帳）互相呼叫，是付款路徑，本機無法登入實測，所以保留。
-要拆時一次只拆一條邊，用上面的注入寫法，並在實機走完「登入 → 加入購物車 → 結帳 → 回報匯款」再部署。
-建議順序：`liff-session.js` 對 `cart`／`member-benefits`／`auth-return-state` 的三個呼叫改由 `member-profile.js` 注入，
-再處理 `member-benefits.js` 對 `checkout-flow.js` 的 `openCheckout`。
+本機無法 LINE 登入，`npm test` 也測不到登入後的流程。改了 `checkout-*`、`member-*`、`liff-session.js`、`auth-return-state.js` 後，
+要在實機走完「登入 → 加入購物車 → 結帳 → 回報匯款」，以及「未登入按結帳 → 登入回來自動接續結帳」；沒走到要明講。

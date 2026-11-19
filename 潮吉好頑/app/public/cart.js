@@ -428,6 +428,11 @@ function updateCartCheckoutAction() {
 // 開啟結帳由 app.js 注入（setCheckoutOpener）：購物車不 import 結帳流程，避免 cart ↔ checkout-flow 互相依賴
 let openCheckout = null;
 export function setCheckoutOpener(open) { openCheckout = open; }
+/** 直接開啟結帳（登入回跳、加好友後繼續結帳），不做購物車按鈕的範圍與配送檢查。 */
+export function startCheckout(scope) {
+  if (!openCheckout) throw new Error("setCheckoutOpener 尚未設定");
+  return openCheckout(scope);
+}
 export function handleCartCheckout(scope = null) {
   const groups = cartGroups();
   if (!scope && groups.in_stock.length && groups.preorder.length) return showToast("購物車含現貨與預購，請分別點選各組的結帳按鈕", "warning");

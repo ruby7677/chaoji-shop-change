@@ -10,7 +10,6 @@ import { clearMemberStateCache } from "./member-benefits.js";
 import { captureAuthReturn } from "./auth-return-state.js";
 import { RESTORE_RETRY_DELAY_MS, isRetryableRestoreStatus } from "./liff-restore-policy.js";
 
-export let liffSessionMatches = false;
 export const LIFF_AUTO_LOGIN_KEY = "chaoji:liff-oauth-attempt";
 const LIFF_AUTO_LOGIN_MAX_AGE_MS = 2 * 60 * 1000;
 export const LIFF_AUTO_CALLBACK_PARAM = "cj_liff_oauth";
@@ -212,7 +211,7 @@ async function rememberPersistentLiffSession() {
   if (!response.ok || typeof result.access_token !== "string") return false;
   auth.accessToken = result.access_token;
   auth.refreshToken = null;
-  liffSessionMatches = true;
+  liffState.sessionMatches = true;
   persistEphemeralAuthSession({ includeRefresh: false });
   return true;
 }
@@ -252,7 +251,7 @@ export async function renewLiffSession() {
   auth.accessToken = result.access_token;
   auth.refreshToken = null;
   auth.lineProviderToken = null;
-  liffSessionMatches = true;
+  liffState.sessionMatches = true;
   persistEphemeralAuthSession({ includeRefresh: false });
   return "restored";
 }
@@ -338,13 +337,13 @@ async function verifyCurrentLiffIdentity({ matchSession = false } = {}) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    liffSessionMatches = false;
+    liffState.sessionMatches = false;
     const error = new Error(result.error || "LIFF LINE 身分驗證失敗");
     error.code = result.code;
     error.status = response.status;
     throw error;
   }
-  liffSessionMatches = result.sessionMatch === true;
+  liffState.sessionMatches = result.sessionMatch === true;
   return result;
 }
 
@@ -377,7 +376,7 @@ async function runInitializeLiffBridge(initialState = null) {
       if (status === 409) {
         clearStoredAuthSession();
         await forgetPersistentLiffSession();
-        liffSessionMatches = false;
+        liffState.sessionMatches = false;
         // The server-side LIFF session is keyed by the LIFF identity, so the
         // correct member can usually be restored without an OAuth redirect.
         if (state.isInClient && await restorePersistentLiffSession()) return false;
