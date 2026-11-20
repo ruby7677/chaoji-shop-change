@@ -1329,7 +1329,7 @@ body.is-product-view .product-page {
 .checkout-cvs-help{margin:10px 0 0;color:var(--home-muted,var(--muted));font-size:.78rem;line-height:1.6}
 .checkout-cvs-help.hidden{display:none}
 .checkout-cvs-help a{color:var(--home-ink,var(--ink));font-weight:800;text-decoration:underline;text-underline-offset:3px}
-.field-hint{display:block;margin:6px 0 0;color:var(--home-muted,var(--muted));font-size:.75rem;font-weight:600;line-height:1.5}
+.field-hint{display:block;margin:6px 0 0;color:#c62828;font-size:.75rem;font-weight:800;line-height:1.5}
 .field-hint.hidden{display:none}
 @media(max-width:360px){.checkout-cvs-grid{grid-template-columns:1fr}}
 /* ==== checkout-coupon.css ==== */
