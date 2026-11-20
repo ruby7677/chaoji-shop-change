@@ -1,0 +1,7 @@
+/* 後台商品「可用的取貨方式」勾選欄（admin-delivery-methods.js）；沿用 admin-shell.css 的 CSS 變數。 */
+#admin-dialog.admin-app .admin-delivery-methods { min-width: 0; margin: 0; padding: 12px 14px; border: 1px solid var(--admin-border); border-radius: 10px; }
+#admin-dialog.admin-app .admin-delivery-methods legend { padding: 0 6px; font-weight: 700; }
+#admin-dialog.admin-app .admin-delivery-methods-options { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+#admin-dialog.admin-app .admin-delivery-methods-options .check-field { min-height: 44px; }
+#admin-dialog.admin-app .admin-delivery-methods small { display: block; margin-top: 6px; color: var(--admin-text-muted); font-size: 12px; }
+#admin-dialog.admin-app #admin-delivery-methods-create { grid-column: 1 / -1; }

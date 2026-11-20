@@ -4,3 +4,6 @@ node_modules/
 .env
 .env.*
 !.dev.vars.example
+
+# graphify 知識圖譜輸出（含完整程式結構，不推上 public repo）
+graphify-out/

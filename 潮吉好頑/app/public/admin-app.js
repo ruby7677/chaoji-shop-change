@@ -2,11 +2,7 @@
 // 各分頁的渲染與表單在 admin-*-panel.js、admin-product-image.js；外框、概況、商品表格等 UI 模組見其他 admin-*.js。
 import { handleSessionExpired } from "./auth-expiry.js";
 import { auth, showDialog, showToast } from "./app-core.js";
-import { products } from "./storefront-catalog.js";
-import { refreshAdminManagementOptionControls, renderAdminCategories, renderAdminLowStock, renderAdminMovements, renderAdminProducts, renderAdminSelects } from "./admin-catalog-panel.js";
-import { renderAdminOrderStatusFilter, renderAdminOrders } from "./admin-orders-panel.js";
-import { ensureDiscountAdminUI, renderAdminDiscounts, renderAdminMembers } from "./admin-members-panel.js";
-import { renderAdminAccounts, renderAdminAudit, renderAdminNotifications } from "./admin-system-panel.js";
+import { orderMonthQuery, resetOrderMonth } from "./admin-month.js";
 
 export let adminData = null;
 let adminDataActorId = null;
@@ -17,6 +13,16 @@ let adminManagementOptionsInFlight = null;
 const adminSections = ["overview", "orders", "members", "products", "inventory", "discounts", "audit", "notifications", "settings"];
 const ADMIN_MANAGEMENT_OPTIONS_SECTIONS = new Set(["products", "inventory", "discounts"]);
 const ADMIN_MANAGEMENT_OPTIONS_TTL_MS = 5 * 60 * 1000;
+// 不走 /api/admin/dashboard 的分頁（例如 7-11 門市）自行載入：模組載入時以分頁名稱註冊，切換分頁與重新整理時呼叫
+export const adminTabHooks = new Map();
+// 各分區的渲染由擁有該畫面的面板模組在載入時註冊（section → render）。本檔不 import 任何面板，
+// 面板單向依賴本檔；admin-loader.js 會在開啟後台前載入全部面板，所以渲染時一定已註冊。
+export const adminSectionRenderers = new Map();
+// 管理表單選項（商品／會員／分類）更新後要重畫的下拉選單，由 admin-catalog-panel.js 註冊
+let refreshManagementOptionControls = null;
+export function setManagementOptionsRefresher(refresh) {
+  refreshManagementOptionControls = refresh;
+}
 const adminSectionLoaded = new Set();
 const adminSectionInFlight = new Map();
 // 進行中請求送出的查詢條件（分頁、搜尋、篩選），用來判斷新的強制重新載入能否共用它
@@ -61,8 +67,6 @@ export async function testTelegramNotification() {
 
 // 概況統計卡：寫入數字；數字為 0 時加上 is-zero，讓「待確認款項」等強調卡回到一般外觀，不在沒有待辦時發出警示
 function renderStatValues() {
-  const readyStat = document.querySelector('[data-stat="readyForPickup"]');
-  if (readyStat?.previousElementSibling) readyStat.previousElementSibling.textContent = "待取貨／待尾款";
   Object.entries(adminData.stats || {}).forEach(([key, value]) => {
     const node = document.querySelector(`[data-stat="${key}"]`);
     if (!node) return;
@@ -133,7 +137,7 @@ function mergeAdminData(partial) {
     adminData.categories = categories;
     adminManagementOptionsActorId = auth.user?.id || null;
     adminManagementOptionsLoadedAt = Date.now();
-    if (hadManagementOptions) refreshAdminManagementOptionControls();
+    if (hadManagementOptions) refreshManagementOptionControls?.();
   }
   return adminData;
 }
@@ -142,8 +146,10 @@ function adminSectionPageQuery(section) {
   if (!(section in adminSectionPages)) return "";
   const params = new URLSearchParams({ page: String(adminSectionPages[section]), page_size: "100" });
   if (section === "orders") {
-    params.set("query", document.querySelector("#admin-order-search")?.value.trim() || "");
+    const query = document.querySelector("#admin-order-search")?.value.trim() || "";
+    params.set("query", query);
     params.set("status", document.querySelector("#admin-order-status-filter")?.value || "all");
+    params.set("month", orderMonthQuery(query));
   }
   if (section === "members") params.set("query", document.querySelector("#admin-member-search")?.value.trim() || "");
   if (section === "products") {
@@ -234,48 +240,10 @@ function renderAdminSection(section) {
     renderStatValues();
     return;
   }
-  if (section === "orders") {
-    renderAdminOrderStatusFilter();
-    renderAdminOrders();
-    renderAdminPagination(section);
-    return;
-  }
-  if (section === "members") {
-    renderAdminMembers();
-    renderAdminPagination(section);
-    return;
-  }
-  if (section === "audit") {
-    renderAdminAudit();
-    renderAdminPagination(section);
-    return;
-  }
-  if (section === "notifications") {
-    renderAdminNotifications();
-    renderAdminPagination(section);
-    return;
-  }
-  if (section === "products") {
-    renderAdminCategories();
-    renderAdminProducts();
-    renderAdminSelects({ preserveSelection: true });
-    renderAdminPagination(section);
-    return;
-  }
-  if (section === "inventory") {
-    renderAdminSelects({ preserveSelection: true });
-    renderAdminMovements();
-    renderAdminLowStock();
-    renderAdminPagination(section);
-    return;
-  }
-  if (section === "discounts") {
-    ensureDiscountAdminUI();
-    renderAdminDiscounts();
-    renderAdminPagination(section);
-    return;
-  }
-  renderAdminAccounts();
+  const render = adminSectionRenderers.get(section);
+  if (!render) throw new Error(`後台分區 ${section} 沒有註冊渲染函式`);
+  render();
+  renderAdminPagination(section);
 }
 
 export async function loadAdminSection(tabOrSection, { force = false } = {}) {
@@ -340,8 +308,17 @@ export async function loadAdminSection(tabOrSection, { force = false } = {}) {
 }
 
 export function switchAdminTab(tab) {
+  // 換到別的分頁時從頂端開始看（各分頁共用同一個捲動容器）；重按目前分頁不動捲動位置
+  const previous = document.querySelector("[data-admin-tab].active")?.dataset.adminTab;
+  if (previous && previous !== tab) document.querySelector(".admin-content")?.scrollTo({ top: 0 });
   document.querySelectorAll("[data-admin-tab]").forEach((button) => button.classList.toggle("active", button.dataset.adminTab === tab));
   document.querySelectorAll("[data-admin-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.adminPanel !== tab));
+  const hook = adminTabHooks.get(tab);
+  if (hook) {
+    document.querySelector("#admin-error")?.classList.add("hidden");
+    Promise.resolve(hook()).catch(() => {});
+    return;
+  }
   loadAdminSection(tab).catch(() => {});
 }
 
@@ -359,7 +336,10 @@ export async function refreshAdminSections(sections) {
 }
 
 export async function loadAdminData(section) {
-  return loadAdminSection(section || document.querySelector("[data-admin-tab].active")?.dataset.adminTab || "overview", { force: true });
+  const tab = section || document.querySelector("[data-admin-tab].active")?.dataset.adminTab || "overview";
+  const hook = adminTabHooks.get(tab);
+  if (hook) return hook();
+  return loadAdminSection(tab, { force: true });
 }
 
 export function applyAdminQuickFilter(filter) {
@@ -369,24 +349,10 @@ export function applyAdminQuickFilter(filter) {
     switchAdminTab("members");
   } else {
     const statusFilter = document.querySelector("#admin-order-status-filter");
-    if (statusFilter) statusFilter.value = ["pending_review", "ready_for_pickup"].includes(filter) ? filter : "all";
+    if (statusFilter) statusFilter.value = ["pending_review", "ready_to_ship"].includes(filter) ? filter : "all";
+    resetOrderMonth(statusFilter?.value || "all");
     switchAdminTab("orders");
     reloadAdminList("orders", true);
   }
   document.querySelector(".admin-content")?.scrollTo({ top: 0, behavior: "smooth" });
-}
-
-function renderAdminData() {
-  ensureDiscountAdminUI();
-  renderStatValues();
-  renderAdminAccounts();
-  renderAdminOrderStatusFilter();
-  renderAdminOrders();
-  renderAdminMembers();
-  renderAdminCategories();
-  renderAdminProducts();
-  renderAdminMovements();
-  renderAdminLowStock();
-  renderAdminSelects();
-  renderAdminDiscounts();
 }

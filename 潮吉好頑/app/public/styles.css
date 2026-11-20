@@ -1,6 +1,7 @@
 @charset "UTF-8"; :root{--ink:#161616;--yellow:#f4cf57;--cream:#fffdf7;--paper:#f6f1e3;--line:#d9d1bf;--muted:#68645b;--font-ui:"Noto Sans TC","PingFang TC","Microsoft JhengHei",ui-sans-serif,system-ui,sans-serif;--leading-body:1.65}
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
+/* touch-action:manipulation 關掉「點兩下縮放」（雙指縮放與捲動不受影響）：iPhone 會把同一處 0.3 秒內的第二下當成點兩下而不送出 click，連點分類、「更多」後馬上點分類時第二下就沒反應 */
+html{scroll-behavior:smooth;touch-action:manipulation}
 html.is-scroll-locked,body.is-scroll-locked{overscroll-behavior:none}
 body{margin:0;background:var(--cream);color:var(--ink);font-family:var(--font-ui);font-size:16px;line-height:var(--leading-body);letter-spacing:.005em;text-rendering:optimizeLegibility}
 .auth-boot-screen{position:fixed;inset:0;z-index:9999;display:flex;box-sizing:border-box;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;overflow:auto;padding:clamp(88px,22svh,180px) 24px max(24px,env(safe-area-inset-bottom));background:var(--cream);color:var(--ink);text-align:center}.auth-boot-screen img{display:block;width:82px;height:82px;flex:0 0 82px;object-fit:contain}.auth-boot-screen strong{font-size:1.25rem;font-weight:900;letter-spacing:.04em}.auth-boot-screen span{display:grid;align-items:center;width:min(100%,280px);min-height:3em;color:var(--muted);font-size:.85rem;font-weight:700}.auth-boot-screen i{width:26px;height:26px;flex:0 0 26px;margin-top:4px;border:3px solid var(--line);border-top-color:var(--ink);border-radius:50%;animation:auth-boot-spin .8s linear infinite}.auth-boot-screen .auth-boot-retry.hidden{display:none}.auth-boot-ready .auth-boot-screen{display:none}@media (orientation:landscape){.auth-boot-screen{justify-content:center;padding-top:max(24px,env(safe-area-inset-top))}}@media (prefers-reduced-motion:reduce){.auth-boot-screen i{animation:none}}@keyframes auth-boot-spin{to{transform:rotate(360deg)}}
@@ -58,7 +59,7 @@ details[open] summary:after{content:"－"}
 details p{color:var(--muted);font-size:14px;line-height:1.75;max-width:740px;margin:14px 0 0}
 footer{display:flex;justify-content:space-between;gap:20px;align-items:center;padding:24px max(7vw,30px);border-top:1px solid var(--line);font-size:13px}
 footer a{font-weight:800}
-footer button{border:0;background:transparent;text-decoration:underline;color:var(--muted);font-size:11px}
+footer button{min-height:44px;border:0;background:transparent;text-decoration:underline;color:var(--muted);font-size:13px}
 .cart-drawer{position:fixed;z-index:20;top:0;right:0;width:min(430px,100%);height:100dvh;background:#fff;padding:22px;transform:translateX(105%);transition:.25s;display:flex;flex-direction:column;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;box-shadow:-15px 0 40px rgba(0,0,0,.16)}
 .cart-drawer.open{transform:translateX(0)}
 .drawer-head{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:13px}
@@ -309,6 +310,7 @@ footer{flex-wrap:wrap}
 #line-friend-form h2{font-size:1.8rem;letter-spacing:-.04em;margin:0 0 7px;font-weight:850}
 #line-friend-form>.dialog-close{position:absolute;right:15px;top:10px}
 .line-friend-link{display:block;text-align:center;margin:18px 0 10px}
+.line-friend-id{text-align:center;margin:0 0 10px;font-size:.8125rem;color:var(--muted)}
 .line-friend-actions{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:14px}
 .line-friend-actions .primary-button{padding:10px 14px}
 .form-error{margin:12px 0 0;padding:9px 11px;border-radius:6px;background:#fff0ed;color:#8a3025;font-size:13px;line-height:1.5}

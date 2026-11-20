@@ -3,6 +3,7 @@ import { type SupabaseRefreshSession, clearRefreshSessionCookie, openRefreshToke
 import { deleteVaultedSession, readVaultedSession, replaceVaultedToken, storeVaultedSession } from "./liff-session-vault";
 import { type AuthUser, type Env } from "./env";
 import { bearerToken, enforceRateLimit, fetchWithTimeout, json, serviceHeaders } from "./http";
+import { ServerTiming } from "./server-timing";
 
 function lineIdentityId(user: AuthUser, env: Env) {
   const expectedProvider = (env.SUPABASE_CUSTOM_PROVIDER || "custom:line-web").toLowerCase();
@@ -178,17 +179,35 @@ export async function rememberLiffSession(request: Request, env: Env): Promise<R
   return persistedSessionResponse(env, identity.sub, user, refreshed.session);
 }
 
+/**
+ * 恢復登入成功後一併回傳的資料（訂單頁的訂單，見 member-api.ts 的 ordersForRestoredSession），省掉前端再發一次請求。
+ * 回傳 {} 表示不附帶；丟錯也當作不附帶：此時 refresh token 已輪替，無論如何都要把新的 access token 交給前端。
+ */
+export type RestoreExtras = (env: Env, user: AuthUser, authorization: string, timing: ServerTiming) => Promise<Record<string, unknown>>;
+
 // The vault is the canonical store once available. Keeping the same refresh
 // token lineage in both a cookie and the vault would let an old copy be reused
 // after rotation, which Supabase treats as token reuse and revokes the session.
-async function persistedSessionResponse(env: Env, lineUserId: string, user: AuthUser, refreshed: SupabaseRefreshSession) {
+async function persistedSessionResponse(
+  env: Env,
+  lineUserId: string,
+  user: AuthUser,
+  refreshed: SupabaseRefreshSession,
+  timing = new ServerTiming(),
+  extras?: RestoreExtras
+) {
   const sealed = await sealRefreshToken(env.AUTH_SESSION_SECRET!, refreshed.refresh_token);
-  const vaulted = await storeVaultedSession(env, lineUserId, user.id, sealed);
+  // 附帶資料用新的 access token 讀取，與保存登入互不相依，同時進行
+  const [vaulted, extra] = await Promise.all([
+    timing.measure("save", storeVaultedSession(env, lineUserId, user.id, sealed)),
+    extras ? extras(env, user, `Bearer ${refreshed.access_token}`, timing).catch(() => ({})) : Promise.resolve({})
+  ]);
   return json({
+    ...extra,
     access_token: refreshed.access_token,
     expires_in: Number(refreshed.expires_in || 0),
     user_id: user.id
-  }, { headers: { "Set-Cookie": vaulted ? clearRefreshSessionCookie() : refreshSessionCookie(sealed) } });
+  }, { headers: { "Set-Cookie": vaulted ? clearRefreshSessionCookie() : refreshSessionCookie(sealed), "Server-Timing": timing.header() } });
 }
 
 type SealedSessionResult =
@@ -218,21 +237,24 @@ function restoreUnavailable(init?: ResponseInit) {
   return sessionUnavailable("SESSION_RESTORE_UNAVAILABLE", init);
 }
 
-export async function restoreLiffSession(request: Request, env: Env): Promise<Response> {
+/** extras：body 帶 include_orders: true 時，恢復成功後一併回傳的資料（index.ts 傳入訂單查詢）。 */
+export async function restoreLiffSession(request: Request, env: Env, extras?: RestoreExtras): Promise<Response> {
+  const timing = new ServerTiming();
   // 第一層：驗證 LINE token 之前只以 IP 防洪（上限寬鬆，避免共用 IP 的會員互相阻擋）
   const rateLimitResponse = await enforceRateLimit(env.API_AUTH_IP_RATE_LIMITER, "session-restore:" + (request.headers.get("CF-Connecting-IP") || "unknown"));
   if (rateLimitResponse) return rateLimitResponse;
   if (!sessionBridgeReady(env)) return json({ error: "LIFF 持久登入尚未設定" }, { status: 503 });
 
-  let body: { id_token?: unknown } | null;
-  try { body = await request.json() as { id_token?: unknown } | null; }
+  let body: { id_token?: unknown; include_orders?: unknown } | null;
+  try { body = await request.json() as { id_token?: unknown; include_orders?: unknown } | null; }
   catch { return json({ error: "LIFF 驗證資料格式錯誤" }, { status: 400 }); }
   const idToken = typeof body?.id_token === "string" ? body.id_token.trim() : "";
   if (!idToken || idToken.length > 8192) return json({ error: "LIFF 驗證資料不完整" }, { status: 400 });
+  const restoredExtras = body?.include_orders === true ? extras : undefined;
 
   // Every restore path is keyed by a LINE-verified identity; the vault and the
   // cookie only supply the refresh token for that same LINE user.
-  const checked = await checkLiffIdToken(env, idToken);
+  const checked = await timing.measure("line", checkLiffIdToken(env, idToken));
   if (checked.status === "unavailable") return restoreUnavailable();
   const identity = checked.status === "valid" ? checked.identity : null;
   if (!identity?.sub) {
@@ -249,8 +271,8 @@ export async function restoreLiffSession(request: Request, env: Env): Promise<Re
   let cookieFailure: Response | null = null;
   const sealedCookie = readRefreshSessionCookie(request);
   if (sealedCookie) {
-    const result = await restoreSealedSession(env, sealedCookie, identity.sub);
-    if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
+    const result = await timing.measure("refresh", restoreSealedSession(env, sealedCookie, identity.sub));
+    if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed, timing, restoredExtras);
     if (result.reason === "unavailable") {
       // Supabase 暫時故障：不改試較舊的 vault；token 已輪替時把新 token 存回 cookie
       if (!result.rotated) return restoreUnavailable();
@@ -263,10 +285,10 @@ export async function restoreLiffSession(request: Request, env: Env): Promise<Re
       : json({ error: "會員登入工作階段已失效" }, { status: 401, headers: clearCookie });
   }
 
-  const vaulted = await readVaultedSession(env, identity.sub);
+  const vaulted = await timing.measure("vault", readVaultedSession(env, identity.sub));
   if (vaulted.status === "found") {
-    const result = await restoreSealedSession(env, vaulted.sealed, identity.sub);
-    if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed);
+    const result = await timing.measure("refresh", restoreSealedSession(env, vaulted.sealed, identity.sub));
+    if (result.ok) return persistedSessionResponse(env, identity.sub, result.user, result.refreshed, timing, restoredExtras);
     // 只有確定無效（解不開、身分不符）才刪除；token 被拒可能是暫時狀態，下次 LINE Login 也會覆寫
     if (result.reason === "invalid" || result.reason === "mismatch") await deleteVaultedSession(env, identity.sub, vaulted.sealed);
     if (result.reason === "unavailable") {

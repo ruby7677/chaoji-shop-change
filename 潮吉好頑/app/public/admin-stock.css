@@ -10,7 +10,7 @@
 
 #admin-dialog.admin-app .admin-stock-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }
 #admin-dialog.admin-app .admin-stock-chip { min-height: 44px; padding: 6px 14px; border: 1px solid var(--admin-border); border-radius: 999px; background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; transition: border-color 150ms ease; }
-#admin-dialog.admin-app .admin-stock-chip:hover { border-color: #141414; }
+@media (hover: hover) { #admin-dialog.admin-app .admin-stock-chip:hover { border-color: #141414; } }
 
 #admin-dialog.admin-app .admin-stock-preview { margin: 0 0 20px; padding: 12px 14px; border: 1px dashed #141414; border-radius: 12px; background: #fffdf2; font-weight: 700; }
 #admin-dialog.admin-app .admin-stock-preview.is-error { border-color: #9a302a; background: #fdeceb; color: #9a302a; }

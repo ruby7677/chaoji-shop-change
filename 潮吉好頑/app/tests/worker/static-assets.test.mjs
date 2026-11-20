@@ -32,8 +32,17 @@ const runWorkerFirst = async () => {
 
 test("public/_headers applies exactly the Worker's security headers to every static path", async () => {
   const rules = parseHeaders(await appFile("public/_headers"));
-  assert.deepEqual([...rules.keys()], ["/*"]);
+  assert.equal([...rules.keys()][0], "/*");
   assert.deepEqual(Object.fromEntries(rules.get("/*")), SECURITY_HEADERS);
+});
+
+test("only the rarely changing images get a browser cache lifetime; scripts and styles keep revalidating", async () => {
+  const rules = parseHeaders(await appFile("public/_headers"));
+  const cached = [...rules.keys()].filter((path) => path !== "/*");
+  assert.deepEqual(cached.sort(), ["/Logo.png", "/Logo.webp", "/logo.jpg", "/og-share-2.jpg", "/og-share.jpg"]);
+  for (const path of cached) {
+    assert.deepEqual(Object.fromEntries(rules.get(path)), { "Cache-Control": "public, max-age=604800" }, path);
+  }
 });
 
 test("run_worker_first sends share-preview pages and the API to the Worker", async () => {
@@ -48,7 +57,9 @@ test("run_worker_first sends share-preview pages and the API to the Worker", asy
   for (const path of ["/api/catalog", "/api/admin/dashboard", "/api/product-images/x"]) assert.ok(workerFirst(path), path);
   // 入口頁要進 Worker 才能把 workers.dev 舊網址 301 到正式網域（canonical-host.ts）
   for (const path of ["/orders", "/admin", "/privacy", "/terms"]) assert.ok(workerFirst(path), `${path} needs the Worker to redirect the legacy host`);
-  for (const path of ["/app.js", "/styles.css", "/orders-page.js", "/admin-app.js"]) assert.equal(workerFirst(path), false, `${path} is served as a static asset`);
+  // 門市資料要先看後台發佈的 R2 版本，沒有才回到靜態檔（cvs-stores-serve.ts）
+  for (const path of ["/cvs-stores/index.json", "/cvs-stores/taipei.json"]) assert.ok(workerFirst(path), `${path} needs the Worker to prefer the uploaded store list`);
+  for (const path of ["/app.js", "/styles.css", "/orders-page.js", "/admin-app.js", "/cvs-stores-data.js"]) assert.equal(workerFirst(path), false, `${path} is served as a static asset`);
 });
 
 test("robots.txt is a real robots file, not the single-page fallback", async () => {
@@ -61,8 +72,8 @@ test("robots.txt is a real robots file, not the single-page fallback", async () 
 
 test("the default share image is 1200x630 and small enough for LINE previews", async () => {
   const { readImageDimensions } = await loadSourceModule("image-dimensions.ts");
-  const share = await readFile(new URL("../../public/og-share.jpg", import.meta.url));
+  const share = await readFile(new URL("../../public/og-share-2.jpg", import.meta.url));
   assert.deepEqual(readImageDimensions(share), { width: 1200, height: 630 });
-  assert.ok(share.length < 300 * 1024, `og-share.jpg is ${share.length} bytes`);
-  assert.match(await appFile("src/share-meta.ts"), /image: "\/og-share\.jpg"/);
+  assert.ok(share.length < 300 * 1024, `og-share-2.jpg is ${share.length} bytes`);
+  assert.match(await appFile("src/share-meta.ts"), /image: "\/og-share-2\.jpg"/);
 });

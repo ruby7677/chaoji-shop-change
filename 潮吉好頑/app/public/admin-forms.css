@@ -6,7 +6,7 @@
 #admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger::-webkit-details-marker { display: none; }
 #admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger::after { content: none; }
 /* 次要樣式：品牌黃留給主要動作（確認收款、儲存），開啟面板的入口不搶眼 */
-#admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger:hover { border-color: #141414; }
+@media (hover: hover) { #admin-dialog.admin-app details.admin-sheet > summary.admin-sheet-trigger:hover { border-color: #141414; } }
 #admin-dialog.admin-app details.admin-sheet > summary .admin-icon { width: 16px; height: 16px; }
 
 /* ---------- 滑出面板 ---------- */
@@ -43,8 +43,8 @@
 /* 視覺 32px，觸控範圍 44px */
 #admin-dialog.admin-app .admin-help-toggle::before { content: ""; position: absolute; inset: -6px; }
 #admin-dialog.admin-app .admin-help-toggle[hidden] { display: none; }
-#admin-dialog.admin-app .admin-help-toggle:hover,
 #admin-dialog.admin-app .admin-help-toggle[aria-expanded="true"] { background: var(--admin-surface-subtle); color: #141414; }
+@media (hover: hover) { #admin-dialog.admin-app .admin-help-toggle:hover { background: var(--admin-surface-subtle); color: #141414; } }
 
 /* ---------- 表單控制項（開啟中的面板會移到 .admin-panel 之外，選擇器需同時涵蓋 .admin-sheet-panel） ---------- */
 #admin-dialog.admin-app .admin-sheet-panel :is(small, span, label, button, select, input, textarea) { overflow-wrap: anywhere; }
@@ -61,9 +61,9 @@
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) input[type="checkbox"],
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) input[type="radio"] { accent-color: #141414; }
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) .primary-button { border-color: #141414; border-radius: 10px; background: #141414; color: var(--admin-brand-sun); }
-#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) .primary-button:hover { background: #2b2926; }
+@media (hover: hover) { #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) .primary-button:hover { background: #2b2926; } }
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) .secondary-button { border-color: var(--admin-border); border-radius: 10px; background: #fff; color: #141414; }
-#admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) .secondary-button:hover { border-color: #141414; }
+@media (hover: hover) { #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) .secondary-button:hover { border-color: #141414; } }
 #admin-dialog.admin-app :is(.admin-panel, .admin-sheet-panel) .danger-button { border-color: #9a302a; background: #9a302a; color: #fff; }
 
 /* ---------- 清單卡片（會員、優惠券、帳戶、庫存異動、稽核、通知） ---------- */
@@ -71,8 +71,7 @@
 #admin-dialog.admin-app .admin-member-list { display: grid; gap: 10px; }
 #admin-dialog.admin-app .admin-card,
 #admin-dialog.admin-app .admin-member-card { border: 1px solid var(--admin-border); border-radius: 14px; background: #fff; box-shadow: none; transition: border-color 150ms ease; }
-#admin-dialog.admin-app .admin-card:hover,
-#admin-dialog.admin-app .admin-member-card:hover { border-color: #cfc5ad; }
+@media (hover: hover) { #admin-dialog.admin-app .admin-card:hover, #admin-dialog.admin-app .admin-member-card:hover { border-color: #cfc5ad; } }
 #admin-dialog.admin-app .admin-card strong { font-size: 15px; }
 #admin-dialog.admin-app .admin-card small { color: var(--admin-text-muted); }
 #admin-dialog.admin-app .admin-card code { padding: 1px 5px; border-radius: 6px; background: var(--admin-surface-subtle); font-size: 12px; overflow-wrap: anywhere; }

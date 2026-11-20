@@ -1,9 +1,10 @@
 // 會員 API：收款帳戶、訂單查詢、雲端購物車、點數、LINE 好友狀態、建立訂單與回報匯款。
-import { requireUser } from "./auth";
+import { type RestoreExtras, requireUser } from "./auth";
 import { databaseError, databaseErrors } from "./database-errors";
 import { type Env } from "./env";
 import { MAX_JSON_REQUEST_BYTES, enforceRateLimit, fetchWithTimeout, json, serviceHeaders } from "./http";
 import { invalidateCatalogCache } from "./catalog";
+import { ServerTiming } from "./server-timing";
 
 const MAX_ORDER_ITEMS = 50;
 
@@ -47,7 +48,7 @@ export async function listBankAccounts(request: Request, env: Env): Promise<Resp
 
 // 會員訂單以會員自己的 JWT 讀取，由 RLS（members view own orders／order items）限定本人；
 // member_id 條件保留作第二層防護。收款帳戶是店家資料、會員不能直接讀表，另以 service role 依 id 補上。
-const MEMBER_ORDER_SELECT = "id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,pickup_store_city,pickup_store_district,pickup_store_name,pickup_store_code,shipment_tracking_number,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,payment_deadline,payment_last_five,bank_account_id,created_at,order_items(product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)";
+const MEMBER_ORDER_SELECT = "id,order_number,status,pickup_plan,delivery_method,shipping_fee,shipping_address,shipping_recipient_name,shipping_phone,pickup_store_city,pickup_store_district,pickup_store_name,pickup_store_code,shipment_tracking_number,shipping_fee_notified_at,final_payment_last_five,final_payment_confirmed_at,final_payment_reported_last_five,final_payment_reported_at,subtotal,coupon_discount,point_discount,amount_due,deposit_due,paid_amount,refunded_amount,payment_deadline,payment_last_five,bank_account_id,created_at,order_items(product_name,variant_name,unit_price,quantity,kind,deposit_rate,arrival_snapshot)";
 
 type MemberOrderRow = { bank_account_id?: string | null; bank_accounts?: unknown };
 type BankAccountRow = { id: string; label: string; bank_name: string; account_name: string; account_number: string };
@@ -95,24 +96,47 @@ async function loadOrder(env: Env, orderId: string, memberId: string, authorizat
   return rows[0];
 }
 
+function ordersServiceReady(env: Env) {
+  return Boolean(env.SUPABASE_URL && env.SUPABASE_ANON_KEY && env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+/** 會員最近 50 筆訂單（含收款帳戶）；GET /api/orders 與訂單頁恢復登入共用。查詢失敗回 null。 */
+async function memberOrders(env: Env, memberId: string, authorization: string, timing: ServerTiming) {
+  const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
+  url.searchParams.set("select", MEMBER_ORDER_SELECT);
+  url.searchParams.set("member_id", `eq.${memberId}`);
+  url.searchParams.set("order", "created_at.desc");
+  url.searchParams.set("limit", "50");
+  const response = await timing.measure("orders", fetchWithTimeout(url, { headers: memberHeaders(env, authorization) }));
+  if (!response.ok) return null;
+  const orders = await response.json() as MemberOrderRow[];
+  // 收款帳戶查詢失敗時仍列出訂單（帳戶欄位為 null），前台改顯示「匯款帳號暫時無法載入」，不讓客人連訂單都看不到。
+  const bankAccountsLoaded = await timing.measure("bank", attachBankAccounts(env, orders));
+  return { orders, bank_accounts_unavailable: !bankAccountsLoaded };
+}
+
 export async function listOrders(request: Request, env: Env): Promise<Response> {
-  const authResult = await requireUser(request, env);
+  const timing = new ServerTiming();
+  const authResult = await timing.measure("user", requireUser(request, env));
   if (authResult instanceof Response) return authResult;
   const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `orders-read:${authResult.user.id}`);
   if (rateLimitResponse) return rateLimitResponse;
-  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY || !env.SUPABASE_SERVICE_ROLE_KEY) return json({ error: "訂單服務尚未設定" }, { status: 503 });
-  const url = new URL(`${env.SUPABASE_URL}/rest/v1/orders`);
-  url.searchParams.set("select", MEMBER_ORDER_SELECT);
-  url.searchParams.set("member_id", `eq.${authResult.user.id}`);
-  url.searchParams.set("order", "created_at.desc");
-  url.searchParams.set("limit", "50");
-  const response = await fetchWithTimeout(url, { headers: memberHeaders(env, authResult.authorization) });
-  if (!response.ok) return json({ error: "訂單紀錄暫時無法載入" }, { status: 503 });
-  const orders = await response.json() as MemberOrderRow[];
-  // 收款帳戶查詢失敗時仍列出訂單（帳戶欄位為 null），前台改顯示「匯款帳號暫時無法載入」，不讓客人連訂單都看不到。
-  const bankAccountsLoaded = await attachBankAccounts(env, orders);
-  return json({ orders, bank_accounts_unavailable: !bankAccountsLoaded });
+  if (!ordersServiceReady(env)) return json({ error: "訂單服務尚未設定" }, { status: 503 });
+  const result = await memberOrders(env, authResult.user.id, authResult.authorization, timing);
+  if (!result) return json({ error: "訂單紀錄暫時無法載入" }, { status: 503 });
+  return json(result, { headers: { "Server-Timing": timing.header() } });
 }
+
+/**
+ * 訂單頁恢復登入時一併回傳訂單（POST /api/auth/session/restore 帶 include_orders: true），省掉前端再請求 GET /api/orders
+ * 與其中確認 token 的 Supabase 查詢（恢復時已確認是本人的 LINE 會員）。與 GET /api/orders 共用限流計數；
+ * 限流、未設定或查詢失敗時不附帶，前端改請求 GET /api/orders，由它回報錯誤。
+ */
+export const ordersForRestoredSession: RestoreExtras = async (env, user, authorization, timing) => {
+  if (!ordersServiceReady(env)) return {};
+  if (await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `orders-read:${user.id}`)) return {};
+  return (await memberOrders(env, user.id, authorization, timing)) || {};
+};
 
 type MemberCartRow = { variant_id: string; quantity: number; updated_at?: string };
 
@@ -216,12 +240,13 @@ export async function memberLineFriendship(request: Request, env: Env): Promise<
   if (friendshipResponse.ok && profileCheckResponse.ok) {
     const friendship = await friendshipResponse.json() as { friendFlag?: boolean };
     const lineProfile = await profileCheckResponse.json() as { userId?: string };
-    if (lineProfile.userId !== lineUserId) return json({ error: "LINE 會員驗證不一致，請重新登入" }, { status: 401 });
+    if (lineProfile.userId !== lineUserId) return json({ error: "LINE 會員驗證不一致，請重新登入", code: "LINE_IDENTITY_MISMATCH" }, { status: 401 });
     const isFriend = friendship.friendFlag === true;
     if (!await setLineFriendVerification(env, authResult.user.id, isFriend)) return json({ error: "LINE 好友驗證紀錄失敗，請稍後再試" }, { status: 503 });
     return json({ friendFlag: isFriend, source: "line_login" });
   }
-  if ([401, 403].includes(friendshipResponse.status) || [401, 403].includes(profileCheckResponse.status)) return json({ error: "LINE 登入授權已過期，請重新登入" }, { status: 401 });
+  // code 讓前台分辨「LINE 授權過期，要重新 LINE 登入」與網站登入過期（requireUser 的 401，沒有 code）
+  if ([401, 403].includes(friendshipResponse.status) || [401, 403].includes(profileCheckResponse.status)) return json({ error: "LINE 登入授權已過期，請重新登入", code: "LINE_LOGIN_EXPIRED" }, { status: 401 });
   return json({ error: "LINE 好友狀態暫時無法確認" }, { status: 503 });
 }
 
@@ -333,6 +358,26 @@ export async function submitOrderPayment(request: Request, env: Env, orderId: st
     method: "POST",
     headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authResult.authorization, "Content-Type": "application/json" },
     body: JSON.stringify({ p_order_id: orderId, p_bank_account_id: body.bank_account_id, p_payment_last_five: body.payment_last_five })
+  });
+  if (!response.ok) return databaseError(response);
+  const order = await loadOrder(env, orderId, authResult.user.id, authResult.authorization);
+  return json({ order });
+}
+
+/** 預購店到店／宅配到貨後回報尾款匯款末五碼；可否回報由 submit_order_final_payment 判斷，訂單狀態不變。 */
+export async function submitOrderFinalPayment(request: Request, env: Env, orderId: string): Promise<Response> {
+  const authResult = await requireUser(request, env);
+  if (authResult instanceof Response) return authResult;
+  const rateLimitResponse = await enforceRateLimit(env.API_MEMBER_RATE_LIMITER, `payment:${authResult.user.id}`);
+  if (rateLimitResponse) return rateLimitResponse;
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return json({ error: "訂單服務尚未設定" }, { status: 503 });
+  let body: { payment_last_five?: string };
+  try { body = await request.json(); } catch { return json({ error: "請求格式錯誤" }, { status: 400 }); }
+  if (typeof body.payment_last_five !== "string" || !/^\d{5}$/.test(body.payment_last_five)) return json({ error: "匯款帳號末五碼須為 5 位數字" }, { status: 400 });
+  const response = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/rpc/submit_order_final_payment`, {
+    method: "POST",
+    headers: { apikey: env.SUPABASE_ANON_KEY, Authorization: authResult.authorization, "Content-Type": "application/json" },
+    body: JSON.stringify({ p_order_id: orderId, p_payment_last_five: body.payment_last_five })
   });
   if (!response.ok) return databaseError(response);
   const order = await loadOrder(env, orderId, authResult.user.id, authResult.authorization);

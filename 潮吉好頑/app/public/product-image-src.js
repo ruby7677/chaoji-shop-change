@@ -15,6 +15,15 @@ export function thumbnailKeyFor(key) {
   return `${dir}${dot > 0 ? name.slice(0, dot) : name}.thumb.webp`;
 }
 
+/** 前台型錄只送主圖網址：依 src/product-image-urls.ts 的規則推回縮圖（R2 網址換成 .thumb.webp、Worker 路由加 size=thumb）。 */
+export function thumbnailUrlFor(imageUrl) {
+  const query = imageUrl.indexOf("?");
+  const path = query >= 0 ? imageUrl.slice(0, query) : imageUrl;
+  const search = query >= 0 ? imageUrl.slice(query) : "";
+  if (path.startsWith("/api/product-images/")) return `${imageUrl}${search ? "&" : "?"}size=thumb`;
+  return `${thumbnailKeyFor(path)}${search}`;
+}
+
 /** 商品主圖（thumb 為 true 時給縮圖）；沒有照片回空字串。 */
 export function adminPrimaryImageSrc(product, { thumb = false } = {}, base = auth.config?.imageBaseUrl) {
   if (!product?.image_path) return "";

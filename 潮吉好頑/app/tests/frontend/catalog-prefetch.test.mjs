@@ -8,7 +8,8 @@ test("the catalog is fetched once on load and handed over only once", async () =
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (url) => { calls.push(url); return Promise.resolve(response); };
   try {
-    const { takePrefetchedCatalog } = await import("../../public/catalog-prefetch.js");
+    const { prefetchedCatalogSource, takePrefetchedCatalog } = await import("../../public/catalog-prefetch.js");
+    assert.equal(prefetchedCatalogSource, "request");
     assert.deepEqual(calls, ["/api/catalog"]);
     assert.equal(await takePrefetchedCatalog(), response);
     assert.equal(takePrefetchedCatalog(), null);

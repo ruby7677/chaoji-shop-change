@@ -47,6 +47,16 @@ export function refreshWebSessionOutcome() {
   return refreshInFlight;
 }
 
+// 登出：請 Worker 清掉續期 cookie。回傳是否成功；失敗時 cookie 仍在，重新整理會再恢復登入
+export async function endWebSession() {
+  try {
+    const response = await fetch("/api/auth/web-session/logout", { method: "POST", headers: REQUEST_HEADERS, credentials: "same-origin", body: "{}" });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 // 只需要結果的呼叫端（開機、獨立訂單頁）：回傳 session 或 null
 export async function refreshWebSession() {
   return (await refreshWebSessionOutcome()).session;

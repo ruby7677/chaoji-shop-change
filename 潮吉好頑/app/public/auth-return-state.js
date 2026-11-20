@@ -1,10 +1,9 @@
 // 登入回跳狀態：LINE 登入前保存頁面、購物車與結帳進度，登入回來（或補完會員資料）後還原。
-import { auth, showToast } from "./app-core.js";
+import { auth, profileIsComplete, showToast } from "./app-core.js";
 import { authReturnErrorMessage } from "./auth-error-message.js";
-import { selectedDeliveryMethod, toggleCart } from "./cart.js";
+import { selectedDeliveryMethod, startCheckout, toggleCart } from "./cart.js";
 import { renderCheckoutBenefits, renderCheckoutSummary, setCheckoutStage, syncDeliveryFields } from "./checkout-form.js";
-import { activeCheckoutItems, activeCheckoutScope, openCheckout, selectCheckoutScope } from "./checkout-flow.js";
-import { profileIsComplete } from "./member-profile.js";
+import { activeCheckoutItems, activeCheckoutScope, selectCheckoutScope } from "./checkout-state.js";
 
 const AUTH_RETURN_STATE_KEY = "chaoji:auth-return-state";
 const AUTH_RETURN_MAX_AGE_MS = 10 * 60 * 1000;
@@ -102,7 +101,7 @@ export async function resumePendingReturnCheckout() {
   const pendingCheckout = pendingReturnCheckout;
   pendingReturnCheckout = null;
   if (pendingCheckout) {
-    await openCheckout(pendingCheckout.scope || undefined);
+    await startCheckout(pendingCheckout.scope || undefined);
     if (document.querySelector("#checkout-dialog")?.open) restoreCheckoutReturnState(pendingCheckout);
     else pendingReturnCheckout = pendingCheckout;
   }
@@ -122,7 +121,7 @@ export async function restoreAuthReturnState() {
   if (state.checkout && auth.user) {
     if (!profileIsComplete()) pendingReturnCheckout = state.checkout;
     else {
-      await openCheckout(state.checkout.scope || undefined);
+      await startCheckout(state.checkout.scope || undefined);
       if (document.querySelector("#checkout-dialog")?.open) restoreCheckoutReturnState(state.checkout);
     }
   } else if (state.checkout) {

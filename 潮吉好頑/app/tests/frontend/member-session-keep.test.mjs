@@ -38,3 +38,9 @@ test("expiry handling receives restored, failed or retry instead of a boolean", 
   assert.ok(web.indexOf("const started = await startWebSession(auth.refreshToken);") < web.indexOf("await refreshWebSessionOutcome()"), "a kept OAuth token is handed to start first");
   assert.ok(web.includes('return retryable ? "retry" : "failed";'));
 });
+
+test("boot uses the config inlined in the page before requesting /api/config", async () => {
+  const source = await read("liff-session.js");
+  const body = source.slice(source.indexOf("export async function loadRuntimeConfig()"), source.indexOf("export function readLiffLaunchContext()"));
+  assert.ok(body.indexOf("takeEmbeddedConfig()") >= 0 && body.indexOf("takeEmbeddedConfig()") < body.indexOf('fetch("/api/config")'), "inline first, request as fallback");
+});

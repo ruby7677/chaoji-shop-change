@@ -3,8 +3,9 @@
 // 精簡列只切換 class（CSS 隱藏卡片內容），不搬動 DOM。
 import { adminIcon } from "./admin-icons.js";
 import { escapeHtml } from "./product-format.js";
-import { ORDER_STATUS_GROUPS, defaultStatusOfGroup, groupCount, groupOfStatus, statusCount } from "./admin-order-status-groups.js";
-// 這些訂單需要店長動作，預設展開
+import { ORDER_STAGES, stageCount, stageOpenCount } from "./admin-order-stages.js";
+import { ALL_MONTHS, monthOptionsMarkup, orderMonthSelect, resetOrderMonth } from "./admin-month.js";
+// 這些訂單需要店長動作：加醒目框（各分頁仍預設收合）
 const ACTION_STATUSES = new Set(["pending_review"]);
 
 let deps = null;
@@ -15,29 +16,37 @@ const collapsed = new Set();
 
 const statusSelect = () => document.querySelector("#admin-order-status-filter");
 
-const badge = (n) => (n ? `<b>${n > 99 ? "99+" : n}</b>` : "");
+const shortCount = (n) => (n > 99 ? "99+" : n);
+// 需要處理的筆數用醒目徽章；其餘未結案分類只顯示一般筆數
+const badge = (n, open) => (n ? `<b>${shortCount(n)}</b>` : open ? `<small class="admin-status-count">${shortCount(open)}</small>` : "");
 
-// 第一列：全部＋三個分組（徽章為組內待辦總數）；第二列：目前分組的狀態，選「全部」時不顯示
+// 單排分頁：全部＋各分類（ORDER_STAGE_FILTER_PLAN.md），窄畫面橫向捲動
 function renderTabs() {
   const stats = deps.getStats() || {};
   const current = statusSelect()?.value || "all";
-  const activeGroup = groupOfStatus(current);
-  const groups = `<button type="button" class="admin-status-tab" data-admin-status-tab="all" aria-pressed="${current === "all"}">全部</button>`
-    + ORDER_STATUS_GROUPS.map((group) => `<button type="button" class="admin-status-tab" data-admin-status-group="${group.key}" aria-pressed="${activeGroup?.key === group.key}">${escapeHtml(group.label)}${badge(groupCount(group, stats))}</button>`).join("");
-  const subtabs = activeGroup
-    ? `<div class="admin-status-subtabs" role="group" aria-label="${escapeHtml(activeGroup.label)}的狀態">${activeGroup.statuses.map((entry) => `<button type="button" class="admin-status-subtab" data-admin-status-tab="${entry[0]}" aria-pressed="${entry[0] === current}">${escapeHtml(entry[1])}${badge(statusCount(entry, stats))}</button>`).join("")}</div>`
-    : "";
-  tabBar.innerHTML = `<div class="admin-status-groups">${groups}</div>${subtabs}`;
+  const tab = (value, label, count = 0, open = 0) => `<button type="button" class="admin-status-tab" data-admin-status-tab="${value}" aria-pressed="${value === current}">${escapeHtml(label)}${badge(count, open)}</button>`;
+  tabBar.innerHTML = `<div class="admin-status-groups">${tab("all", "全部")}${ORDER_STAGES.map(([value, label]) => tab(value, label, stageCount(value, stats), stageOpenCount(value, stats))).join("")}</div>`;
+  // 重繪會把橫捲位置歸零：只捲分頁列本身讓目前分頁可見（scrollIntoView 會連帶捲動整個清單）
+  const row = tabBar.firstElementChild;
+  const active = row?.querySelector('[aria-pressed="true"]');
+  if (row && active) row.scrollLeft = Math.max(0, active.offsetLeft - row.offsetLeft - (row.clientWidth - active.offsetWidth) / 2);
+  renderMonthOptions();
+}
+
+// 月份選項來自概況回應的 salesSummary.months（有訂單的月份）；搜尋時不限月份，下拉暫時停用
+function renderMonthOptions() {
+  const select = orderMonthSelect();
+  if (!select) return;
+  const selected = select.value || ALL_MONTHS;
+  select.innerHTML = monthOptionsMarkup(deps.getOverview?.()?.salesSummary?.months, selected);
+  select.value = selected;
+  const searching = Boolean(document.querySelector("#admin-order-search")?.value.trim());
+  select.disabled = searching;
+  select.title = searching ? "搜尋訂單時不限月份" : "";
 }
 
 function syncTabState() {
   renderTabs();
-}
-
-function selectGroup(key) {
-  const group = ORDER_STATUS_GROUPS.find((item) => item.key === key);
-  if (!group) throw new Error(`未知的訂單分組：${key}`);
-  selectStatus(defaultStatusOfGroup(group, deps.getStats()));
 }
 
 function selectStatus(value) {
@@ -45,6 +54,9 @@ function selectStatus(value) {
   if (!select) throw new Error("訂單狀態篩選不存在");
   if (![...select.options].some((option) => option.value === value)) return;
   select.value = value;
+  resetOrderMonth(value);
+  // 每次切換分頁都從全部收合開始
+  expanded.clear(); collapsed.clear();
   // 交給 app.js 既有的 change 委派重新查詢
   select.dispatchEvent(new Event("change", { bubbles: true }));
   syncTabState();
@@ -78,6 +90,9 @@ function setCollapsed(card, value) {
 
 function enhanceCards() {
   const cards = [...list.querySelectorAll(".admin-order-card")];
+  // 搜尋只找到一筆（例如從待辦跳來）時直接展開，其餘一律預設收合
+  const searching = Boolean(document.querySelector("#admin-order-search")?.value.trim());
+  const expandSingle = searching && cards.length === 1;
   cards.forEach((card) => {
     if (card.dataset.adminEnhanced) return;
     card.dataset.adminEnhanced = "true";
@@ -97,8 +112,7 @@ function enhanceCards() {
     toggle.setAttribute("aria-label", `展開或收合訂單 ${key}`);
     toggle.innerHTML = adminIcon("chevron");
     header.append(toggle);
-    // 只有一筆（例如從搜尋或待辦跳來）時直接展開
-    const shouldCollapse = collapsed.has(key) || (!expanded.has(key) && !action && cards.length > 1);
+    const shouldCollapse = collapsed.has(key) || (!expanded.has(key) && !expandSingle);
     setCollapsed(card, shouldCollapse);
   });
   syncTabState();
@@ -121,17 +135,19 @@ export function initAdminOrdersUI(dependencies) {
   const bar = document.createElement("div");
   bar.className = "admin-status-bar";
   bar.append(tabBar);
-  bar.insertAdjacentHTML("beforeend", '<span class="admin-status-tools"><button type="button" class="admin-status-tool" data-admin-orders-expand="all">全部展開</button><button type="button" class="admin-status-tool" data-admin-orders-expand="none">全部收合</button></span>');
+  bar.insertAdjacentHTML("beforeend", '<label class="admin-order-month"><span class="sr-only">訂單月份</span><select id="admin-order-month-filter" aria-label="訂單月份"></select></label><span class="admin-status-tools"><button type="button" class="admin-status-tool" data-admin-orders-expand="all">全部展開</button><button type="button" class="admin-status-tool" data-admin-orders-expand="none">全部收合</button></span>');
   toolbar.insertAdjacentElement("beforebegin", bar);
   renderTabs();
   new MutationObserver(enhanceCards).observe(list, { childList: true });
   // 統計更新（載入結束）時刷新分頁數字
   const loading = document.querySelector("#admin-loading");
   if (loading) new MutationObserver(() => { if (loading.classList.contains("hidden")) renderTabs(); }).observe(loading, { attributes: true, attributeFilter: ["class"] });
-  document.addEventListener("change", (event) => { if (event.target === statusSelect()) syncTabState(); });
+  document.addEventListener("change", (event) => {
+    if (event.target === statusSelect()) syncTabState();
+    if (event.target === orderMonthSelect()) deps.reloadAdminList("orders", true);
+  });
+  document.addEventListener("input", (event) => { if (event.target.matches("#admin-order-search")) renderMonthOptions(); });
   panel.addEventListener("click", (event) => {
-    const group = event.target.closest("[data-admin-status-group]");
-    if (group) return selectGroup(group.dataset.adminStatusGroup);
     const tab = event.target.closest("[data-admin-status-tab]");
     if (tab) return selectStatus(tab.dataset.adminStatusTab);
     const bulk = event.target.closest("[data-admin-orders-expand]");

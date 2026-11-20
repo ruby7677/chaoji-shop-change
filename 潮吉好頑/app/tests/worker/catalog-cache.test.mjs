@@ -188,3 +188,95 @@ test("a failed upstream load is not cached and the next read retries", async () 
   assert.equal(calls, 2, "the failed load was not cached, so the second call reaches Supabase again");
   assert.equal(result.length, 1);
 });
+
+const { publicCatalogJson } = await loadSourceModule("catalog.ts");
+
+test("publicCatalogJson matches JSON.stringify of the catalog and is reused within the TTL", async () => {
+  const callCount = fakeSupabase([{ id: "v1", category: "A", name: "商品", price: 100, stock: 5, type: "現貨" }]);
+  const first = await publicCatalogJson(env);
+  const second = await publicCatalogJson(env);
+  assert.equal(callCount(), 1);
+  assert.equal(first, second);
+  assert.equal(first, JSON.stringify({ products: await publicCatalog(env) }));
+});
+
+test("an edge copy is served as text without being parsed and re-serialised", async () => {
+  const store = fakeEdgeCache();
+  // 故意用和 JSON.stringify 不同的空白：原樣回傳代表沒有經過解析再轉字串
+  store.set(EDGE_KEY, { body: '[ {"id":"edge"} ]', headers: [["x-catalog-loaded-at", String(Date.now())]] });
+  let calls = 0;
+  restoreFetch = stubFetch(() => { calls += 1; return jsonResponse([]); });
+  try {
+    assert.equal(await publicCatalogJson(env, ORIGIN), '{"products":[ {"id":"edge"} ]}');
+    assert.equal(calls, 0);
+    assert.equal((await publicCatalog(env, ORIGIN))[0].id, "edge", "the object form is parsed on demand from the same copy");
+  } finally { delete globalThis.caches; }
+});
+
+test("a corrupt edge copy is ignored and the catalog is reloaded", async () => {
+  const store = fakeEdgeCache();
+  store.set(EDGE_KEY, { body: '{"not":"an array"}', headers: [["x-catalog-loaded-at", String(Date.now())]] });
+  const callCount = fakeSupabase([{ id: "v1", category: "A", name: "商品", price: 100, stock: 5, type: "現貨" }]);
+  try {
+    assert.equal(JSON.parse(await publicCatalogJson(env, ORIGIN)).products[0].id, "v1");
+    assert.equal(callCount(), 1);
+  } finally { delete globalThis.caches; }
+});
+
+test("a fresh load writes the same JSON text to the edge cache that /api/catalog serves", async () => {
+  const store = fakeEdgeCache();
+  fakeSupabase([{ id: "v1", category: "A", name: "商品", price: 100, stock: 5, type: "現貨" }]);
+  try {
+    const body = await publicCatalogJson(env, ORIGIN);
+    assert.equal(body, `{"products":${store.get(EDGE_KEY).body}}`);
+  } finally { delete globalThis.caches; }
+});
+
+// 首頁開機資料（publicCatalogBoot）：邊緣副本有記錄輪播圖時直接用，不必解析型錄
+const { publicCatalogBoot } = await loadSourceModule("catalog.ts");
+const { firstHeroImageUrl } = await loadSourceModule("hero-preload.ts");
+
+test("a fresh load stores the home hero image beside the catalog in the edge cache", async () => {
+  const store = fakeEdgeCache();
+  fakeSupabase([{ id: "v1", product_id: "p1", has_image: true, image_path: "p1/a.webp", image_updated_at: "2026-10-01T00:00:00Z", category: "A", name: "預購品", price: 100, stock: 5, type: "預購", display_order: 1 }]);
+  try {
+    const boot = await publicCatalogBoot(env, ORIGIN);
+    const products = await publicCatalog(env, ORIGIN);
+    assert.ok(boot.heroImage, "the preorder with an image is the first slide");
+    assert.equal(boot.heroImage, firstHeroImageUrl(products));
+    const header = new Map(store.get(EDGE_KEY).headers).get("x-catalog-hero-image");
+    assert.equal(decodeURIComponent(header), boot.heroImage);
+  } finally { delete globalThis.caches; }
+});
+
+test("an edge copy with a recorded hero image is embedded without parsing the catalog", async () => {
+  const store = fakeEdgeCache();
+  // 本文不是合法 JSON：只要首頁沒有解析它就不會出錯
+  store.set(EDGE_KEY, { body: "[ not parsed ]", headers: [["x-catalog-loaded-at", String(Date.now())], ["x-catalog-hero-image", encodeURIComponent("https://img.test/a b.webp")]] });
+  restoreFetch = stubFetch(() => { throw new Error("Supabase should not be called"); });
+  try {
+    const boot = await publicCatalogBoot(env, ORIGIN);
+    assert.equal(boot.heroImage, "https://img.test/a b.webp");
+    assert.equal(boot.embedText, '{"products":[ not parsed ]}');
+  } finally { delete globalThis.caches; }
+});
+
+test("an empty hero header means no slide, and an older copy without it falls back to the catalog", async () => {
+  const store = fakeEdgeCache();
+  store.set(EDGE_KEY, { body: '[{"id":"v1","stock":1,"type":"預購","image_url":"https://img.test/x.webp"}]', headers: [["x-catalog-loaded-at", String(Date.now())], ["x-catalog-hero-image", ""]] });
+  restoreFetch = stubFetch(() => { throw new Error("Supabase should not be called"); });
+  try {
+    assert.equal((await publicCatalogBoot(env, ORIGIN)).heroImage, null);
+    await invalidateCatalogCache();
+    store.set(EDGE_KEY, { body: '[{"id":"v1","stock":1,"type":"預購","image_url":"https://img.test/x.webp"}]', headers: [["x-catalog-loaded-at", String(Date.now() + 10)]] });
+    assert.equal((await publicCatalogBoot(env, ORIGIN)).heroImage, "https://img.test/x.webp");
+  } finally { delete globalThis.caches; }
+});
+
+test("the embedded catalog escapes every < so product text cannot close the data block", async () => {
+  fakeSupabase([{ id: "v1", category: "A", name: "</script><!-- 好頑", price: 100, stock: 5, type: "現貨" }]);
+  const { embedText } = await publicCatalogBoot(env);
+  assert.ok(!embedText.includes("<"));
+  assert.equal(JSON.parse(embedText).products[0].name, "</script><!-- 好頑");
+  assert.equal(JSON.parse(embedText).products.length, (await publicCatalog(env)).length);
+});

@@ -3,7 +3,7 @@
 #admin-dialog.admin-app .admin-unpublished-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 #admin-dialog.admin-app .admin-unpublished-head h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; font-weight: 800; }
 #admin-dialog.admin-app .admin-unpublished-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 44px; min-height: 44px; padding: 0 14px; border: 1px solid var(--admin-border); border-radius: 10px; background: #fff; color: #141414; font-size: 14px; font-weight: 700; cursor: pointer; transition: border-color 150ms ease; }
-#admin-dialog.admin-app .admin-unpublished-toggle:hover { border-color: #141414; }
+@media (hover: hover) { #admin-dialog.admin-app .admin-unpublished-toggle:hover { border-color: #141414; } }
 #admin-dialog.admin-app .admin-unpublished-toggle:focus-visible { outline: 2px solid #141414; outline-offset: 2px; }
 #admin-dialog.admin-app .admin-unpublished-toggle .admin-icon { width: 16px; height: 16px; transition: transform 150ms ease; }
 #admin-dialog.admin-app .admin-unpublished.is-open .admin-unpublished-toggle .admin-icon { transform: rotate(180deg); }

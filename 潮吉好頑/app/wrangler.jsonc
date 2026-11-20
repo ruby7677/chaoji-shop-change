@@ -8,7 +8,9 @@
   // Worker 固定在 Supabase（東京 ap-northeast-1）附近執行：登入恢復與會員 API 要和 Supabase 來回多次，
   // 2026-10 實測 LINE 手機的 Worker 跑在 SJC，恢復約 1.25 秒。只影響 fetch handler，靜態檔仍由最近機房回應；回應 header 的 cf-placement 可確認
   "placement": { "region": "aws:ap-northeast-1" },
-  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/", "/index.html", "/products/*", "/orders", "/admin", "/privacy", "/terms", "/api/*"] },
+  // Workers Logs：每次執行的路徑、狀態與 CPU 時間（Free 方案每天 20 萬筆、保留 3 天），用來找出哪些路徑接近 10ms CPU 上限
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "assets": { "directory": "./public", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": ["/", "/index.html", "/products/*", "/orders", "/admin", "/privacy", "/terms", "/cvs-stores/*", "/api/*"] },
   "workers_dev": true,
   "routes": [{ "pattern": "super-fun.767780.xyz", "custom_domain": true }],
   "vars": {

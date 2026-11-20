@@ -1,4 +1,4 @@
-// 獨立訂單頁登入：沿用分頁內未到期的 token；LINE 內以 LIFF ID token 恢復保存的登入，暫時性故障只重試一次。
+// 獨立訂單頁登入：沿用分頁內未到期的 token；LINE 內以 LIFF ID token 恢復保存的登入（一併取回訂單），暫時性故障只重試一次。
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { cachedAccessToken, forgetAccessToken, rememberAccessToken, restoreOrdersSession } from "../../public/orders-session.js";
@@ -26,7 +26,14 @@ test("restoring with the LIFF ID token returns the member access token", async (
   const calls = [];
   const fetchImpl = async (path, init) => { calls.push([path, JSON.parse(init.body)]); return reply(200, { access_token: "member-token" }); };
   assert.deepEqual(await restoreOrdersSession({ idToken: "id-token", fetchImpl, wait: noWait }), { outcome: "restored", accessToken: "member-token" });
-  assert.deepEqual(calls, [["/api/auth/session/restore", { id_token: "id-token" }]]);
+  assert.deepEqual(calls, [["/api/auth/session/restore", { id_token: "id-token", include_orders: true }]]);
+});
+
+test("orders returned with the restore are handed over so the page skips GET /api/orders", async () => {
+  const fetchImpl = async () => reply(200, { access_token: "member-token", orders: [{ id: "o1" }] });
+  assert.deepEqual(await restoreOrdersSession({ idToken: "id-token", fetchImpl, wait: noWait }), { outcome: "restored", accessToken: "member-token", orders: [{ id: "o1" }] });
+  const empty = async () => reply(200, { access_token: "member-token", orders: [] });
+  assert.deepEqual((await restoreOrdersSession({ idToken: "id-token", fetchImpl: empty, wait: noWait })).orders, [], "no orders yet is still an answer");
 });
 
 test("no saved login means the member must sign in on the shop first", async () => {

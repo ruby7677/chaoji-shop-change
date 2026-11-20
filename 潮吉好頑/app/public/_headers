@@ -7,3 +7,15 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=31536000
+
+# 幾乎不會換內容的圖片：瀏覽器快取 7 天（其餘 JS／CSS 沒有雜湊檔名，維持每次驗證 ETag）。換圖請改檔名。
+/Logo.webp
+  Cache-Control: public, max-age=604800
+/Logo.png
+  Cache-Control: public, max-age=604800
+/logo.jpg
+  Cache-Control: public, max-age=604800
+/og-share.jpg
+  Cache-Control: public, max-age=604800
+/og-share-2.jpg
+  Cache-Control: public, max-age=604800

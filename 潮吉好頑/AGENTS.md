@@ -6,8 +6,10 @@
 
 - 正式前端入口：`app/public/index.html`、`app/public/app.js`（事件接線、商品頁與開機流程）。登入相關：`liff-session.js`（執行設定、LIFF 啟動情境、登入回呼、session 保存／還原與 LIFF 橋接）、`auth-return-state.js`（登入前後的頁面與結帳還原）、`auth-boot.js`（開機遮罩）、`member-profile.js`（會員載入、身分同步、會員資料表單、LINE 登入入口），結帳流程 `checkout-flow.js`（結帳範圍與送出訂單）。前台模組：`storefront-catalog.js`（型錄與 Hero）、`cart.js`（購物車與雲端同步）、`checkout-form.js`（結帳表單）、`member-benefits.js`（點數與 LINE 好友）、`member-orders.js`（我的訂單與回報匯款；訂單卡與付款明細畫面在 `order-views.js`，與獨立訂單頁共用），獨立訂單頁 `orders.html`／`orders-page.js`／`orders-session.js`（LINE 圖文選單與訂單通知「查看訂單」開啟，LIFF ID 為 `wrangler.jsonc` 的 `ORDERS_LIFF_ID`，不載入型錄）、`app-core.js`（前後台共用：`auth` 狀態、狀態文字、對話框、toast），商品頁與輪播 `product-*.js`、`hero-*.js`，LINE LIFF `liff-auth.js`、登入續期 `web-session.js`／`auth-expiry.js`。後台：`admin-app.js`（狀態、分區載入、分頁切換）、各分頁 `admin-*-panel.js`、`admin-product-image.js`，以及外框／概況／表格等 `admin-*.js`。
 - 前端樣式依原 cascade 順序拆成 `styles.css`（基礎）→ `storefront-refinements.css` → `admin-operations.css` → `storefront-details.css` → `admin-mobile-layout.css` → `admin-mobile-lists.css`，再接功能 CSS（`product-*.css`、`admin-*.css`…）。`index.html` 的 `<link>` 順序就是 cascade 順序，不可調換；新樣式放對應功能檔或新檔。前台連續的樣式在 `index.html` 以合併檔載入（`bundle-base.css`、`bundle-storefront.css`），成員與順序定義在 `app/scripts/build-css.mjs` 的 `CSS_BUNDLES`：編輯原始檔後執行 `node scripts/build-css.mjs`（`wrangler dev`／`deploy` 也會自動執行，`tests/frontend/css-bundles.test.mjs` 會擋下過期的合併檔）；新增前台樣式檔時加進對應的合併段，不要另外在 `index.html` 加 `<link>`。後台樣式（`data-admin-href`）不可併入，需留在原位置。
+- 首頁開機（Worker 內嵌型錄與設定、LIFF SDK 預載、modulepreload 清單、開機計時）：見 `app/docs/HOMEPAGE_BOOT.md`。改前台 module 的靜態 import 後執行 `node scripts/build-modulepreload.mjs`。
 - Worker：`app/src/index.ts` 只有路由與排程入口；`env.ts`（Env 型別）、`http.ts`（安全 header／CSP、json、rate limit）、`auth.ts`（LINE／LIFF 驗證、`requireUser`／`requireAdmin`）、`member-api.ts`、`catalog.ts`、`notifications.ts`、`database-errors.ts`、後台 `admin-dashboard.ts`／`admin-overview.ts`／`admin-orders.ts`／`admin-settings.ts`／`admin-catalog.ts`；另有 `product-showcase.ts`（商品頁與多圖 API）、商品圖片 `product-image-storage.ts`（R2 讀寫，搬移前的舊檔改讀 Supabase；每次上傳新檔名、縮圖 `<檔名>.thumb.webp` 一定存在，小圖以原圖代替）／`product-image-urls.ts`（`IMAGE_BASE_URL` 設定時用 R2 公開網域 `img.767780.xyz`，未設定時走 Worker 路由）／`product-image-primary.ts`（主圖路由與上傳）、`share-meta.ts`（分享預覽）、`canonical-host.ts`（`LEGACY_HOST` 的 workers.dev 網頁 GET／HEAD 301 轉到 `CANONICAL_HOST`，`/api/*` 不轉；新增入口頁要同時列入 `run_worker_first` 才會被轉址）、`notification-delivery.ts`（通知寄送）、`auth-session.ts`／`liff-session-vault.ts`／`web-session.ts`（登入工作階段）。
-- LINE 訊息文案：`app/src/line-notification-messages.ts`。
+- LINE／Telegram 訊息文案：`app/src/notification-copy.ts`（`NOTIFICATION_COPY`）；訊息組裝在 `app/src/line-notification-messages.ts`。
+- 7-11 取件門市（R2 發佈版本與內建備援、後台抓取／上傳流程、縣市白名單兩份需一致）：見 `app/docs/CVS_STORES.md`。
 - DB：`app/supabase/migrations/`；部署：`app/wrangler.jsonc`。
 - Git 根目錄可能在上一層並包含其他專案；用指定路徑查看 diff、暫存與提交，避免 `git add .`。
 - 單檔維持在 500 行內：新功能放新的 ES module（`public/*.js`）、新 CSS 檔或 `src/*.ts` 模組，入口檔只加 import 與接線。ES module 不能重新指定別的模組的 `let`：跨模組修改狀態要由擁有該狀態的模組匯出函式（例：`invalidateBankAccounts()`、`forgetCartSyncUser()`、`selectCheckoutScope()`、`captureAuthReturn()`、`resumePendingReturnCheckout()`）。
@@ -20,7 +22,7 @@
 
 使用者最新明確決策決定目標；程式、已套用 migration 與實際設定決定目前行為。文件描述不等於已完成或已部署。涉及衝突先確認差異，不能以舊文件覆蓋新決策。
 
-長文僅按任務讀取：後台 UI 查 `app/ADMIN_REDESIGN_PLAN.md`、前台商品展示查 `app/PRODUCT_SHOWCASE_PLAN.md`（已完成的交接、提案、Supabase 審查與階段報告在 `app/docs/history/`，內容以當時為準，僅作背景）；Auth 設定查 `app/SUPABASE_SETUP.md`；安全作業查 `app/SECURITY_OPERATIONS_CHECKLIST.md`。`PRODUCT.md`、初期需求與交接書含歷史資訊，版本號、店址、運費與登入狀態需核對。
+長文僅按任務讀取：修改程式結構（新增模組、調整 import、後台新分頁）先讀 `app/ARCHITECTURE_RULES.md`；後台 UI 查 `app/ADMIN_REDESIGN_PLAN.md`、前台商品展示查 `app/PRODUCT_SHOWCASE_PLAN.md`（已完成的交接、提案、Supabase 審查與階段報告在 `app/docs/history/`，內容以當時為準，僅作背景）；Auth 設定查 `app/SUPABASE_SETUP.md`；安全作業查 `app/SECURITY_OPERATIONS_CHECKLIST.md`。`PRODUCT.md`、初期需求與交接書含歷史資訊，版本號、店址、運費與登入狀態需核對。
 
 ## chaoji-shop-change Skill 載入規則
 
@@ -29,42 +31,19 @@
 - 任務只要涉及購物車、結帳、訂單、付款、庫存、點數／優惠券交易結果、LINE／Telegram 通知、管理員／會員權限、Supabase 資料一致性，且需要跨前端、Worker、SQL／RPC／RLS 其中兩層以上追查或修改，開始分析或修改前必須重新讀取該 Skill。
 - 單純文案、純 CSS 視覺小改、與交易流程無關且只改單一前端層的 UI 微調，不強制載入。
 - 每個符合條件的任務都讀取 Skill 檔案的目前內容，不以先前讀過的印象代替：檔案可能已更新，而接續的工作階段（新聊天、重新連線、恢復的 worker）不一定保有先前讀到的內容。恢復中斷的實作前，同樣先重新讀取 `AGENTS.md` 與該 Skill。
-- 新建立的 `luna_worker` 若承接符合上述條件的任務，委派內容必須明確要求它自行讀取 `AGENTS.md` 與 `.agents/skills/chaoji-shop-change/SKILL.md`；不可假設主代理讀過即等同 worker 已讀。
-- 若 Skill 對某項分析、驗證或工具使用有更具體要求，以 Skill 的任務專屬規則為準；MCP 穩定性規則只處理工具 discovery、連線與重試，不得用來跳過 Skill 規定的檢查。
+- 把符合上述條件的任務交給其他代理或 worker 時，委派內容必須明確要求它自行讀取 `AGENTS.md` 與該 Skill；不可假設主代理讀過即等同它已讀。
+- 若 Skill 對某項分析、驗證或工具使用有更具體要求，以 Skill 的任務專屬規則為準；工具連線或重試問題不得用來跳過 Skill 規定的檢查。
 
-## MCP／本機工具穩定性規則（Codex）
+## Codex 專用規則
 
-本節只適用 Codex 環境，只規範 Chat On Steroids／MCP 本機工具的 discovery、連線、session 與 stale catalog 恢復策略，不改變專案業務規則、Skill 流程或驗收標準。
-
-- 本機專案操作優先使用目前 catalog 中可用的 `mcp__Chat_On_Steroids_Core__*` 工具；Core 可用時，不在 Core、Plugins、`gpt_tunnel` 之間任意切換。
-- 不假設任何 MCP tool handle 永久有效。真正呼叫工具前應以當下 `ALL_TOOLS` 為準解析最新工具名稱，不長時間保存先前取得的 tool object 後再呼叫。
-- 若收到 `UNKNOWN_TOOL`、`stale catalog` 或工具名稱不在目前 catalog 的錯誤，不得直接重送舊 handle；應立即重新 discovery，再用最新的 Core 工具重試同一操作。相同操作最多重新 discovery／重試 2 次，避免無限迴圈。
-- `apply_patch` 若因 stale 失敗，先重新 discovery；若最新 Core `apply_patch` 仍無法使用，可改用最新 Core `exec_command` 做安全的精準修改，但必須先驗證目標路徑與唯一命中條件，避免整檔覆寫、換行格式污染或誤改其他內容。
-- 同一個 agents 工作階段必須維持同一 tool family：例如用 Core `agents spawn` 建立的 worker，後續 `message`、`status`、`finish` 也必須走 Core。不得拿 Core 建立的 `run_id`／worker id 改從 Plugins 或 `gpt_tunnel` 接續。
-- 若出現 `Invalid connector tool continuation`、`Code Mode continuation is no longer available`、MCP 重連或 catalog 大幅刷新，視為原 continuation／tool handle 已失效；重新 discovery，不沿用舊 continuation、舊 tool object 或跨 namespace 的 session id。
-- 若 Core 經重新 discovery 後確實不存在或連續不可用，才可改用其他已啟用 tool family；切換時要把它視為新的工具工作階段，不重用前一 family 的 agent/session/continuation 識別碼。
-- 工具 stale、重新連線或 fallback 不構成跳過 `AGENTS.md`、Skill、dirty diff 檢查、驗證或安全邊界的理由；恢復連線後先確認目前工作區狀態，再從最後一個有證據完成的步驟繼續。
-- 對使用者回報時，只說明實際成功／失敗的操作；catalog stale 造成未送出的修改不得描述成已完成，也不得重播已成功的修改。
-
-## 主代理與 Luna Worker 分工（Codex）
-
-本節只適用 Codex 環境；Claude Code 的對應方式見下一節。Luna Worker 的模型與推理等級以 `C:\Users\user\.codex\agents\luna-worker.toml` 為準；若內建 `luna_worker` 角色無法套用該設定，改用可指定該設定的 worker，維持下列相同分工與安全邊界。
-
-本專案預設採用「主代理規劃與審核、Luna Worker 執行」的協作方式。只要任務包含程式碼／檔案修改、測試、資料操作或部署，主代理應在理解目標與檢查現況後，將邊界清楚、可獨立驗收的實作工作委派給 `luna_worker`。
-
-- 主代理：理解使用者目標、拆解範圍、定義限制與驗收條件、委派工作、審查 Luna 回報與實際差異、補足整合驗證，最後向使用者交付結果。
-- `luna_worker`：理解被委派的範圍、規劃最短可靠路徑、執行修改、完成必要測試與驗證，並回報變更、結果、失敗及剩餘風險。
-- 委派時須明確指定工作目錄、檔案／模組歸屬、不可修改項目、驗收條件與是否有部署授權；提醒 Luna 共享同一工作樹，不得回復或覆蓋其他人的未完成修改。
-- 主代理不應與 Luna 重複實作同一範圍；可進行唯讀調查、規劃、差異審查及必要的整合修正。若需追加工作，優先將具體回饋再次交給同一 Luna 任務。
-- 若 `luna_worker` 不可用、反覆失敗或任務無法安全委派，主代理必須先向使用者說明原因與受影響範圍，才可自行接手實作；不得默默略過委派規則。
-- 純說明、狀態查詢、唯讀診斷或只需回答問題的任務不強制啟動子代理。
+Codex 環境開始任何任務前，必須先讀取同目錄的 `AGENTS.codex.md`（MCP／本機工具穩定性、主代理與 Luna Worker 分工），其效力等同本檔。Claude Code 不需要讀。
 
 ## Claude Code 對應規則
 
-本檔同時供 Codex 與 Claude Code 使用。業務規則、Skill 載入、驗證與部署流程兩者共用；只有工具與分工不同。
+本檔同時供 Codex 與 Claude Code 使用。業務規則、Skill 載入、驗證與部署流程兩者共用；只有工具與分工不同（Codex 的部分在 `AGENTS.codex.md`）。
 
-- 工具：使用 Claude Code 內建 Read／Edit／Write／Grep／Glob 與 PowerShell（或 Bash）；Chat On Steroids／MCP stale catalog 規則不適用。
-- 分工：主代理直接規劃、實作與驗收，不使用 `luna_worker`。唯讀的大範圍搜尋（找呼叫點、對照命名、盤點檔案）可交給子代理，預設模型為 Haiku（`~/.claude/settings.json` 的 `CLAUDE_CODE_SUBAGENT_MODEL`）；子代理只讀不寫，回報的檔案與行號由主代理抽查後才採用。修改檔案、SQL／RPC／RLS、交易流程與部署一律由主代理執行；其他情況只有使用者明確要求時才使用子代理。
+- 工具：使用 Claude Code 內建 Read／Edit／Write／Grep／Glob 與 PowerShell（或 Bash）。
+- 分工：主代理直接規劃、實作與驗收。唯讀的大範圍搜尋（找呼叫點、對照命名、盤點檔案）可交給子代理，預設模型為 Haiku（`~/.claude/settings.json` 的 `CLAUDE_CODE_SUBAGENT_MODEL`）；子代理只讀不寫，回報的檔案與行號由主代理抽查後才採用。修改檔案、SQL／RPC／RLS、交易流程與部署一律由主代理執行；其他情況只有使用者明確要求時才使用子代理。
 - 參考外部網站時用內建瀏覽器讀取 DOM／computed style 取得實際數值，只借鏡互動模式，不複製對方圖片、文案或品牌元素。
 - 前端預覽使用 `.claude/launch.json` 的 `worker-dev`（`wrangler dev`，port 8082，含 SPA fallback 與 `/api/*`）；`redesign-preview` 只是靜態 python 伺服器，無法測路由與 API。5714 在此機器被 Windows 保留、8080／3000 已被占用。測試用暫存檔放 scratchpad，完成後刪除。
 - 回覆使用繁體中文。
@@ -73,7 +52,7 @@
 
 Cloudflare production deployment 必須由單一 deployment owner 統籌，並依下列順序完成；本節規則用來避免平行部署互相覆蓋與 Windows managed sandbox 的已知失敗。
 
-- 同一時間只能有一個 deployment owner。開始 deploy 前先確認 agent 狀態沒有其他代理正在部署；禁止多個 Luna 平行執行 `wrangler deploy`，避免舊 Worker／資產覆蓋新版本。
+- 同一時間只能有一個 deployment owner。開始 deploy 前先確認 agent 狀態沒有其他代理正在部署；禁止多個代理平行執行 `wrangler deploy`，避免舊 Worker／資產覆蓋新版本。
 - Windows managed sandbox 常因 Wrangler 寫入 `C:\Users\user\AppData\Roaming\xdg.config\.wrangler\logs` 觸發 `EPERM`。每次 Wrangler 指令前先設定 task-specific `$env:WRANGLER_WRITE_LOGS='0'`（Wrangler v4.130 的 `shouldLogToDisk` 支援 `false/0`）。禁止用重試同一命令解決；禁止改動 `HOME`／`CODEX_HOME`，也禁止關閉 sandbox／TLS。必要時可將 `WRANGLER_LOG_PATH` 指到 workspace 可寫目錄，但優先關閉 disk logs。
 - Windows `Invoke-WebRequest`／`curl` 使用 Schannel 可能出現 `SEC_E_NO_CREDENTIALS`。post-deploy smoke 固定使用 Node.js 標準 `fetch`；不得關閉 TLS 驗證，同一個 Schannel 命令失敗後不要重試。
 - Wrangler 4.130 的 `wrangler check` 不是一般 config validation（僅有 startup profile）；不可把它當 deployment gate。固定 gate 為：`npm run check:js`（所有前端 module 的 `node --check`）、`npm run typecheck`、`npm test`、`git diff --check`，以及 `npx wrangler deploy --dry-run --minify`。
@@ -90,7 +69,7 @@ Cloudflare production deployment 必須由單一 deployment owner 統籌，並�
 - 預購訂金 50%，海外海運／集運不保證固定到貨天數。
 - 付款期限依商品類型：預購訂單成立後 2 小時內完成付訂，現貨匯款訂單 24 小時內完成；逾期自動取消並釋放保留量。
 - 建單保留庫存，管理員確認款項才扣庫存；點數完成核銷入帳。維持交易與歷程完整性。
-- 賣貨便已停用（2026-10-11 起不可新建，舊訂單僅保留顯示），改為 7-11店到店(交貨便)：運費 NT$60、單筆商品小計（折扣前）滿 NT$6,000 免運，金額由 `private.cvs_shipping_fee` 決定、前台 `public/cvs-delivery.js` 同步；現貨運費併入建單應付，預購運費到貨後與尾款一起收；運費不計點數；出貨＝完成並發點數，寄件編號只顯示在後台與我的訂單、不放通知。門市清單 `public/cvs-stores/` 由 `node scripts/build-cvs-stores.mjs <711_stores.csv>` 產生。
+- 賣貨便已停用（2026-10-11 起不可新建，舊訂單僅保留顯示），改為 7-11店到店(交貨便)：運費 NT$60、單筆商品小計（折扣前）滿 NT$6,000 免運，金額由 `private.cvs_shipping_fee` 決定、前台 `public/cvs-delivery.js` 同步；現貨運費併入建單應付，預購運費到貨後與尾款一起收；運費不計點數；出貨＝完成並發點數，寄件編號只顯示在後台與我的訂單、不放通知。門市清單更新流程見 `app/docs/CVS_STORES.md`。
 - 宅配結帳不預收未知運費：現貨建單後管理員在「待付款」填運費並以 LINE 通知客人（本次應付改為含運、付款期限與保留量重給 24 小時；運費確認前前台不給匯款帳號），客人收到通知才匯款；預購到貨後再通知尾款與實際運費。
 - 本站到店取貨、店到店與宅配一律匯款／轉帳；舊賣貨便訂單的 `store_payment` 內部標記代表 7-11 外部收款，不能誤當成到店現金支付。
 - 會員回報匯款只透過 Telegram 通知管理員；管理員確認款項與到貨狀態依事件以 LINE 通知會員、以 Telegram 通知管理員。

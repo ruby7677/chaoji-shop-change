@@ -7,7 +7,8 @@ import { mountHeroCarousel } from "./hero-carousel.js";
 import { selectHeroSlides } from "./hero-slides.js";
 import { showToast } from "./app-core.js";
 import { takePrefetchedCatalog } from "./catalog-prefetch.js";
-import { productPage } from "./app.js";
+import { thumbnailUrlFor } from "./product-image-src.js";
+import { collapseFilterRow } from "./filter-collapse.js";
 
 export let products = [];
 // 型錄是否成功載入：失敗時不顯示假商品，購物車也不可用空型錄過濾後覆寫（cart.js 依此略過還原與同步）
@@ -90,6 +91,7 @@ function renderCategoryFilters() {
     const count = groupProductCards(value === "all" ? products : value === PREORDER_FILTER ? products.filter(isPreorderItem) : products.filter((product) => product.category === value)).length;
     return `<button class="filter${value === activeCategory ? " active" : ""}" type="button" data-category="${escapeHtml(value)}" aria-pressed="${value === activeCategory}">${escapeHtml(label)}<span class="filter-count" aria-label="${count} 件商品">${count}</span></button>`;
   }).join("");
+  collapseFilterRow(row);
 }
 
 // 「載入更多」區塊放在商品格下方（index.html 不用改）
@@ -128,12 +130,18 @@ export function renderProducts({ revealFrom = 0 } = {}) {
   if (slot) slot.innerHTML = loadMoreMarkup(shown.length, matches.length);
 }
 
+// 商品頁由 app.js 建立後注入，避免本模組反向 import 入口檔形成循環
+let openProductPage = null;
+export function setProductPageOpener(open) {
+  openProductPage = open;
+}
+
 // 商品卡、推薦卡與輪播按鈕都以規格 ID 進入獨立商品頁。
 export function openProductDetail(id) {
   const product = products.find((item) => item.id === id);
   if (!product) return;
-  if (!product.product_id) return showToast("商品資料載入中，請稍後再試");
-  productPage.open(product.product_id, product.id);
+  if (!product.product_id || !openProductPage) return showToast("商品資料載入中，請稍後再試");
+  openProductPage(product.product_id, product.id);
 }
 
 // 回傳是否成功；失敗（網路、伺服器錯誤）不丟錯，由 renderProducts 顯示重新載入提示
@@ -144,7 +152,8 @@ export async function loadProducts() {
     if (!response.ok) return false;
     const payload = await response.json();
     if (!Array.isArray(payload.products)) return false;
-    products = payload.products.map((product) => ({ ...product, link: product.seller_link, icon: product.category?.startsWith("BX") ? "🌀" : "⚔️" }));
+    // Worker 不送縮圖網址（舊快取型錄可能仍帶 thumb_url，沿用）
+    products = payload.products.map((product) => (product.image_url && !product.thumb_url ? { ...product, thumb_url: thumbnailUrlFor(product.image_url) } : product));
     catalogLoaded = true;
     return true;
   } catch {

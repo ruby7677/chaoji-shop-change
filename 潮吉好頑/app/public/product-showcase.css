@@ -359,7 +359,7 @@
     background-color .2s cubic-bezier(.22, 1, .36, 1) 0s,
     color .2s cubic-bezier(.22, 1, .36, 1) 0s;
 }
-.hero-slide-more:hover { background-color: var(--home-ink); color: var(--home-yellow); }
+@media (hover: hover) { .hero-slide-more:hover { background-color: var(--home-ink); color: var(--home-yellow); } }
 .hero-slide-more:focus-visible { outline: 3px solid var(--home-ink); outline-offset: 3px; }
 .hero-slide-more-arrow {
   width: 18px;
@@ -372,7 +372,7 @@
   stroke-linejoin: round;
   transition: transform .2s cubic-bezier(.22, 1, .36, 1);
 }
-.hero-slide-more:hover .hero-slide-more-arrow { transform: translateX(3px); }
+@media (hover: hover) { .hero-slide-more:hover .hero-slide-more-arrow { transform: translateX(3px); } }
 .hero-slide-more .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* 控制列：黃底上的深色細線條 */
@@ -398,8 +398,10 @@
   cursor: pointer;
 }
 .hero-carousel-toggle { margin-left: auto; font-size: .62rem; letter-spacing: -.1em; }
-.hero-carousel-arrow:hover,
-.hero-carousel-toggle:hover { border-color: var(--home-ink); background: rgba(255, 255, 255, .45); }
+@media (hover: hover) {
+  .hero-carousel-arrow:hover,
+  .hero-carousel-toggle:hover { border-color: var(--home-ink); background: rgba(255, 255, 255, .45); }
+}
 .hero-carousel-dots { display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
 .hero-carousel-dot {
   display: grid;

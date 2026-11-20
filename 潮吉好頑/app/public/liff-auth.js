@@ -1,4 +1,4 @@
-const LIFF_SDK_URL = "https://static.line-scdn.net/liff/edge/2/sdk.js";
+export const LIFF_SDK_URL = "https://static.line-scdn.net/liff/edge/2/sdk.js";
 const LIFF_SDK_TIMEOUT_MS = 5000;
 
 let sdkPromise = null;
@@ -11,7 +11,9 @@ export const liffState = {
   isInClient: false,
   loggedIn: false,
   idToken: null,
-  accessToken: null
+  accessToken: null,
+  // LIFF 登入與網站會員是同一個 LINE 帳號（由 liff-session.js 判斷後寫入）；為真時才用 LIFF access token 查好友狀態
+  sessionMatches: false
 };
 
 function loadLiffSdk() {
@@ -74,6 +76,7 @@ export async function initializeLiffClient(liffId) {
     liffState.loggedIn = false;
     liffState.idToken = null;
     liffState.accessToken = null;
+    liffState.sessionMatches = false;
     throw error;
   });
   return liffInitPromise;
@@ -86,6 +89,13 @@ export function canRequestLineFriendship() {
     && liffState.loggedIn
     && typeof globalThis.liff?.requestFriendship === "function"
   );
+}
+
+/** 在 LINE 內開啟網址（加好友頁備援）；不在 LIFF 時回傳 false，交給瀏覽器開連結。 */
+export function openLineUrl(url) {
+  if (!liffState.initialized || typeof globalThis.liff?.openWindow !== "function") return false;
+  globalThis.liff.openWindow({ url, external: false });
+  return true;
 }
 
 export async function requestLineFriendship() {

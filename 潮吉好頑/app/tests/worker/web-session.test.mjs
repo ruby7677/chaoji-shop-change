@@ -179,3 +179,12 @@ test("a rejected user lookup after rotation is still treated as an invalid sessi
   assert.equal(response.status, 401);
   assert.ok(isCleared(response));
 });
+test("logout clears both web-session cookies and needs the custom header", async () => {
+  const refused = await call("/api/auth/web-session/logout", { header: false });
+  assert.equal(refused.status, 400);
+  assert.equal(setCookies(refused).length, 0);
+  const response = await call("/api/auth/web-session/logout", { env: { ...baseEnv, AUTH_SESSION_SECRET: undefined } });
+  assert.equal(response.status, 200);
+  assert.ok(isCleared(response), "logout works even when renewal is not configured");
+  assert.equal(supabase.calls.length, 0);
+});

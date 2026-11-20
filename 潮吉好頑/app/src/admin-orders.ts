@@ -73,9 +73,9 @@ export async function updateAdminOrderFulfillment(request: Request, env: Env, or
   if (!Number.isInteger(body.shipping_fee) || (body.shipping_fee as number) < 0) return json({ error: "實際運費必須是 0 或正整數" }, { status: 400 });
   if (body.final_payment_last_five && !/^\d{5}$/.test(body.final_payment_last_five)) return json({ error: "尾款匯款末五碼須為 5 位數字" }, { status: 400 });
   if ((body.note || "").length > 1000) return json({ error: "管理備註不可超過 1000 字" }, { status: 400 });
-  const orderLookup = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/orders?select=status,delivery_method,shipping_fee,order_items(kind)&id=eq.${orderId}&limit=1`, { headers: serviceHeaders(env) });
+  const orderLookup = await fetchWithTimeout(`${env.SUPABASE_URL}/rest/v1/orders?select=status,delivery_method,shipping_fee,final_payment_confirmed_at,order_items(kind)&id=eq.${orderId}&limit=1`, { headers: serviceHeaders(env) });
   if (!orderLookup.ok) return json({ error: "訂單資料暫時無法讀取" }, { status: 503 });
-  const orderRows = await orderLookup.json() as Array<{ status?: string; delivery_method?: string; shipping_fee?: number; order_items?: Array<{ kind?: string }> }>;
+  const orderRows = await orderLookup.json() as Array<{ status?: string; delivery_method?: string; shipping_fee?: number; final_payment_confirmed_at?: string | null; order_items?: Array<{ kind?: string }> }>;
   if (!orderRows.length) return json({ error: "找不到訂單" }, { status: 404 });
   const order = orderRows[0];
   const sellerDelivery = order.delivery_method === "seller_delivery";
@@ -106,5 +106,7 @@ export async function updateAdminOrderFulfillment(request: Request, env: Env, or
     })
   });
   if (!response.ok) return databaseError(response);
-  return json({ order: await response.json() });
+  // 儲存前尚未確認、這次勾選確認：路由據此發「尾款確認完成」通知（每次儲存都會重寫確認時間，不能只看儲存後的資料）
+  const finalPaymentNewlyConfirmed = body.final_payment_confirmed === true && !order.final_payment_confirmed_at;
+  return json({ order: await response.json(), final_payment_newly_confirmed: finalPaymentNewlyConfirmed });
 }

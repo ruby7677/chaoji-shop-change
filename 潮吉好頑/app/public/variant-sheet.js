@@ -1,8 +1,10 @@
 // 多規格商品卡的快速選購面板：在列表上選規格、數量後直接加入購物車或直接購買，不必進商品頁。
 // 規格按鈕沿用商品頁的 .pp-option 樣式；加入購物車與直接購買沿用 cart.js 的同一套數量規則。
-import { escapeHtml, hasProductDiscount, preorderStockMarkup, productAvailability, productMark, productPriceMarkup } from "./product-format.js";
+import { availabilityMarkup, escapeHtml, hasProductDiscount, preorderStockMarkup, productMark, productPriceMarkup } from "./product-format.js";
 import { variantMaxQuantity } from "./cart-quantity.js";
 import { productPageHref } from "./product-card.js";
+import { cachedProductDetail, loadProductDetail, variantDetailImage } from "./product-detail.js";
+import { thumbnailUrlFor } from "./product-image-src.js";
 
 export function createVariantSheet(deps) {
   const dialog = document.querySelector("#variant-sheet");
@@ -11,7 +13,10 @@ export function createVariantSheet(deps) {
 
   const selected = () => state?.variants.find((variant) => variant.id === state.variantId);
 
+  // 規格有指定商品圖片（後台「規格圖片」）時顯示該張的縮圖，否則用商品主圖
   function imageMarkup(variant) {
+    const assigned = variantDetailImage(cachedProductDetail(state.productId), variant);
+    if (assigned) return `<img class="vs-thumb" src="${escapeHtml(thumbnailUrlFor(assigned.url))}" alt="" />`;
     if (!variant.image_url) return `<div class="vs-thumb vs-thumb-empty" aria-hidden="true">${productMark(variant)}</div>`;
     return `<img class="vs-thumb" src="${escapeHtml(variant.thumb_url || variant.image_url)}" alt="" />`;
   }
@@ -31,7 +36,7 @@ export function createVariantSheet(deps) {
     const name = variant.product_name || variant.name;
     const disabled = max > 0 ? "" : "disabled";
     // 只重畫面板內容：showToast() 會把全站共用的 #toast 移進開啟中的 dialog，不能整個 dialog 重寫
-    panel.innerHTML = `<button class="dialog-close" type="button" data-vs-close aria-label="關閉">×</button><div class="vs-head">${imageMarkup(variant)}<div class="vs-head-text"><h2 id="variant-sheet-title">${escapeHtml(name)}</h2><div class="price${hasProductDiscount(variant) ? " price-discounted" : ""}">${productPriceMarkup(variant)}</div><p class="vs-stock">${escapeHtml(productAvailability(variant))}</p>${preorderStockMarkup(variant)}</div></div><fieldset class="pp-options vs-options"><legend>規格</legend><div class="pp-option-list">${optionsMarkup()}</div></fieldset><div class="vs-qty"><label for="vs-quantity">數量</label><div class="pp-stepper"><button type="button" data-vs-step="-1" aria-label="減少數量" ${disabled}>−</button><input id="vs-quantity" type="number" inputmode="numeric" min="1" max="${Math.max(max, 1)}" step="1" value="${state.quantity}" ${disabled} /><button type="button" data-vs-step="1" aria-label="增加數量" ${disabled}>+</button></div></div><div class="vs-actions"><button class="primary-button" type="button" data-vs-add ${disabled}>${max > 0 ? "加入購物車" : "目前無可售庫存"}</button>${max > 0 ? '<button class="secondary-button" type="button" data-vs-buy-now>直接購買</button>' : ""}</div><a class="vs-detail-link" href="${escapeHtml(productPageHref(variant))}" data-vs-detail>查看商品詳情 <span aria-hidden="true">→</span></a>`;
+    panel.innerHTML = `<button class="dialog-close" type="button" data-vs-close aria-label="關閉">×</button><div class="vs-head">${imageMarkup(variant)}<div class="vs-head-text"><h2 id="variant-sheet-title">${escapeHtml(name)}</h2><div class="price${hasProductDiscount(variant) ? " price-discounted" : ""}">${productPriceMarkup(variant)}</div>${availabilityMarkup(variant, "vs-stock")}${preorderStockMarkup(variant)}</div></div><fieldset class="pp-options vs-options"><legend>規格</legend><div class="pp-option-list">${optionsMarkup()}</div></fieldset><div class="vs-qty"><label for="vs-quantity">數量</label><div class="pp-stepper"><button type="button" data-vs-step="-1" aria-label="減少數量" ${disabled}>−</button><input id="vs-quantity" type="number" inputmode="numeric" min="1" max="${Math.max(max, 1)}" step="1" value="${state.quantity}" ${disabled} /><button type="button" data-vs-step="1" aria-label="增加數量" ${disabled}>+</button></div></div><div class="vs-actions"><button class="primary-button" type="button" data-vs-add ${disabled}>${max > 0 ? "加入購物車" : "目前無可售庫存"}</button>${max > 0 ? '<button class="secondary-button" type="button" data-vs-buy-now>直接購買</button>' : ""}</div><a class="vs-detail-link" href="${escapeHtml(productPageHref(variant))}" data-vs-detail>查看商品詳情 <span aria-hidden="true">→</span></a>`;
   }
 
   function open(cardVariantId) {
@@ -42,7 +47,18 @@ export function createVariantSheet(deps) {
     state = { productId: card.product_id, variants, variantId: lead.id, quantity: 1 };
     render();
     deps.showDialog(dialog);
+    loadAssignedImages(state);
     return true;
+  }
+
+  // 有規格指定圖片時才載入商品明細（含多圖網址）；載入完成時面板仍是同一個商品才換上該規格的圖
+  async function loadAssignedImages(opened) {
+    if (!opened.variants.some((item) => item.image_id) || cachedProductDetail(opened.productId)) return;
+    await loadProductDetail(opened.productId);
+    if (state !== opened) return;
+    const thumb = panel.querySelector(".vs-head .vs-thumb");
+    const variant = selected();
+    if (thumb && variantDetailImage(cachedProductDetail(opened.productId), variant)) thumb.outerHTML = imageMarkup(variant);
   }
 
   function close() {
@@ -92,10 +108,13 @@ export function createVariantSheet(deps) {
   });
   dialog?.addEventListener("change", (event) => {
     if (!event.target.matches('input[name="vs-variant"]') || !state) return;
+    // 只有規格本來就有焦點（鍵盤切換）才在重畫後還回焦點；點按時 iOS 不會把焦點給 radio，
+    // 程式補上的焦點會被當成 :focus-visible 而出現黃色外框
+    const keyboard = document.activeElement === event.target;
     state.variantId = event.target.value;
     state.quantity = 1;
     render();
-    dialog.querySelector('input[name="vs-variant"]:checked')?.focus({ preventScroll: true });
+    if (keyboard) dialog.querySelector('input[name="vs-variant"]:checked')?.focus({ preventScroll: true });
   });
   dialog?.addEventListener("close", () => { state = null; deps.syncScrollLock(); });
 

@@ -1,6 +1,7 @@
 /* 觸控診斷模式（?cj_touch=）專用，由 touch-diagnostics.js 動態載入；正式頁面不載入這個檔案。 */
 
 /* B 測試組：商品卡的 hover 效果只留給滑鼠裝置，觸控裝置維持原本外觀（等同把 hover 規則限制在 (hover: hover) and (pointer: fine)）。
+   正式版的商品卡 hover 已改成只在 (hover: hover) 生效（2026-10-30），B 組與 A 組在 iPhone 上外觀相同。
    原版生效的 hover：位移 translateY(-5px)＋transition、陰影加深、名稱底線變深；圖片放大已被 storefront-refinements.css 的 transform:none 覆蓋。
    數值對應 bundle-storefront.css 的 .product-card 陰影與 product-page.css 的名稱底線，原版改動時要同步。 */
 @media (hover: none), (pointer: coarse) {

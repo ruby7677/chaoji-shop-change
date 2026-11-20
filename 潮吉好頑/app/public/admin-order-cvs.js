@@ -2,6 +2,7 @@
 // 以及預購到貨後的尾款確認表單（運費固定，不能修改）。
 import { escapeHtml, money } from "./product-format.js";
 import { cvsPickupStoreText } from "./cvs-delivery.js";
+import { adminFinalPaymentLastFive } from "./home-fee-state.js";
 
 export const isCvsOrder = (order) => order?.delivery_method === "cvs_delivery";
 
@@ -57,6 +58,6 @@ export function mountCvsFulfillment(card, order, hasPreorder, insertBefore) {
   const form = document.createElement("form");
   form.className = "admin-fulfillment-form";
   form.dataset.adminFulfillmentForm = order.id;
-  form.innerHTML = `<div class="form-grid"><div><input name="shipping_fee" type="hidden" value="${Number(order.shipping_fee || 0)}" /><p class="admin-order-note">待收尾款（含運費 ${order.shipping_fee ? money(order.shipping_fee) : "免運"}）：<b>${money(balance)}</b></p></div><label>尾款匯款末五碼<input name="final_payment_last_five" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" value="${escapeHtml(order.final_payment_last_five || "")}" placeholder="付款後填寫" /></label><label class="check-field"><input name="final_payment_confirmed" type="checkbox" ${order.final_payment_confirmed_at ? "checked" : ""} /> 已確認尾款與運費入帳</label><label class="wide">收款備註<textarea name="note" rows="2" maxlength="1000" placeholder="例如：客服通知日期">${escapeHtml(order.admin_note || "")}</textarea></label></div><button class="secondary-button" type="submit">儲存尾款確認</button>`;
+  form.innerHTML = `<div class="form-grid"><div><input name="shipping_fee" type="hidden" value="${Number(order.shipping_fee || 0)}" /><p class="admin-order-note">待收尾款（含運費 ${order.shipping_fee ? money(order.shipping_fee) : "免運"}）：<b>${money(balance)}</b></p></div><label>尾款匯款末五碼<input name="final_payment_last_five" maxlength="5" inputmode="numeric" pattern="[0-9]{5}" value="${escapeHtml(adminFinalPaymentLastFive(order))}" placeholder="付款後填寫" /></label><label class="check-field"><input name="final_payment_confirmed" type="checkbox" ${order.final_payment_confirmed_at ? "checked" : ""} /> 已確認尾款與運費入帳</label><label class="wide">收款備註<textarea name="note" rows="2" maxlength="1000" placeholder="例如：客服通知日期">${escapeHtml(order.admin_note || "")}</textarea></label></div><button class="secondary-button" type="submit">儲存尾款確認</button>`;
   card.insertBefore(form, insertBefore);
 }
